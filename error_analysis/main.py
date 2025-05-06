@@ -8,12 +8,6 @@ from collections import defaultdict
 import json
 import sys
 
-VALID_FUNC_TYPES = [
-    'int',
-    "void"
-]
-VALID_FUNC_MATCHER = '|'.join(VALID_FUNC_TYPES)
-
 def run_command(command, cwd=None):
     """Runs a shell command and handles errors."""
     try:
@@ -22,24 +16,9 @@ def run_command(command, cwd=None):
     except subprocess.CalledProcessError as e:
         raise Exception(f"Command failed: {command}\n")
 
-# def extract_func(file_path, func_name)
-
-def analyze_errors(harness_name):
-    root_path = Path("..","..","RIOT")
-    harness_path = Path(root_path, "cbmc", "proofs", harness_name)
-    # First run make
-    run_command('make', cwd=harness_path)
-    print (f"Make command completed")
-
-    report_dir = os.path.join(harness_path, Path("build", "report", "html"))
-    error_report = os.path.join(report_dir, "index.html")
-    with open(error_report, "r") as f:
-        soup = BeautifulSoup(f, "html.parser")
-    
-    errors_div = soup.find("div", class_="errors")
+def analyze_error_report(errors_div, report_dir):
     extracted_errors = defaultdict(list)
     undefined_funcs = []
-    traces = []
     # Traverse all <li> elements inside the errors div
     for li in errors_div.find_all("li", recursive=True):
         if li.text.strip().startswith("Other failures"):
@@ -77,49 +56,66 @@ def analyze_errors(harness_name):
                     continue
 
                 error_output = f"{func_name} @ {line_num}: {error_msg.strip()}"
-                extracted_errors[func_name].append(error_output)
-            trace_link = error_report.find("a", text='trace') # This only uses the first trace per line, which is probably fine
-            trace_href = trace_link['href'] if trace_link else None
-            traces.append(trace_href)
+                trace_link = error_report.find("a", text='trace')
+                trace_href = trace_link['href'] if trace_link else None
+                extracted_errors[func_name].append({ 'error_msg': error_output, 'trace': os.path.join(report_dir, trace_href) })
             error_report = error_report.find_next_sibling('li')
+    return extracted_errors, undefined_funcs
 
-    if len(traces) == 0:
-        print("No error traces found")
-        return
-    elif "harness" in extracted_errors:
-        print("Found errors in harness, please ensure harness can actually run")
-        return
-
+def analyze_traces(extracted_errors):
     html_files = dict()
+    for errors in extracted_errors.values():
+        for i, error in enumerate(errors):
+            trace = error.pop('trace')
+            with open(trace, "r") as f:
+                soup = BeautifulSoup(f, "html.parser")
 
-    for trace in traces:
+            # First function div sets the value of any relevant global vars
+            global_def_steps = soup.find("div", class_="function")
 
-        trace_file = os.path.join(report_dir, trace)
-        with open(trace_file, "r") as f:
-            soup = BeautifulSoup(f, "html.parser")
+            # *** TO DO LATER ***
 
+            # Then extract all values of variables in the harness
+            harness_vars = dict()
+            harness_steps = global_def_steps.next_sibling.next_sibling.find(class_="function-body")
+            skip_next = False
+            for step in harness_steps.find_all("div", class_="step", recursive=False):
+                if step == '\n':
+                    continue
+                # This will almost always be malloc calls so we want to skip over them
+                
+                if skip_next:
+                    skip_next = False
+                    continue
+                
+                var_def = step.find("div", class_="code").text.strip()
+                var_val = step.find("div", class_="cbmc").text.strip()
+                if "return_value" in var_val:
+                    continue
+                    
+                if '=' in var_def:
+                    var_name = step.find("div", class_="code").text.split('=', maxsplit=1)[0].strip()
+                else:
+                    var_name = var_def[:-1]
+                var_val = re.sub(r"\([01\s]+\)", "", var_val.split('=', maxsplit=1)[1].strip()).strip()
+                harness_vars[var_name] = var_val
 
-        # print(soup.get_text())
-        trace_steps = soup.find_all("div", class_="step")
-        # print(trace_steps.prettify)
-        for step in trace_steps:
+            errors[i]['harness_vars'] = harness_vars
 
-            # Skip over steps that don't actually contain code
-            if not step.find('div', class_="code"):
-                continue
+            func_calls = soup.find_all("div", class_="function-call")[1:] # Skip over the CPROVER_initialize call
+            # Get the trace files for each function call so we can extract the function definitions
+            # Built-in functions have no "a" tag so they are ignored
+            for call in func_calls:
+                called_func =  call.find(class_ = "step").find(class_="cbmc").find('a')
+                if called_func:
+                    func_name = called_func.text
+                    origin_file = called_func['href']
+                    if not func_name in html_files:
+                        html_files[func_name] = origin_file
 
-            header = step.find("div", class_="header")
-            hyperlinks  = header.find_all('a')
-            if len(hyperlinks) != 3:
-                continue
-            # The first 2 hyperlinks per header should always have the function name and the trace file
-            func_name = hyperlinks[0].text
-            origin_file = hyperlinks[0]['href']
-            if not func_name in html_files:
-                html_files[func_name] = origin_file
+    return html_files
 
-    
-    print(f"Extracted {len(html_files)} trace files")
+def extract_func_definitions(html_files, report_dir):
     func_text = dict()
     stub_text = dict()
     harness_file = os.path.basename(html_files['harness'].split('#')[0])
@@ -192,6 +188,34 @@ def analyze_errors(harness_name):
                 func_text[func_name] = re.sub(r' +', ' ', full_func_text)
         else:
             print("Failed to find matching function name for ")
+
+    return func_text, stub_text, global_vars, macros
+
+def analyze_errors(harness_name):
+    root_path = Path("..","..","RIOT")
+    harness_path = Path(root_path, "cbmc", "proofs", harness_name)
+    # First run make
+    run_command('make', cwd=harness_path)
+    print (f"Make command completed")
+
+    report_dir = os.path.join(harness_path, Path("build", "report", "html"))
+    error_report = os.path.join(report_dir, "index.html")
+    with open(error_report, "r") as f:
+        soup = BeautifulSoup(f, "html.parser")
+    
+    errors_div = soup.find("div", class_="errors")
+    extracted_errors, undefined_funcs = analyze_error_report(errors_div, report_dir)
+    if len(extracted_errors) == 0:
+        print("No error traces found")
+        return
+    elif "harness" in extracted_errors:
+        print("Found errors in harness, please ensure harness can actually run")
+        return
+
+    html_files = analyze_traces(extracted_errors)
+    
+    print(f"Extracted {len(html_files)} trace files")
+    func_text, stub_text, global_vars, macros = extract_func_definitions(html_files, report_dir)
     
     llm_payload = {
         'errors': extracted_errors,
@@ -220,7 +244,6 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: main.py <harness name>")
         sys.exit(1)
-    # This one has a specific error that I think should be very easy to analyze
 
     harness_name = sys.argv[1]
     analyze_errors(harness_name)
