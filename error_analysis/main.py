@@ -16,90 +16,252 @@ def run_command(command, cwd=None):
     except subprocess.CalledProcessError as e:
         raise Exception(f"Command failed: {command}\n")
 
+def convert_c_struct_to_json(struct_str):
+    """
+    Converts a C-struct string into a Python-style struct string, generated using LLM
+    """
+    json_str = re.sub('\n', '', struct_str)
+
+    # Step 1: Remove 'u' suffix from unsigned integers
+    json_str = re.sub(r'(\d+)u(?:ll)?', r'\1', json_str)
+
+    # Step 2: Convert C-style arrays of ints or chars to JSON arrays
+    json_str = re.sub(r'{\s*((?:[0-9\-]|\'.*\')+(?:\s*,\s*(?:[0-9\-]|\'.*\')+)*)\s*}', r'[\1]', json_str)
+    
+    # Step 3: Replace field names (.field=) with JSON keys ("field":)
+    json_str = re.sub(r'\.([$a-zA-Z_][a-zA-Z0-9_]*)\s*=', r'"\1":', json_str)\
+
+    # Step 4: Convert C chars to ints for easier parsing
+    json_str = re.sub(r'\'(.)\'', str(ord(r'\1'[0])), json_str)
+
+    # Step 5: Remove type casts like ((type*)NULL)
+    json_str = re.sub(r'((?:\(\([^)]+\)\s*)?NULL\)?(?: \+ \d+)?)', r'"\1"', json_str)
+    
+    # Step 5.5: Deal with this invalid-XXX value that CBMC can sometimes assign to pointers by treating it like NULL
+    json_str = re.sub(r'INVALID-\d+', '"NULL"', json_str)
+
+    # Step 6: Handle enum values (/*enum*/VALUE)
+    json_str = re.sub(r'/\*enum\*/([A-Z_][A-Z0-9_]*)', r'"\1"', json_str)
+    
+    # Step 7: Turn dynamic object pointers into strings:
+    json_str = re.sub(r'(&dynamic_object(?:\$\d)?)', r'"\1"', json_str)
+
+    # Custom parsing logic for struct arrays, as they're too complex to deal with using regex
+    open_bracket_stack = []
+    for i, char in enumerate(json_str):
+        if char == '{':
+            # Check for the next non-whitespace character
+            j = i + 1
+            while j < len(json_str) and json_str[j].isspace():
+                j += 1
+            # If this is an array of objects
+            if json_str[j] == '{':
+                open_bracket_stack.append((i, True)) # True means we want to replace this with [] when we find the close
+            else:
+                open_bracket_stack.append((i, False))
+        elif char == '}':
+            last_open_bracket_idx, should_replace = open_bracket_stack.pop()
+            if should_replace:
+                json_str = json_str[:last_open_bracket_idx] + '[' + json_str[last_open_bracket_idx + 1:i] + ']' + json_str[i + 1:]
+    
+    # Try to parse and return the result
+    try:
+        parsed = json.loads(json_str)
+        return parsed
+    except json.JSONDecodeError as e:
+        print(f"Conversion failed: {e}")
+        print(f"Current JSON string: {json_str}")
+        return None
+
+def convert_python_to_c_struct(json_obj):
+    """
+    Converts a Python-style dict back into the original C string (minus a few small things), generated using LLM
+    """
+    def format_value(value):
+        if isinstance(value, str):
+            # Don't escape quotes bc true strings should basically never be a data type
+            # escaped_value = value.replace('"', '')
+            return value
+        elif isinstance(value, bool):
+            # Convert to C boolean (true/false)
+            return 'true' if value else 'false'
+        elif isinstance(value, (int, float)):
+            # Convert numbers directly
+            return str(value)
+        elif value is None:
+            # Represent null value
+            return 'NULL'
+        elif isinstance(value, list):
+            # Format arrays
+            elements = [format_value(item) for item in value]
+            return '{ ' + ', '.join(elements) + ' }'
+        elif isinstance(value, dict):
+            # Recursively format nested objects
+            return convert_python_to_c_struct(value)
+        else:
+            raise TypeError(f"Unsupported type: {type(value)}")
+    
+    # Start building the C struct string
+    c_struct = "{"
+    
+    if isinstance(json_obj, list):
+        elements = [format_value(item) for item in json_obj]
+        return '{ ' + ', '.join(elements) + ' }'
+    # Add each key-value pair
+    elements = []
+    for key, value in json_obj.items():
+        formatted_value = format_value(value)
+        elements.append(f".{key} = {formatted_value}")
+    
+    c_struct += ', '.join(elements)
+    # Close the struct
+    c_struct += "}"
+    
+    return c_struct
+
 def analyze_error_report(errors_div, report_dir):
     extracted_errors = defaultdict(list)
     undefined_funcs = []
+
     # Traverse all <li> elements inside the errors div
     for li in errors_div.find_all("li", recursive=True):
-        if li.text.strip().startswith("Other failures"):
+        text = li.text.strip()
+
+        # Get undefined funcs
+        if text.startswith("Other failures"):
             undef_funcs = li.find_all("li", recursive=True)
             for func in undef_funcs:
                 func_name = re.match(r'(.*)\.no-body\.(.*)', func.text.strip()).groups()
                 undefined_funcs.append(f"{func_name[1]} @ {func_name[0]}")
 
-        # Get the error description (text content after trace link)
-        text = li.text.strip()
-        if not text.startswith("Function"):
-            continue
-
-        func_name = re.search(r'Function ([a-zA-Z0-9_]+)', text).group(1)
-        
-        # Get the li holding line info
-        error_report = li.find('li')
-        while error_report != None:
-            line_num = re.search(r'\s*(Line \d+)',error_report.text).group(1)
-            error_msgs = set(re.findall(r'\[trace\]\s*((?:[^\s]+\s?)+)\s*',error_report.text))
-
-            if len(error_msgs) > 1:
-                is_null_pointer_deref = any(re.match(r'dereference failure: pointer NULL', msg) for msg in error_msgs)
+        # Get files
+        elif re.match(r'^File (<builtin\-library\-.*>|.*\.(c|h))', text):
+            if re.match(r'File <builtin\-library\-.*>', text):
+                is_built_in = True
             else:
-                is_null_pointer_deref = False
-
-            for error_msg in error_msgs:
-
-                # Skip pointer relations
-                if 'pointer relation' in error_msg:
-                    continue
+                is_built_in = False
                 
-                # Derefs lead to a bunch of different errors and we'd rather focus on 
-                if is_null_pointer_deref and 'dereference failure' in error_msg and not "pointer NULL" in error_msg:
-                    continue
+            # Get each function erroring in this file
+            for func in li.ul.find_all('li', recursive=False):
+                func_name = re.search(r'Function ([a-zA-Z0-9_]+)', text).group(1)
+                # Get the error description (text content after trace link)
+        
+            # Get the li holding line info
+            error_report = li.find('li')
+            while error_report != None:
+                line_num = re.search(r'\s*(Line \d+)',error_report.text).group(1)
+                error_msgs = set(re.findall(r'\[trace\]\s*((?:[^\s]+\s?)+)\s*',error_report.text))
 
-                error_output = f"{func_name} @ {line_num}: {error_msg.strip()}"
-                trace_link = error_report.find("a", text='trace')
-                trace_href = trace_link['href'] if trace_link else None
-                extracted_errors[func_name].append({ 'error_msg': error_output, 'trace': os.path.join(report_dir, trace_href) })
-            error_report = error_report.find_next_sibling('li')
+                if len(error_msgs) > 1:
+                    is_null_pointer_deref = any(re.match(r'dereference failure: pointer NULL', msg) for msg in error_msgs)
+                else:
+                    is_null_pointer_deref = False
+
+                for error_msg in error_msgs:
+
+                    # Skip pointer relations
+                    if 'pointer relation' in error_msg:
+                        continue
+                    
+                    # Derefs lead to a bunch of different errors and we'd rather focus on 
+                    if is_null_pointer_deref and 'dereference failure' in error_msg and not "pointer NULL" in error_msg:
+                        continue
+
+                    error_output = f"{func_name} @ {line_num}: {error_msg.strip()}"
+                    trace_link = error_report.find("a", text='trace')
+                    trace_href = trace_link['href'] if trace_link else None
+                    extracted_errors[func_name].append({ 'error_msg': error_output, 'trace': os.path.join(report_dir, trace_href), 'is_built_in': is_built_in })
+                error_report = error_report.find_next_sibling('li')
     return extracted_errors, undefined_funcs
 
-def analyze_traces(extracted_errors):
+def analyze_traces(extracted_errors, json_path):
+    with open(os.path.join(json_path, "viewer-trace.json"), 'r') as file:
+        error_traces = json.load(file)
+    
     html_files = dict()
-    for errors in extracted_errors.values():
+    for func_name, errors in extracted_errors.items():
         for i, error in enumerate(errors):
             trace = error.pop('trace')
+            is_built_in = error.pop('is_built_in')
             with open(trace, "r") as f:
                 soup = BeautifulSoup(f, "html.parser")
 
-            # First function div sets the value of any relevant global vars
-            global_def_steps = soup.find("div", class_="function")
-
-            # *** TO DO LATER ***
-
-            # Then extract all values of variables in the harness
-            harness_vars = dict()
-            harness_steps = global_def_steps.next_sibling.next_sibling.find(class_="function-body")
-            skip_next = False
-            for step in harness_steps.find_all("div", class_="step", recursive=False):
-                if step == '\n':
-                    continue
-                # This will almost always be malloc calls so we want to skip over them
+            trace_key = os.path.basename(trace).replace(".html", "")
+            var_trace = error_traces['viewer-trace']['traces'][trace_key]
+            harness_vars = defaultdict(dict)
+            for trace in var_trace:
                 
-                if skip_next:
-                    skip_next = False
+                # Skip over lines that are not variable assignments and that are not in the harness file (where preconditions can be applied)
+                # Null function indicates global var assignment which we need
+                if not (trace['location']['function'] == None or re.match(r'.*_harness.c', trace['location']['file'])) or trace['kind'] != 'variable-assignment': 
                     continue
-                
-                var_def = step.find("div", class_="code").text.strip()
-                var_val = step.find("div", class_="cbmc").text.strip()
-                if "return_value" in var_val:
-                    continue
-                    
-                if '=' in var_def:
-                    var_name = step.find("div", class_="code").text.split('=', maxsplit=1)[0].strip()
-                else:
-                    var_name = var_def[:-1]
-                var_val = re.sub(r"\([01\s]+\)", "", var_val.split('=', maxsplit=1)[1].strip()).strip()
-                harness_vars[var_name] = var_val
 
+                func = trace['location']['function']
+                if func == None:
+                    func = 'global'
+
+                root_var = trace['detail']['lhs-lexical-scope'].split('::')[-1]
+                if root_var.startswith('dynamic_object'):
+                    root_var = '&' + root_var
+                elif root_var.startswith('tmp_if_expr'):
+                    continue
+
+                actual_var = trace['detail']['lhs']
+                if "return_value" in actual_var:
+                    continue
+
+                if actual_var.startswith('dynamic_object'):
+                    actual_var = '&' + actual_var
+
+                if trace["location"]["function"] == 'malloc' or trace["location"]["function"] == 'memcpy':
+                    continue
+
+                value = trace['detail']['rhs-value']
+                if '{' in value:
+                    value = convert_c_struct_to_json(value)
+                
+                elif value.startswith('dynamic_object'):
+                    value = '&' + value
+
+                # If we are assigning to a subfield, rather than the var itself
+                if root_var != actual_var:
+                    keys = actual_var.split('.')
+                    curr_scope = harness_vars[func]
+                    if re.sub(r'\[\d+\]', "", keys[0]) in harness_vars['global']:
+                        curr_scope = harness_vars['global']
+
+                    for j, key in enumerate(keys):
+                        if '[' in key: # If this is also an array index
+                            root_key, idx = re.match(fr'(.*)\[(\d+)\]', key).groups()
+                            idx = int(idx)
+                            # Root key must already exist if we're writing to an index
+                            if j != len(keys) - 1: 
+                                curr_scope = curr_scope[root_key][idx]
+                            else:
+                                curr_scope[root_key][idx] = value
+                            continue
+                        else:
+                            if not key in curr_scope:
+                                if j != len(keys) - 1: 
+                                    curr_scope[key] = dict()
+                                    curr_scope = curr_scope[key]
+                                else:
+                                    curr_scope[key] = value
+                            else:
+                                if j != len(keys) - 1: 
+                                    curr_scope = curr_scope[key]
+                                else:
+                                    curr_scope[key] = value
+                
+                elif root_var in harness_vars['global']:
+                    harness_vars['global'][root_var] = value
+                elif not root_var in harness_vars[func]:
+                    harness_vars[func][root_var] = value
+
+            for func, func_vars in harness_vars.items():
+                for key, var in func_vars.items():
+                    if isinstance(var, dict) or isinstance(var, list):
+                        harness_vars[func][key] = re.sub(r'\s+', ' ', convert_python_to_c_struct(var))
             errors[i]['harness_vars'] = harness_vars
 
             func_calls = soup.find_all("div", class_="function-call")[1:] # Skip over the CPROVER_initialize call
@@ -112,6 +274,16 @@ def analyze_traces(extracted_errors):
                     origin_file = called_func['href']
                     if not func_name in html_files:
                         html_files[func_name] = origin_file
+
+            # If the error occured in a built-in function, find the actual line it occured in
+            if is_built_in:
+                builtin_func_name, error_msg = re.match(r'(.*) @ Line \d+: (.*)', error['error_msg']).groups()
+                error_div = soup.find_all("div", class_="cbmc", string=re.compile(fr'{re.escape(error_msg)}')) # Should be unique
+                if len(error_div) > 1:
+                    raise ValueError("Why are there 2 of you")
+                header = error_div[0].find_parent("div", class_="function").find("div", class_="function-call").find("div", class_="header")
+                true_func_name, line_num = re.match(r'Step \d+: Function (.*), File .*, (Line \d+)', header.text).groups()
+                error['error_msg'] = f"{builtin_func_name} in {true_func_name} @ {line_num}: {error_msg}"
 
     return html_files
 
@@ -191,20 +363,31 @@ def extract_func_definitions(html_files, report_dir):
 
     return func_text, stub_text, global_vars, macros
 
-def analyze_errors(harness_name):
+def analyze_errors(harness_name, tag_name):
     root_path = Path("..","..","RIOT")
     harness_path = Path(root_path, "cbmc", "proofs", harness_name)
+    html_report_dir = os.path.join(harness_path, Path("build", "report", "html"))
+    json_report_dir = os.path.join(harness_path, Path("build", "report", "json"))
+    # Make sure we're on the right branch, then check out the commit with the tag
+    run_command('git checkout AutoUP-test', cwd=root_path)
+    try:
+        run_command(f'git checkout {tag_name}', cwd=root_path)
+    except:
+        print("Invalid tag name")
+        return
+
+
     # First run make
     run_command('make', cwd=harness_path)
     print (f"Make command completed")
 
-    report_dir = os.path.join(harness_path, Path("build", "report", "html"))
-    error_report = os.path.join(report_dir, "index.html")
+
+    error_report = os.path.join(html_report_dir, "index.html")
     with open(error_report, "r") as f:
         soup = BeautifulSoup(f, "html.parser")
     
     errors_div = soup.find("div", class_="errors")
-    extracted_errors, undefined_funcs = analyze_error_report(errors_div, report_dir)
+    extracted_errors, undefined_funcs = analyze_error_report(errors_div, html_report_dir)
     if len(extracted_errors) == 0:
         print("No error traces found")
         return
@@ -212,10 +395,9 @@ def analyze_errors(harness_name):
         print("Found errors in harness, please ensure harness can actually run")
         return
 
-    html_files = analyze_traces(extracted_errors)
-    
+    html_files = analyze_traces(extracted_errors, json_report_dir)
     print(f"Extracted {len(html_files)} trace files")
-    func_text, stub_text, global_vars, macros = extract_func_definitions(html_files, report_dir)
+    func_text, stub_text, global_vars, macros = extract_func_definitions(html_files, html_report_dir)
     
     llm_payload = {
         'errors': extracted_errors,
@@ -226,7 +408,7 @@ def analyze_errors(harness_name):
     }
 
     if len(stub_text) > 0:
-        llm_payload['stubs'] = stub_text
+        llm_payload['unit_proof']['function_models'] = stub_text
     
     if len(global_vars) > 0:
         llm_payload['unit_proof']['global_vars'] = global_vars
@@ -237,13 +419,14 @@ def analyze_errors(harness_name):
     if len(undefined_funcs) > 0:
         llm_payload['undefined_funcs'] = undefined_funcs
 
-    with open(f'{harness_name}_payload.json', 'w') as f:
+    with open(f'./payloads/{tag_name}_payload.json', 'w') as f:
         json.dump(llm_payload, f, indent=4)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: main.py <harness name>")
+    if len(sys.argv) < 3:
+        print("Usage: main.py <harness name> <tag name>")
         sys.exit(1)
 
     harness_name = sys.argv[1]
-    analyze_errors(harness_name)
+    tag_name = sys.argv[2]
+    analyze_errors(harness_name, tag_name)
