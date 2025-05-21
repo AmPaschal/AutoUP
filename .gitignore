@@ -1,1 +1,3 @@
-*.json
+**/payloads/**
+**/payloads_v2/**
+.env
