@@ -1,3 +1,5 @@
 **/payloads/**
 **/payloads_v2/**
+**/results/**
+**/__pycache__/
 .env

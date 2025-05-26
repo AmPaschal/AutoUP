@@ -10,7 +10,7 @@ def get_advice_for_cluster(cluster_name, target_func):
                 "Do the variable values provided show that the source region is allocated sufficient space for the copy?",
                 # "If the allocated size is not sufficient, do the variable values provided indicate the copy size larger than seems necessary?",
                 f"If the allocated size is not sufficient and the copy size seems correct, are there any checks in {target_func} that would prevent the failing line from being called?",
-                "If the allocated size is sufficient, do the variable values provided indicate that pointer arithmetic can cause the readable region of the source pointer to be smaller than the copy size?",
+                "If the allocated size is sufficient, do the variable values provided indicate that pointer arithmetic can cause the readable region of the source pointer to be invalid or smaller than the copy size?",
             ]
         case "memcpy_dst":
             return [
@@ -18,7 +18,7 @@ def get_advice_for_cluster(cluster_name, target_func):
                 "Do the variable values provided show that the destination region is allocated sufficient space for the copy?",
                 "If the allocated size is not sufficient, do the variable values provided indicate the copy size larger than seems necessary?",
                 f"If the allocated size is not sufficient and the copy size seems correct, are there any checks in {target_func} that would prevent the failing line from being called?",
-                "If the allocated size is sufficient, do the variable values and functiond definitions provided indicate that pointer arithmetic can cause the writeable region of the destination pointer to be smaller than the copy size?",
+                "If the allocated size is sufficient, do the variable values and functiond definitions provided indicate that pointer arithmetic can cause the writeable region of the destination pointer to be invalid or smaller than the copy size?",
             ]
         case "memcpy_overlap":
             return [

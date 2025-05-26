@@ -2,6 +2,8 @@ import subprocess
 from pathlib import Path
 import os
 import re
+from hashlib import sha256
+from uuid import uuid4
 from bs4 import BeautifulSoup
 from pprint import pp as pprint
 from collections import defaultdict
@@ -188,7 +190,9 @@ def analyze_error_report(errors_div, report_dir):
                     
                     trace_link = error_report.find("a", text='trace')
                     trace_href = os.path.join(report_dir, trace_link['href'] if trace_link else None)
+                    error_hash = sha256(f"{line_num} of {func_name}: {error_msg.strip()}".encode()).hexdigest(), # Create a unique ID for the error by taking a hash of the complete error info
                     error_obj = {
+                        "id": error_hash,
                         "function": func_name,
                         "line": line_num,
                         "msg": error_msg.strip(),
@@ -304,7 +308,7 @@ def analyze_traces(extracted_errors, json_path):
 
             # If the error occured in a built-in function, find the actual line it occured in
             if is_built_in:
-                builtin_func_name, error_msg = error['funcion'], error['msg']
+                builtin_func_name, error_msg = error['function'], error['msg']
                 error_div = soup.find_all("div", class_="cbmc", string=re.compile(fr'{re.escape(error_msg)}')) # Should be unique
                 if len(error_div) > 1:
                     raise ValueError("Why are there 2 of you")
@@ -396,6 +400,9 @@ def extract_func_definitions(html_files, report_dir, undefined_funcs):
     return func_text, stub_text, global_vars, macros
 
 def extract_errors_and_payload(harness_name, tag_name):
+    # Need to rename these because it's the only instance where the harness name is not the same as the file name
+    if harness_name == '_rbuf_add':
+        harness_name = '_rbuf_add2'
     root_path = Path("..","..","RIOT")
     harness_path = Path(root_path, "cbmc", "proofs", harness_name)
     html_report_dir = os.path.join(harness_path, Path("build", "report", "html"))
@@ -429,14 +436,14 @@ def extract_errors_and_payload(harness_name, tag_name):
         return {}
     elif "harness" in error_clusters:
         print("Found errors in harness, please ensure harness can actually run")
-        return {}
+        raise Exception("Errors found in harness")
 
     html_files = analyze_traces(error_clusters, json_report_dir)
     print(f"Extracted {len(html_files)} trace files")
     func_text, stub_text, global_vars, macros = extract_func_definitions(html_files, html_report_dir, undefined_funcs)
     
     harness_info = {
-        'harness': func_text.pop('harness'),
+        'harness_definition': func_text.pop('harness'),
     }
     
     if len(stub_text) > 0:
@@ -447,17 +454,15 @@ def extract_errors_and_payload(harness_name, tag_name):
     
     if len(macros) > 0:
         harness_info['macros'] = macros
-    
-    payload = {
-        'unit_proof': harness_info,
-        'target_functions': func_text
-    }
 
     if not os.path.exists(f'./payloads_v2/{tag_name}'):
         os.makedirs(f'./payloads_v2/{tag_name}')
 
-    with open(f'./payloads_v2/{tag_name}/{tag_name}_payload.json', 'w') as f:
-        json.dump(payload,f,indent=4)
+    with open(f'./payloads_v2/{tag_name}/{tag_name}_functions.json', 'w') as f:
+        json.dump(func_text,f,indent=4)
+    
+    with open(f'./payloads_v2/{tag_name}/{tag_name}_harness.json', 'w') as f:
+        json.dump(harness_info, f, indent=4)
 
     with open(f'./payloads_v2/{tag_name}/{tag_name}_errors.json', 'w') as f:
         json.dump(error_clusters, f, indent=4)

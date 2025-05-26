@@ -14,5 +14,5 @@ if __name__ == "__main__":
     if not openai_api_key:
         raise EnvironmentError("No OpenAI API key found")
 
-    proof_writer = LLMProofWriter(openai_api_key, tag_name)
-    proof_writer.iterate_proof()
+    proof_writer = LLMProofWriter(openai_api_key, tag_name, test_mode=True)
+    proof_writer.iterate_proof(max_attempts=3)
