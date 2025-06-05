@@ -3,9 +3,11 @@ import sys
 import os
 import pandas as pd
 import json
+import argparse
 from openpyxl import load_workbook
 from dotenv import load_dotenv
 from llm import LLMProofWriter
+
 load_dotenv()
 
 """
@@ -48,7 +50,7 @@ def test_parser():
 
 
 
-def test_workflow(duration):
+def test_workflow(tags=[], short_run=False):
 
     preconditions = {
         '_on_rd_init_precon_1': "__CPROVER_assume(hdr != NULL);",
@@ -109,9 +111,9 @@ def test_workflow(duration):
     df = pd.DataFrame(columns=fields)
 
 
-    # for tag, precon in list(preconditions.items())[::-1]:
+    
     for tag, precon in preconditions.items():
-        if duration == 'short' and (tag.startswith('_rbuf_add') or tag.startswith('_iphc_ipv6_encode')): # Add a shortened run that skips the really long harnesses
+        if len(tags) > 0 and tag not in tags or (short_run and (tag.startswith('_rbuf_add') or tag.startswith('_iphc_ipv6_encode'))):
             continue
 
         print(f"\n===== Running test for tag: {tag} =====")
@@ -170,17 +172,27 @@ def test_workflow(duration):
         json.dump(raw_llm_responses, f, indent=4)
 
 if __name__ == '__main__':
-    # Can either test the parser or the full workflow based on a command line arg
-    if len(sys.argv) >= 2:
-        mode = sys.argv[1].lower()
-        if mode != 'parser' and mode != 'workflow':
-            raise ValueError("Testing target must be either parser or workflow")
-        duration = sys.argv[2].lower() if len(sys.argv) == 3 else None
-    else:
-        # Test workflow by default
-        mode = 'workflow'
-    
-    if mode == 'workflow':
-        test_workflow(duration)
-    else:
+    parser = argparse.ArgumentParser(description="Test runner configuration")
+    parser.add_argument(
+        "--tags",
+        nargs="*",
+        default=[],
+        help="List of harness git tags to use in the test run. Invalid tags will be skipped. If no tags are provided, all test tags will be run.",
+    )
+    parser.add_argument(
+        "--parser_only",
+        action="store_true",
+        help="Only run the parser component of the test suite"
+    )
+    parser.add_argument(
+        "--short",
+        action="store_true",
+        help="Skip tests for _rbuf_add and _iphc_ipv6_encode due to long runtime"
+    )
+    args = parser.parse_args()
+
+    if args.parser_only:
         test_parser()
+
+    else:
+        test_workflow(tags=args.tags, short_run=args.short)
