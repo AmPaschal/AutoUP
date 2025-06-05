@@ -5,22 +5,71 @@ import shutil
 import csv
 from openai import OpenAI
 from pydantic import BaseModel
+from typing import Optional
 from advice import get_advice_for_cluster
 from parser import extract_errors_and_payload
 
 
-class Precondition(BaseModel):
+class ExistingPrecondition(BaseModel):
+    precondition: str
     function: str
     line: int
+
+class PreconditionChecks(BaseModel):
+    uses_cprover_assume_format: bool
+    only_harness_variables: bool
+    placed_in_harness_before_last_line: bool
+    placed_in_harness_after_initialization: bool
+    is_not_redundant: bool
+
+class PreconditionFunction(BaseModel):
+    name: str
+    local_vars: list[str]
+
+class NewPrecondition(BaseModel):
+    function: PreconditionFunction
     precondition: str
+    precondition_as_code: str
+    previous_line_of_code: str # Keeps inserting things at the wrong line numbers
+    previous_line_number: int # Don't actually need this line number, but requiring it can discourage hallucinations
+    next_line_of_code: str
+    next_line_number: int 
     reasoning: str
+    is_valid: PreconditionChecks
 
 class FunctionModel(BaseModel):
     function: str
     definition: str
 
+class Variable(BaseModel):
+    name: str
+    provided_value: str
+    original_scope: str
+    modifications_after_harness: list[str]
+    value_at_point_of_error: str
+
+class OptionalQuestions(BaseModel):
+    question: str
+    analysis: str
+
+class DebuggingQuestions(BaseModel):
+    provided_debugging_step: int
+    provided_debugging_question: str
+    further_analysis_questions: Optional[list[OptionalQuestions]]
+    was_cause_of_error: bool
+    problem_variables: Optional[list[Variable]]
+    reasoning: str
+
+class PreviousSuggestions(BaseModel):
+    preconditions: list[str]
+    resolved_error: bool
+    analyis: str
+
 class NewPreconditions(BaseModel):
-    preconditions: list[Precondition]
+    existing_preconditions: list[ExistingPrecondition]
+    debugging_analysis_questions: list[DebuggingQuestions]
+    previous_suggestions: Optional[list[PreviousSuggestions]]
+    new_preconditions: list[NewPrecondition]
     # func_models: list[FunctionModel]
 
 class LLMProofWriter:
@@ -29,7 +78,10 @@ class LLMProofWriter:
     def __init__(self, openai_api_key, tag_name, test_mode=False):
         self.tag_name = tag_name
         self.harness_name = re.match(r'(.*)_precon_\d+', self.tag_name).group(1)
-        self.harness_path = os.path.join('..', '..', 'RIOT', 'cbmc', 'proofs', self.harness_name, f'{self.harness_name}_harness.c')
+        if self.harness_name == '_rbuf_add':
+            self.harness_name = '_rbuf_add2'
+
+        self.harness_path = os.path.join('..', '..', 'RIOT', 'cbmc', 'proofs', self.harness_name, f'{self.harness_name if self.harness_name != '_rbuf_add2' else '_rbuf_add'}_harness.c')
         self.payload_dir = os.path.join("payloads_v2", self.tag_name)
         self.client = OpenAI(api_key=openai_api_key)
         self.vector_store = self._create_vector_store()
@@ -120,7 +172,6 @@ class LLMProofWriter:
         curr_errors = extract_errors_and_payload(self.harness_name, self.tag_name)
         self._create_vector_store_files()
         iterations = 0
-        all_fixed = True
         if self.test_mode:
             # Make a copy of the original version of the harness to restore later so we can still checkout git branches
             test_backup = self._backup_harness(backup_suffix='test_backup')
@@ -131,9 +182,13 @@ class LLMProofWriter:
                 target_error = errors[0]  # Assuming we want to analyze the first error in the cluster
                 last_response_id = None
                 harness_backup = None
-
+                harness_failed = False
                 # Loop that attempts to fix a single error in the cluster
-                while not self._was_error_fixed(target_error, curr_errors) and iterations < max_attempts:
+                # while not self._was_error_fixed(target_error, curr_errors) and iterations < max_attempts:
+
+                # In a realistic scenario, we would want to only check if 1 error at a time is solved
+                # But for this test because we know a precondition that solves all errors exists, we want to force there to be no remaining errors
+                while len(curr_errors) > 0 and iterations < max_attempts:
 
                     # If the target error was not fixed, restore the previous version of the harness
                     if harness_backup is not None:
@@ -141,16 +196,23 @@ class LLMProofWriter:
                         self._restore_harness(harness_backup)
 
                     # Send request to LLM for analysis and store results
-                    llm_response = self.analyze_errors(target_error, advice, prev_response=last_response_id)
+                    llm_response = self.analyze_errors(target_error, advice, harness_failed, prev_response=last_response_id)
                     last_response_id = llm_response.pop('id')
                     results.append(llm_response)
 
                     # Implement suggested harness changes and re-run the harness
-                    harness_backup = self._update_harness(llm_response['response']['preconditions'])
+                    try:
+                        harness_backup = self._update_harness(llm_response['response']['new_preconditions'])
+                    except Exception as e:
+                        print(f"Failed to update harness with new preconditions: {e}")
+                        harness_failed = True
+
+
                     try:
                         curr_errors = extract_errors_and_payload(self.harness_name, self.tag_name)
                     except Exception as e:
-                        print("Suggested precondition caused error in harness file. Reverting changes.")
+                        print("Suggested precondition caused error in harness file while running make. Reverting changes.")
+                        harness_failed = True
                     # Need a special case for if the harness itself has an error
 
                     iterations += 1
@@ -166,14 +228,19 @@ class LLMProofWriter:
                 # Remove the backup file
                 if harness_backup is not None:
                     os.remove(harness_backup)
+                    
+        except Exception as e:
+            print(f"Exception during proof iteration: {str(e)}")
+            return -1, results
+        
         finally:
             # Always make sure we try to clean up the uploaded files
             if self.test_mode:
                 self._cleanup_testing(test_backup)
         
-        return all_fixed, results
+        return iterations + 1 if self._was_error_fixed(target_error, curr_errors) else 0, results
 
-    def analyze_errors(self, error, advice, prev_response=None):
+    def analyze_errors(self, error, advice, harness_failed, prev_response=None):
         SYSTEM_PROMPT = f"""
             You are a helpful AI assistant that is assisting in the development of unit proofs. \
             A unit proof defines an input model of a target function so that the function can be verified with bounded model checking. \
@@ -208,19 +275,28 @@ class LLMProofWriter:
             # """
         user_prompt = f"""
             The most recent execution of the harness resulted in the following error with id {error['id']}: "{error['line']} of {error['function']}: {error['msg']}". \
-            First, find the current harness definition and note which variables have existing preconditions. \
+            First, find the current definition of the "harness" function and note which variables have existing preconditions, along with the line numbers for each preconditon. N \
             Then, find the definition of the function where the error occurred. \
             Finally, retrieve the variable values for each modeled variable when error 6d5a48d7-24b1-491f-967b-fb657d11349c occurred. \
             Use this information to answer the following questions and determine the variable responsible for the error: \
             {'\n'.join([f'{i + 1}. {step}' for i, step in enumerate(advice)])}
-            Based on this analysis, provide the smallest possible set of preconditions that can be added to the harness to resolve the error.
-            Each precondition you suggest should meet the following criteria: \
-            1. It uses the __CPROVER_assume statement to constrain the input model. \
-            2. It ONLY uses variables that are defined in the harness. \
-            3. It is inserted at a point where all variables in the precondition have been initialized, and before the final line of the harness function. \
-            4. It does not repeat any logic found in existing __CPROVER_assume statements in the harness. \
+
+            Based on this analysis, determine the smallest possible set of preconditions that can be added to the harness to resolve the error. \
+            
+            Then, translate these preconditions to a valid line of code based on the following criteria:
+            1. Your precondition is formatted as __CPROVER_assume(<insert precondition here>). \
+            2. Your precondition ONLY uses variables that are defined in the harness. \
+            3. Your chosen line number in the function is placed directly after the lines where all variables in the precondition are initialized. \
+            4. Your chosen line number is inserted is within the line numbers of the harness function, and is placed before the call to {self.harness_name}. \
+            5. It does not repeat any logic found in existing __CPROVER_assume statements in the harness. \
+            
+            Finally, indicate where the precondition should be inserted by providing the function where it should be inserted and the lines of code that should come directly before and after the new precondition. \
+
+            Provide your response in the specified schema format.
         """ if prev_response is None else f"""
-            The previously suggested precondition did not resolve the error. Please repeat your analysis and provide a new set of preconditions. \
+            The previously suggested precondition {'did not resolve the error' if not harness_failed else 'caused an error in the harness. Please ensure your precondition uses valid C syntax and **only** uses variables in the scope of the function where it is inserted'}. \
+            First, determine why your previous preconditions were not sufficient to resolve the error. \
+            Then, repeat your analysis and provide a new set of preconditions.
         """
 
         try:
@@ -235,9 +311,10 @@ class LLMProofWriter:
                     "type": "file_search",
                     "vector_store_ids": [self.vector_store.id]
                 }],
+                temperature=1.0, # Sometimes constraints on preconditions are randomly ignored, so hopefully this will help fix it
                 include=["file_search_call.results"] 
             )
-            print(response.output_text)
+            print(json.dumps(json.loads(response.output_text), indent=4))
             # output = {"system_prompt": SYSTEM_PROMPT, "user_prompt": user_prompt, "response": response.output_text}
             # with open(f'./responses/{self.tag_name}_response.json', 'w') as f:
             #     json.dump(output, f, indent=4)
@@ -261,21 +338,37 @@ class LLMProofWriter:
         with open(self.harness_path, 'r') as f:
             harness_lines = f.readlines()
         
-        # Might need to sort preconditions by their insertion line
+        # By default, use the previous_line_of_code field to insert statements for better consistancy
+        # If we can't find a match then rely on the provided line number
 
-        insert_offset = 0
-        for precondition in preconditions:
-            insert_line = precondition['line'] + insert_offset
-            prev_line = harness_lines[insert_line]
-            if prev_line == '\n':
-                i = 1
-                while prev_line == '\n':
-                    prev_line = harness_lines[insert_line - i]
-                    i += 1
-            indent = re.match(r'(\s*).*', prev_line).group(1)
-            new_line = f'{indent}{precondition['precondition']}\n'
-            harness_lines.insert(insert_line, new_line)
-            insert_offset += 1
+        try:
+            for precondition in preconditions:
+                # First try to match previous_line_of_code
+                in_function = False
+                found_insertion_point = False
+                if "(function model)" in precondition['function']['name']:
+                    precondition['function']['name'] = precondition['function']['name'].replace("(function model)", "").strip()
+                for line_num, line in enumerate(harness_lines):
+                    if not in_function and re.match(fr'\s*[a-zA-Z0-9_]+\s+{precondition['function']['name']}\(.*\)', line): # Find the initial function call
+                        in_function = True
+
+                    if not in_function:
+                        continue
+                    
+                    if precondition['previous_line_of_code'] in line:
+                        harness_lines.insert(line_num + 1, precondition['precondition_as_code'] + '\n')
+                        found_insertion_point = True
+                        break
+                    elif precondition['next_line_of_code'] in line and precondition['next_line_of_code'] != "":
+                        harness_lines.insert(line_num, precondition['precondition_as_code'] + '\n')
+                        found_insertion_point = True
+                        break
+        except IndexError as e:
+            print(f"Error inserting precondition: {e}")
+            raise e
+
+        if not found_insertion_point:
+            raise ValueError(f"Could not find line matching LLM-provided precondition")
 
         with open(self.harness_path, 'w') as f:
             f.writelines(harness_lines)
@@ -283,13 +376,12 @@ class LLMProofWriter:
         return backup_path
 
     def _restore_harness(self, backup_path):
-        harness_path = os.path.join('..', '..', 'RIOT', 'cbmc', 'proofs', self.harness_name, f'{self.harness_name}_harness.c')
         if not os.path.exists(backup_path):
             print(f"Backup file {backup_path} does not exist. Cannot restore harness.")
             return
 
-        shutil.copy(backup_path, harness_path)
-        print(f"Restored harness from {backup_path} to {harness_path}")
+        shutil.copy(backup_path, self.harness_path)
+        print(f"Restored harness from {backup_path} to {self.harness_path}")
         os.remove(backup_path)
     
     def _cleanup_testing(self, test_backup):

@@ -41,7 +41,7 @@ def convert_c_struct_to_json(struct_str):
     json_str = re.sub(r'((?:\(\([^)]+\)\s*)?NULL\)?(?: \+ \d+)?)', r'"\1"', json_str)
     
     # Step 5.5: Deal with this invalid-XXX value that CBMC can sometimes assign to pointers by treating it like NULL
-    json_str = re.sub(r'INVALID-\d+', '"NULL"', json_str)
+    json_str = re.sub(r'INVALID(-\d+)?', '"NULL"', json_str)
 
     # Step 6: Handle enum values (/*enum*/VALUE)
     json_str = re.sub(r'/\*enum\*/([A-Z_][A-Z0-9_]*)', r'"\1"', json_str)

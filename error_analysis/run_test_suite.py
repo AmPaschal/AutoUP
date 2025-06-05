@@ -1,7 +1,9 @@
 import subprocess
 import sys
 import os
-import csv
+import pandas as pd
+import json
+from openpyxl import load_workbook
 from dotenv import load_dotenv
 from llm import LLMProofWriter
 load_dotenv()
@@ -44,7 +46,9 @@ def test_parser():
         else:
             print(f"===== Completed {case} Successfully =====\n")
 
-def test_workflow():
+
+
+def test_workflow(duration):
 
     preconditions = {
         '_on_rd_init_precon_1': "__CPROVER_assume(hdr != NULL);",
@@ -73,6 +77,7 @@ def test_workflow():
         'Testing Round',
         'Total Tokens Used',
         'Success',
+        'Succeeded on Attempt',
         'Attempt #1 Response',
         'A#1 Input Tokens',
         'A#1 Output Tokens',
@@ -86,41 +91,83 @@ def test_workflow():
         'A#3 Output Tokens',
     ]
 
+    summary = {
+        'Attempt 1': 0,
+        'Attempt 2': 0,
+        'Attempt 3': 0,
+        'Failed': 0
+    }
+
     NUM_ROUNDS = 1
     openai_api_key = os.getenv("OPENAI_API_KEY", None)
     if not openai_api_key:
         raise EnvironmentError("No OpenAI API key found")
 
-    results_file = os.path.join('./results', 'test_results.csv')
-    with open(results_file, mode='w', newline='') as file:
-        writer = csv.DictWriter(file, fieldnames=fields)
-        writer.writeheader()
+    results_file = os.path.join('./results', 'test_results.xlsx')
+    raw_llm_responses = dict()
 
-        for tag, precon in preconditions.items():
-            print(f"\n===== Running test for tag: {tag} =====")
-            results = {
-                'Tag': tag,
-                'Removed Precondition': precon
-            }
-            for round_num in range(1, NUM_ROUNDS + 1):
-                results["Testing Round"] = round_num
-                try:
-                    total_tokens = 0
-                    proof_writer = LLMProofWriter(openai_api_key, tag, test_mode=True)
-                    success, llm_responses = proof_writer.iterate_proof(max_attempts=3)
-                    results['Success'] = success
+    df = pd.DataFrame(columns=fields)
 
-                    for i, response in enumerate(llm_responses):
-                        results[f'Attempt #{i + 1} Response'] = '\n '.join([f'{precon['function']} @ Line {precon['line']}: {precon['precondition']}' for precon in response['response']['preconditions']])
-                        results[f'A#{i + 1} Input Tokens'] = response['usage'].input_tokens
-                        results[f'A#{i + 1} Output Tokens'] = response['usage'].output_tokens
-                        if i > 0:
-                            results[f'A#{i + 1} Cached Tokens'] = response['usage'].input_tokens_details.cached_tokens
-                        total_tokens += response['usage'].total_tokens
-                    results['Total Tokens Used'] = total_tokens
-                except:
+
+    # for tag, precon in list(preconditions.items())[::-1]:
+    for tag, precon in preconditions.items():
+        if duration == 'short' and (tag.startswith('_rbuf_add') or tag.startswith('_iphc_ipv6_encode')): # Add a shortened run that skips the really long harnesses
+            continue
+
+        print(f"\n===== Running test for tag: {tag} =====")
+        results = {
+            'Tag': tag,
+            'Removed Precondition': precon
+        }
+
+        for round_num in range(1, NUM_ROUNDS + 1):
+            results["Testing Round"] = round_num
+            try:
+                total_tokens = 0
+                proof_writer = LLMProofWriter(openai_api_key, tag, test_mode=True)
+                attempts, llm_responses = proof_writer.iterate_proof(max_attempts=3)
+                raw_llm_responses[tag] = {f'Attempt #{i + 1}': response['response'] for i, response in enumerate(llm_responses)}
+                if attempts == 0:
+                    results['Success'] = 'False'
+                    summary['Failed'] += 1
+                elif attempts == -1:
                     results['Success'] = 'Error'
-                writer.writerow(results)
+                else:
+                    results['Success'] = 'True'
+                if results['Success'] == 'True':
+                    results['Succeeded on Attempt'] = len(llm_responses)
+                    summary[f'Attempt {len(llm_responses)}'] += 1
+
+
+                for i, response in enumerate(llm_responses):
+                    results[f'Attempt #{i + 1} Response'] = '\n '.join([f'{precon['precondition_as_code']} in {precon['function']}' for precon in response['response']['new_preconditions']])
+                    results[f'A#{i + 1} Input Tokens'] = response['usage'].input_tokens
+                    results[f'A#{i + 1} Output Tokens'] = response['usage'].output_tokens
+                    if i > 0:
+                        results[f'A#{i + 1} Cached Tokens'] = response['usage'].input_tokens_details.cached_tokens
+                    total_tokens += response['usage'].total_tokens
+                results['Total Tokens Used'] = total_tokens
+            except Exception as e:
+                print(f"Error during processing for tag {tag}: {e}")
+                results['Success'] = 'Error'
+
+            df = pd.concat([df, pd.DataFrame([results])])
+
+    with pd.ExcelWriter(results_file, engine='openpyxl', mode='w') as writer:
+        df.to_excel(writer, sheet_name='Results', index=False)
+
+    # Add the summary
+    workbook = load_workbook(results_file)
+    worksheet = workbook['Results']
+    startrow = worksheet.max_row + 2  # +2 for spacing
+    summary_df = pd.DataFrame(
+        list(summary.items()), columns=['Succeeded On', 'Count']
+    )
+    with pd.ExcelWriter(results_file, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+            summary_df.to_excel(writer, sheet_name='Results', index=False, startrow=startrow)
+
+    with open('./results/response_dump.json', 'w') as f:
+        json.dump(raw_llm_responses, f, indent=4)
 
 if __name__ == '__main__':
     # Can either test the parser or the full workflow based on a command line arg
@@ -128,11 +175,12 @@ if __name__ == '__main__':
         mode = sys.argv[1].lower()
         if mode != 'parser' and mode != 'workflow':
             raise ValueError("Testing target must be either parser or workflow")
+        duration = sys.argv[2].lower() if len(sys.argv) == 3 else None
     else:
         # Test workflow by default
         mode = 'workflow'
     
     if mode == 'workflow':
-        test_workflow()
+        test_workflow(duration)
     else:
         test_parser()
