@@ -1,183 +1,295 @@
-import subprocess
-import sys
+import http.server
+import socketserver
+import webbrowser
 import os
-import pandas as pd
 import json
 import argparse
-from openpyxl import load_workbook
+import time
+import signal
+import traceback
+import sys
 from dotenv import load_dotenv
 from llm import LLMProofWriter
-
+import shutil
+from parser import extract_errors_and_payload
+from generate_html_report import generate_html_report
 load_dotenv()
 
 """
 Runs the 18 test cases we have
 """
 
-
-def test_parser():
-    args = {
-        "_on_rd_init_1": ["_on_rd_init", "_on_rd_init_precon_1"],
-        "_on_rd_init_2": ["_on_rd_init", "_on_rd_init_precon_2"],
-        "_on_rd_init_3": ["_on_rd_init", "_on_rd_init_precon_3"],
-        "_on_rd_init_4": ["_on_rd_init", "_on_rd_init_precon_4"],
-        "gcoap_dns_server_proxy_get_1": ["gcoap_dns_server_proxy_get", "gcoap_dns_server_proxy_get_precon_1"],
-        "gcoap_dns_server_proxy_get_2": ["gcoap_dns_server_proxy_get", "gcoap_dns_server_proxy_get_precon_2"],
-        "_gcoap_forward_proxy_copy_options_1": ["_gcoap_forward_proxy_copy_options", "_gcoap_forward_proxy_copy_options_precon_1"],
-        "_gcoap_forward_proxy_copy_options_2": ["_gcoap_forward_proxy_copy_options", "_gcoap_forward_proxy_copy_options_precon_2"],
-        "_iphc_ipv6_encode_1": ["_iphc_ipv6_encode", "_iphc_ipv6_encode_precon_1"],
-        "_iphc_ipv6_encode_2": ["_iphc_ipv6_encode", "_iphc_ipv6_encode_precon_2"],
-        "dns_msg_parse_reply_1": ["dns_msg_parse_reply", "dns_msg_parse_reply_precon_1"],
-        "dns_msg_parse_reply_2": ["dns_msg_parse_reply", "dns_msg_parse_reply_precon_2"],
-        "_rbuf_add_1": ["_rbuf_add2", "_rbuf_add_precon_1"],
-        "_rbuf_add_2": ["_rbuf_add2", "_rbuf_add_precon_2"],
-        "_rbuf_add_3": ["_rbuf_add2", "_rbuf_add_precon_3"],
-        "_rbuf_add_4": ["_rbuf_add2", "_rbuf_add_precon_4"],
-        "_rbuf_add_5": ["_rbuf_add2", "_rbuf_add_precon_5"],
-        "_rbuf_add_6": ["_rbuf_add2", "_rbuf_add_precon_6"]
-    }
-
-    for case, args in args.items():
-        print(f"\n===== Running {case} =====")
-        result = subprocess.run([sys.executable, f"main.py"] + args, cwd=os.getcwd(), check=False)
+def launch_results_server(results, port):
+    if port == -1:
+        port = int(input("Input a valid port for test results server: "))
         
-        if result.returncode != 0:
-            print(f"Error running {case}, return code: {result.returncode}")
-            # Uncomment next line if you want to stop on first error
-            # sys.exit(result.returncode)
-        else:
-            print(f"===== Completed {case} Successfully =====\n")
+
+    # Change the working directory to the one containing your HTML file
+    os.chdir("./results")
+
+    # Start an HTTP server in that directory
+    Handler = http.server.SimpleHTTPRequestHandler
+
+    class ReusableTCPServer(socketserver.TCPServer):
+        allow_reuse_address = True  # allow immediate reuse after exit
+
+    with ReusableTCPServer(("", port), Handler) as httpd:
+        print(f"Serving at http://localhost:{port}")
+        # Open the default web browser to the file
+        webbrowser.open(f"http://localhost:{port}")
 
 
+        def shutdown_server(signum, frame):
+            print("\nShutting down server...")
+            httpd.shutdown()
+            httpd.server_close()    # Close the socket
+            sys.exit(0)
 
-def test_workflow(tags=[], short_run=False):
+        # Graceful shutdown on Ctrl+C or termination
+        signal.signal(signal.SIGINT, shutdown_server)
+        signal.signal(signal.SIGTERM, shutdown_server)
 
-    preconditions = {
-        '_on_rd_init_precon_1': "__CPROVER_assume(hdr != NULL);",
-        '_on_rd_init_precon_2': "__CPROVER_assume(payload_offset <= pkt_size);",
-        '_on_rd_init_precon_3': "__CPROVER_assume(pkt != NULL);",
-        '_on_rd_init_precon_4': "__CPROVER_assume(_result_buf != NULL);",
-        'gcoap_dns_server_proxy_get_precon_1': "__CPROVER_assume(str != NULL);",
-        'gcoap_dns_server_proxy_get_precon_2': "__CPROVER_assume(src_null_byte < CONFIG_GCOAP_DNS_SERVER_URI_LEN);",
-        '_gcoap_forward_proxy_copy_options_precon_1': "__CPROVER_assume(client_pkt->payload_len <= pkt->payload_len - 1);",
-        '_gcoap_forward_proxy_copy_options_precon_2': "__CPROVER_assume(size <= pkt->payload_len);",
-        '_iphc_ipv6_encode_precon_1': "__CPROVER_assume(len >= 41);",
-        '_iphc_ipv6_encode_precon_2': "__CPROVER_assume(data != NULL);",
-        'dns_msg_parse_reply_precon_1': "__CPROVER_assume(family == AF_UNSPEC || family == AF_INET || family == AF_INET6);",
-        'dns_msg_parse_reply_precon_2': "__CPROVER_assume(len >= sizeof(dns_hdr_t));",
-        '_rbuf_add_precon_1': "__CPROVER_assume(offset != 0 || sixlowpan_frag_1_is(pkt->data) || sixlowpan_sfr_rfrag_is(data));",
-        '_rbuf_add_precon_2': "__CPROVER_assume(offset_diff >= 0);",
-        '_rbuf_add_precon_3': "__CPROVER_assume(datagram_size <= entry_size);",
-        '_rbuf_add_precon_4': "__CPROVER_assume(offset < 1000);",
-        '_rbuf_add_precon_5': "__CPROVER_assume(size > MAX(sizeof(sixlowpan_frag_t), MAX(sizeof(sixlowpan_frag_n_t), sizeof(sixlowpan_sfr_rfrag_t))));",
-        '_rbuf_add_precon_6': "__CPROVER_assume(entry.pkt->data != NULL);"
-    }
+        try:
+            while True:
+                httpd.handle_request()  # handles one request, or times out
+        except KeyboardInterrupt:
+            shutdown_server(signal.SIGINT, None)
+        finally:
+            httpd.server_close()
+            print("Server closed.")
 
-    fields = [
-        'Tag',
-        'Removed Precondition',
-        'Testing Round',
-        'Total Tokens Used',
-        'Success',
-        'Succeeded on Attempt',
-        'Attempt #1 Response',
-        'A#1 Input Tokens',
-        'A#1 Output Tokens',
-        'Attempt #2 Response',
-        'A#2 Input Tokens',
-        'A#2 Cached Tokens',
-        'A#2 Output Tokens',
-        'Attempt #3 Response',
-        'A#3 Input Tokens',
-        'A#3 Cached Tokens',
-        'A#3 Output Tokens',
-    ]
+# def test_parser():
+#     args = {
+#         "_on_rd_init_1": ["_on_rd_init", "_on_rd_init_precon_1"],
+#         "_on_rd_init_2": ["_on_rd_init", "_on_rd_init_precon_2"],
+#         "_on_rd_init_3": ["_on_rd_init", "_on_rd_init_precon_3"],
+#         "_on_rd_init_4": ["_on_rd_init", "_on_rd_init_precon_4"],
+#         "gcoap_dns_server_proxy_get_1": ["gcoap_dns_server_proxy_get", "gcoap_dns_server_proxy_get_precon_1"],
+#         "gcoap_dns_server_proxy_get_2": ["gcoap_dns_server_proxy_get", "gcoap_dns_server_proxy_get_precon_2"],
+#         "_gcoap_forward_proxy_copy_options_1": ["_gcoap_forward_proxy_copy_options", "_gcoap_forward_proxy_copy_options_precon_1"],
+#         "_gcoap_forward_proxy_copy_options_2": ["_gcoap_forward_proxy_copy_options", "_gcoap_forward_proxy_copy_options_precon_2"],
+#         "_iphc_ipv6_encode_1": ["_iphc_ipv6_encode", "_iphc_ipv6_encode_precon_1"],
+#         "_iphc_ipv6_encode_2": ["_iphc_ipv6_encode", "_iphc_ipv6_encode_precon_2"],
+#         "dns_msg_parse_reply_1": ["dns_msg_parse_reply", "dns_msg_parse_reply_precon_1"],
+#         "dns_msg_parse_reply_2": ["dns_msg_parse_reply", "dns_msg_parse_reply_precon_2"],
+#         "_rbuf_add_1": ["_rbuf_add2", "_rbuf_add_precon_1"],
+#         "_rbuf_add_2": ["_rbuf_add2", "_rbuf_add_precon_2"],
+#         "_rbuf_add_3": ["_rbuf_add2", "_rbuf_add_precon_3"],
+#         "_rbuf_add_4": ["_rbuf_add2", "_rbuf_add_precon_4"],
+#         "_rbuf_add_5": ["_rbuf_add2", "_rbuf_add_precon_5"],
+#         "_rbuf_add_6": ["_rbuf_add2", "_rbuf_add_precon_6"]
+#     }
 
-    summary = {
-        'Attempt 1': 0,
-        'Attempt 2': 0,
-        'Attempt 3': 0,
-        'Failed': 0
-    }
+#     for case, args in args.items():
+#         print(f"\n===== Running {case} =====")
 
-    NUM_ROUNDS = 1
+#         try:
+#             extract_errors_and_payload(args[0], args[1])
+        
+#         except Exception as e:
+#             print(f"Error running {case}: {e}")
+#             # Uncomment next line if you want to stop on first error
+#             # sys.exit(result.returncode)
+#         else:
+#             print(f"===== Completed {case} Successfully =====\n")
+
+def _remove_preconditions_and_make_backup(settings, report):
+    if not os.path.exists('./backups'):
+        os.makedirs('./backups')
+
+    # Make a backup copy of the original harness
+    print("Backing up original harness...")
+    backup_path = os.path.join('./backups', os.path.basename(settings['harness']))
+    shutil.copy(settings['harness'], backup_path)
+
+    with open(settings['harness'], 'r') as f:
+        harness_lines = f.readlines()
+
+    removed_precons = []
+    offset = 0
+    for line in settings['preconditions_lines_to_remove']:
+        if line == 'TBD':
+            continue
+        line_index = line - offset - 1
+        precon = harness_lines.pop(line_index)
+        removed_precons.append(precon.strip())
+        if '__CPROVER_assume' not in precon:
+            print("WARNING: Removed non-precondition line from harness")
+        offset += 1
+    
+    with open(settings['harness'], 'w') as f:
+        f.writelines(harness_lines)
+
+    print(f"Removed {len(settings['preconditions_lines_to_remove'])} preconditions from {os.path.basename(settings['harness'])}:\n{'\n'.join(removed_precons)}")
+    report['Preconditions Removed'] = removed_precons
+    return backup_path
+
+def _restore_backup(backup_path, settings):
+    # First save a copy of the final harness
+    results_path = './results'
+    if not os.path.exists(results_path):
+        os.makedirs(results_path)
+
+    shutil.copy(settings['harness'], os.path.join(results_path, os.path.basename(settings['harness'])))
+    print("Saved a copy of the final harness to the results directory")
+
+    if not os.path.exists(backup_path):
+        raise FileNotFoundError("No backups found to restore from")
+
+    shutil.copy(backup_path, settings['harness'])
+    os.remove(backup_path)
+    print("Backup harness restored successfully.")
+
+def test_workflow(harnesses=[], testing_rounds=1):
+
+    with open('./test_config.json', 'r') as f:
+        config = json.load(f)
+
     openai_api_key = os.getenv("OPENAI_API_KEY", None)
     if not openai_api_key:
         raise EnvironmentError("No OpenAI API key found")
 
-    results_file = os.path.join('./results', 'test_results.xlsx')
-    raw_llm_responses = dict()
+    test_report = {
+        'Summary': {
+            'Harnesses': {
+                "Success": 0,
+                "Failed": 0
+            },
+            'Errors': {
+                'Attempt #1': 0,
+                'Attempt #2': 0,
+                'Attempt #3': 0,
+                'Indirect': 0,
+                'Failed': 0
+            }
 
-    df = pd.DataFrame(columns=fields)
-
+        },
+        'Total Token Usage': {
+            'Input': 0,
+            'Output': 0,
+            'Cached': 0
+        },
+        'Harnesses': []
+    }
 
     
-    for tag, precon in preconditions.items():
-        if len(tags) > 0 and tag not in tags or (short_run and (tag.startswith('_rbuf_add') or tag.startswith('_iphc_ipv6_encode'))):
+    for harness, settings in config.items():
+        if len(harnesses) > 0 and harness.replace('_plus_func_models', '') not in harnesses:
             continue
 
-        print(f"\n===== Running test for tag: {tag} =====")
+        print(f"\n===== Running test for harness: {harness} =====")
         results = {
-            'Tag': tag,
-            'Removed Precondition': precon
+            'Harness': harness,
+            'Preconditions Removed': [], # -> code block
+            'Preconditions Added': [], # -> code block with A#1, A#2, etc
+            'Success': False,
+            '% Errors Resolved': -1,
+            'Initial # of Errors': -1,
+            'Initial Errors': [],
+            'Summary': {
+                'Attempt #1': 0,
+                'Attempt #2': 0,
+                'Attempt #3': 0,
+                'Indirect': 0,
+                'Failed': 0
+            },
+            'Total Token Usage': {
+                'Input': 0,
+                'Output': 0,
+                'Cached': 0
+            },
+            'Execution Time': -1,
+            'Processed Errors': [
+                # Error: str
+                # Attempts: int
+                # Resolved?: bool
+                # Added precondition(s): str -> code block
+                # Token usage: int
+                # Also resolved (other errors): str
+                # Responses: list[str] -> code block
+            ]
         }
 
-        for round_num in range(1, NUM_ROUNDS + 1):
-            results["Testing Round"] = round_num
-            try:
-                total_tokens = 0
-                proof_writer = LLMProofWriter(openai_api_key, tag, test_mode=True)
-                attempts, llm_responses = proof_writer.iterate_proof(max_attempts=3)
-                raw_llm_responses[tag] = {f'Attempt #{i + 1}': response['response'] for i, response in enumerate(llm_responses)}
-                if attempts == 0:
-                    results['Success'] = 'False'
-                    summary['Failed'] += 1
-                elif attempts == -1:
-                    results['Success'] = 'Error'
+
+        backup_path = _remove_preconditions_and_make_backup(settings, results)
+
+        try:
+            proof_writer = LLMProofWriter(openai_api_key, settings['harness'], test_mode=True)
+            start = time.time()
+            harness_report = proof_writer.iterate_proof(max_attempts=3)
+            results['Execution Time'] = time.time() - start
+            results['Initial # of Errors'] = harness_report['initial_errors'].pop('total')
+            results['Initial Errors'] = harness_report['initial_errors']
+            results['Unresolved Errors'] = harness_report['manual_review']
+            results['Preconditions Added'] = harness_report['preconditions_added']
+            results['Success'] = len(harness_report['manual_review']) == 0
+            for error in harness_report['processed_errors']:
+                error_report = {
+                    "Error": proof_writer._err_to_str(error),
+                    "Attempts": error['attempts'] if error['attempts'] != -1 else 3,
+                    "Resolved": error['attempts'] != -1,
+                    "Preconditions Added": error['added_precons'],
+                    "Indirectly Resolved": error['indirectly_resolved'],
+                    "Token Usage": error['tokens'],
+                    'Raw Responses': error['responses']
+                }
+
+                # Update the summary metrics for the harness
+                results['Total Token Usage']['Input'] += error['tokens']['input']
+                results['Total Token Usage']['Output'] += error['tokens']['output']
+                results['Total Token Usage']['Cached'] += error['tokens']['cached']
+                if error['attempts'] == -1:
+                    results['Summary']['Failed'] += 1
                 else:
-                    results['Success'] = 'True'
-                if results['Success'] == 'True':
-                    results['Succeeded on Attempt'] = len(llm_responses)
-                    summary[f'Attempt {len(llm_responses)}'] += 1
+                    results['Summary']['Indirect'] += len(error['indirectly_resolved'])
+                    results['Summary'][f'Attempt #{error['attempts']}'] += 1
+                results['Processed Errors'].append(error_report)
+            results['Success Rate'] = round((results['Initial # of Errors'] - results['Summary']['Failed']) / results['Initial # of Errors'] * 100, 2)
+
+            # Then update the "global" result
+            test_report['Harnesses'].append(results)
+            if results['Success']:
+                test_report['Summary']['Harnesses']['Success'] += 1
+            else:
+                test_report['Summary']['Harnesses']['Failed'] += 1
+
+            for key, count in results['Summary'].items():
+                test_report['Summary']['Errors'][key] += count
+            
+            for key, count, in results['Total Token Usage'].items():
+                test_report['Total Token Usage'][key] += count
+            
 
 
-                for i, response in enumerate(llm_responses):
-                    results[f'Attempt #{i + 1} Response'] = '\n '.join([f'{precon['precondition_as_code']} in {precon['function']}' for precon in response['response']['new_preconditions']])
-                    results[f'A#{i + 1} Input Tokens'] = response['usage'].input_tokens
-                    results[f'A#{i + 1} Output Tokens'] = response['usage'].output_tokens
-                    if i > 0:
-                        results[f'A#{i + 1} Cached Tokens'] = response['usage'].input_tokens_details.cached_tokens
-                    total_tokens += response['usage'].total_tokens
-                results['Total Tokens Used'] = total_tokens
-            except Exception as e:
-                print(f"Error during processing for tag {tag}: {e}")
-                results['Success'] = 'Error'
+        except Exception as e:
+            print(f"Error during while processing {harness}: {e}")
+            proof_writer._cleanup_vector_store()
+            test_report['Summary']['Harnesses']['Failed'] += 1
+            test_report['Harnesses'].append({
+                'Harness': harness,
+                'Status': 'Error',
+                'Error': f"Harness execution failed: {str(e)}",
+                'Traceback': traceback.format_exc()
+            })
+        finally:
+            _restore_backup(backup_path, settings)
+    
+    if not os.path.exists('./results'):
+        os.makedirs('./results')
 
-            df = pd.concat([df, pd.DataFrame([results])])
-
-    with pd.ExcelWriter(results_file, engine='openpyxl', mode='w') as writer:
-        df.to_excel(writer, sheet_name='Results', index=False)
-
-    # Add the summary
-    workbook = load_workbook(results_file)
-    worksheet = workbook['Results']
-    startrow = worksheet.max_row + 2  # +2 for spacing
-    summary_df = pd.DataFrame(
-        list(summary.items()), columns=['Succeeded On', 'Count']
-    )
-    with pd.ExcelWriter(results_file, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
-            summary_df.to_excel(writer, sheet_name='Results', index=False, startrow=startrow)
-
-    with open('./results/response_dump.json', 'w') as f:
-        json.dump(raw_llm_responses, f, indent=4)
+    with open('./results/test_report.json', 'w') as f:
+        json.dump(test_report, f, indent=4)
+    
+    generate_html_report(test_report)
+    return test_report
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Test runner configuration")
     parser.add_argument(
-        "--tags",
+        "--harnesses",
         nargs="*",
         default=[],
-        help="List of harness git tags to use in the test run. Invalid tags will be skipped. If no tags are provided, all test tags will be run.",
+        help="List of harnesses to use in the test run. Invalid harnesses will be skipped. If no harnesses are provided, all test harnesses will be run.",
     )
     parser.add_argument(
         "--parser_only",
@@ -185,14 +297,29 @@ if __name__ == '__main__':
         help="Only run the parser component of the test suite"
     )
     parser.add_argument(
-        "--short",
-        action="store_true",
-        help="Skip tests for _rbuf_add and _iphc_ipv6_encode due to long runtime"
+        "--rounds",
+        type=int,
+        default=1,
+        help="Number of times to replicate each test case. Default is 1.",
     )
+    parser.add_argument(
+        "--render_results",
+        type=bool,
+        default=True,
+        help="Automatically launches an HTTP server to render the test results. Default: True"
+    )
+    parser.add_argument(
+        "--results_port",
+        type=int,
+        default=8000,
+        help="Port for the HTTP server rendering test results. If no value is provided user is prompted for input before server launches"
+    )
+
     args = parser.parse_args()
 
-    if args.parser_only:
-        test_parser()
-
-    else:
-        test_workflow(tags=args.tags, short_run=args.short)
+    # if args.parser_only:
+    #     test_parser()
+    # else:
+    results = test_workflow(harnesses=args.harnesses, testing_rounds=args.rounds)
+    if results is not None and args.render_results:
+        launch_results_server(results, port=args.results_port)

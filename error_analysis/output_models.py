@@ -54,6 +54,7 @@ class DebuggingQuestions(BaseModel):
 class PreviousSuggestions(BaseModel):
     preconditions: list[str]
     resolved_error: bool
+    should_keep: bool
     analyis: str
 
 class ModelOutput(BaseModel):
