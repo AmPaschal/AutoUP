@@ -314,7 +314,7 @@ class HTMLTestReportGenerator:
                 value_str = f'<span class="status-success">{value}</span>'
             elif key.lower().endswith('failed') and str(value).lower() == 'true':
                 value_str = f'<span class="status-failed">{value}</span>'
-            elif key.lower().endswith('%') or 'resolved' in key.lower():
+            elif 'resolved' in key.lower() and title != "Error Summary":
                 value_str = f'<span class="metric-highlight">{value}</span>'
             
             table_html.append(f"<tr><td>{html.escape(key)}</td><td>{value_str}</td></tr>")
@@ -355,7 +355,7 @@ class HTMLTestReportGenerator:
         # Basic information table
         basic_info = {
             'Success': harness.get('Success', 'Error'),
-            'Errors Resolved (%)': harness.get('Success Rate', 'N/A'),
+            'Errors Resolved (%)': harness.get('% Of Errors Resolved', 'N/A'),
             'Initial Error Count': harness.get('Initial # of Errors', 'N/A'),
             'Execution Time (s)': round(harness.get('Execution Time', 0), 2) if harness.get('Execution Time') else 'N/A'
         }
@@ -392,20 +392,17 @@ class HTMLTestReportGenerator:
             content.append(self.create_details_section("Initial Errors", initial_errors_content, False, "nested-details"))
         
         # Processed Errors section
-        if 'Processed Errors' in harness and harness['Processed Errors']:
-            processed_errors_content = self.process_processed_errors(harness['Processed Errors'])
-            content.append(self.create_details_section("Processed Errors", processed_errors_content, False, "nested-details"))
+        if len(harness['Successful Errors']) > 0:
+            processed_errors_content = self.process_processed_errors(harness['Successful Errors'], mode='success')
+            content.append(self.create_details_section("Successful Errors", processed_errors_content, False, "nested-details"))
         
-        if 'Unresolved Errors' in harness and len(harness['Unresolved Errors']) > 0:
-            unres_errors_html = []
-            unres_errors_html.append(self.format_code_block(errors))
-            
-            unres_errors_content = "".join(unres_errors_html)
-            content.append(self.create_details_section("Unresolved Errors", unres_errors_content, False, "nested-details"))
+        if len(harness['Failed Errors']) > 0:
+            processed_errors_content = self.process_processed_errors(harness['Failed Errors'], mode='failed')
+            content.append(self.create_details_section("Failed Errors", processed_errors_content, False, "nested-details"))
 
         return "".join(content)
     
-    def process_processed_errors(self, processed_errors: List[Dict[str, Any]]) -> str:
+    def process_processed_errors(self, processed_errors: List[Dict[str, Any]], mode) -> str:
         """Process the processed errors section."""
         content = []
         
@@ -418,10 +415,13 @@ class HTMLTestReportGenerator:
                 'Attempts': error.get('Attempts', 'N/A'),
                 'Resolved': error.get('Resolved', 'N/A')
             }
+            if mode == 'failed' and 'Resolved By' in error:
+                error_info['Resolved By'] = error['Resolved By'][:100]
+
             error_content.append(self.dict_to_table(error_info, f"Error {i} Details"))
             
             # Preconditions Added
-            if 'Preconditions Added' in error and error['Preconditions Added']:
+            if 'Preconditions Added' in error:
                 precond_content = self.format_code_block(error['Preconditions Added'])
                 error_content.append(f"<h4>Preconditions Added</h4>{precond_content}")
             
@@ -438,9 +438,8 @@ class HTMLTestReportGenerator:
             if 'Raw Responses' in error and error['Raw Responses']:
                 responses_html = []
                 for j, response in enumerate(error['Raw Responses'], 1):
-                    responses_html.append(f"<h5>Response {j}</h5>")
-                    if response.get('reason_for_failure', None) != None:
-                        responses_html.append(f"<h6>Cause of Failure: {response['reason_for_failure']}<h6>")
+                    responses_html.append(f"<h5>Response {j}{f" ({response['reason_for_failure']})" if response.get('reason_for_failure', None) != None else ""}</h5>")
+
                     responses_html.append(self.format_code_block(response, "json-content"))
                 
                 responses_content = "".join(responses_html)
@@ -448,8 +447,10 @@ class HTMLTestReportGenerator:
             
             # Create collapsible section for this error
             error_section_content = "".join(error_content)
-            error_section = self.create_details_section(f"Error {i}: {error.get('Error', 'Unknown')[:100]}...{" (FAILED)" if not error['Resolved'] else ""}", 
-                                                       error_section_content, False, "error-section")
+            title_str = f"Error {i}: {error.get('Error', 'Unknown')[:100]}..."
+            if mode == 'failed' and not error.get('Resolved', True):
+                title_str += " (UNRESOLVED)"
+            error_section = self.create_details_section(title_str, error_section_content, False, "error-section")
             content.append(error_section)
         
         return "".join(content)

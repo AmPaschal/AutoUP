@@ -11,7 +11,6 @@ import sys
 from dotenv import load_dotenv
 from llm import LLMProofWriter
 import shutil
-from parser import extract_errors_and_payload
 from generate_html_report import generate_html_report
 load_dotenv()
 
@@ -159,8 +158,8 @@ def test_workflow(harnesses=[], testing_rounds=1):
                 'Attempt #1': 0,
                 'Attempt #2': 0,
                 'Attempt #3': 0,
-                'Indirect': 0,
-                'Failed': 0
+                'Indirectly Resolved': 0,
+                'Unresolved': 0,
             }
 
         },
@@ -190,8 +189,8 @@ def test_workflow(harnesses=[], testing_rounds=1):
                 'Attempt #1': 0,
                 'Attempt #2': 0,
                 'Attempt #3': 0,
-                'Indirect': 0,
-                'Failed': 0
+                'Indirectly Resolved': 0,
+                'Unresolved': 0,
             },
             'Total Token Usage': {
                 'Input': 0,
@@ -199,15 +198,8 @@ def test_workflow(harnesses=[], testing_rounds=1):
                 'Cached': 0
             },
             'Execution Time': -1,
-            'Processed Errors': [
-                # Error: str
-                # Attempts: int
-                # Resolved?: bool
-                # Added precondition(s): str -> code block
-                # Token usage: int
-                # Also resolved (other errors): str
-                # Responses: list[str] -> code block
-            ]
+            'Successful Errors': [],
+            'Failed Errors': [],
         }
 
 
@@ -220,14 +212,13 @@ def test_workflow(harnesses=[], testing_rounds=1):
             results['Execution Time'] = time.time() - start
             results['Initial # of Errors'] = harness_report['initial_errors'].pop('total')
             results['Initial Errors'] = harness_report['initial_errors']
-            results['Unresolved Errors'] = harness_report['manual_review']
             results['Preconditions Added'] = harness_report['preconditions_added']
-            results['Success'] = len(harness_report['manual_review']) == 0
-            for error in harness_report['processed_errors']:
+
+            for error in list(harness_report['processed_errors']['success'].values()) + list(harness_report['processed_errors']['failure'].values()):
                 error_report = {
                     "Error": proof_writer._err_to_str(error),
                     "Attempts": error['attempts'] if error['attempts'] != -1 else 3,
-                    "Resolved": error['attempts'] != -1,
+                    "Resolved": error['attempts'] != -1 or 'resolved_by' in error,
                     "Preconditions Added": error['added_precons'],
                     "Indirectly Resolved": error['indirectly_resolved'],
                     "Token Usage": error['tokens'],
@@ -239,12 +230,20 @@ def test_workflow(harnesses=[], testing_rounds=1):
                 results['Total Token Usage']['Output'] += error['tokens']['output']
                 results['Total Token Usage']['Cached'] += error['tokens']['cached']
                 if error['attempts'] == -1:
-                    results['Summary']['Failed'] += 1
+
+                    results['Failed Errors'].append(error_report)
+                    if "resolved_by" in error:
+                        error_report['Resolved By'] = error['resolved_by']
+                    else:
+                        results['Summary']['Unresolved'] += 1
+
                 else:
-                    results['Summary']['Indirect'] += len(error['indirectly_resolved'])
+                    results['Summary']['Indirectly Resolved'] += len(error['indirectly_resolved'])
                     results['Summary'][f'Attempt #{error['attempts']}'] += 1
-                results['Processed Errors'].append(error_report)
-            results['Success Rate'] = round((results['Initial # of Errors'] - results['Summary']['Failed']) / results['Initial # of Errors'] * 100, 2)
+                    results['Successful Errors'].append(error_report)
+
+            results['Success'] =  results['Summary']['Unresolved'] == 0
+            results['% Of Errors Resolved'] = round((results['Initial # of Errors'] - results['Summary']['Unresolved']) / results['Initial # of Errors'] * 100, 2)
 
             # Then update the "global" result
             test_report['Harnesses'].append(results)
@@ -258,8 +257,6 @@ def test_workflow(harnesses=[], testing_rounds=1):
             
             for key, count, in results['Total Token Usage'].items():
                 test_report['Total Token Usage'][key] += count
-            
-
 
         except Exception as e:
             print(f"Error during while processing {harness}: {e}")

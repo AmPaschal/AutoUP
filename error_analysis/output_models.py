@@ -16,6 +16,7 @@ class PreconditionChecks(BaseModel):
 class PreconditionFunction(BaseModel):
     name: str
     local_vars: list[str]
+    global_vars: list[str]
 
 class NewPrecondition(BaseModel):
     function: PreconditionFunction
@@ -53,9 +54,9 @@ class DebuggingQuestions(BaseModel):
 
 class PreviousSuggestions(BaseModel):
     preconditions: list[str]
-    resolved_error: bool
-    should_keep: bool
     analyis: str
+    provided_analysis_questions: list[OptionalQuestions]
+    further_analysis_questions: Optional[list[OptionalQuestions]]
 
 class ModelOutput(BaseModel):
     existing_preconditions: list[ExistingPrecondition]

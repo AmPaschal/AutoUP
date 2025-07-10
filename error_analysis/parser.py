@@ -7,13 +7,7 @@ from bs4 import BeautifulSoup
 from collections import defaultdict
 import json
 import sys
-
-class CoverageError(Exception):
-    """
-    Exception raised when an error is no longer covered by the current harness
-    """
-    def __init__(self, message):
-        super().__init__(self, message)
+from error_classes import CoverageError, PreconditionError
 
 def run_command(command, cwd=None):
 
@@ -88,7 +82,7 @@ def convert_c_struct_to_json(struct_str):
 def get_error_cluster(error_msg):
     if re.match(r'memcpy source region readable', error_msg):
         return 'memcpy_src'
-    elif re.match(r'memcpy destination region readable', error_msg):
+    elif re.match(r'memcpy destination region writeable', error_msg):
         return 'memcpy_dest'
     elif re.match(r"memcpy src/dst overlap", error_msg):
         return "memcpy_overlap"
@@ -149,7 +143,7 @@ def convert_python_to_c_struct(json_obj):
     
     return c_struct
 
-def analyze_error_report(errors_div, report_dir):
+def analyze_error_report(errors_div, report_dir, new_precon_lines=[]):
     error_clusters = defaultdict(dict)
     undefined_funcs = []
 
@@ -189,13 +183,32 @@ def analyze_error_report(errors_div, report_dir):
                     func_file_path = None
 
                 for error_block in error_report.find('ul').find_all('li', recursive=False):
-                    line_num = re.search(r'\s*(Line \d+)',error_block.text).group(1)
+
+
                     error_msgs = set(re.findall(r'\[trace\]\s*((?:[^\s]+\s?)+)\s*',error_block.text))
 
                     if len(error_msgs) > 1:
                         is_null_pointer_deref = any(re.match(r'dereference failure: pointer NULL', msg) for msg in error_msgs)
                     else:
                         is_null_pointer_deref = False
+
+                    line_num = int(re.search(r'\s*Line (\d+)',error_block.text).group(1))
+
+                    
+                    if func_file_path != None and re.match(r'.*_harness.c', func_file_path):
+                        if line_num in new_precon_lines:
+                            # If this error was caused by a precondition that was added, then return an error to the LLM
+                            # I think we can assume that this will always be the newest added precondition
+
+                            new_errors = [re.match(r'\s*\[trace\]\s*((?:[^\s]+\s?)+)\s*',error_line.text).group(1).strip() for error_line in error_block.find('ul').find_all('li', recursive=False)]
+                            raise PreconditionError(f"ERROR: Precondition inserted at line {line_num} introduced new errors to harness", errors=new_errors)
+
+
+                        # Adjust line number if a precondition was added before this line
+                        # Otherwise the same error could be reported twice, one line apart
+                        for new_line in new_precon_lines:
+                            if line_num > new_line:
+                                line_num -= 1
 
                     for error_line in error_block.find('ul').find_all('li', recursive=False):
                         error_msg = re.match(r'\s*\[trace\]\s*((?:[^\s]+\s?)+)\s*',error_line.text).group(1).strip()
@@ -211,7 +224,7 @@ def analyze_error_report(errors_div, report_dir):
                         error_hash = sha256(f"{line_num}{func_name}{error_msg}".encode()).hexdigest(), # Create a unique ID for the error by taking a hash of the complete error info
                         error_obj = {
                             "function": func_name,
-                            "line": line_num,
+                            "line": f"Line {line_num}",
                             "msg": error_msg,
                             'trace': trace_href,
                             'file': func_file_path,
@@ -431,23 +444,52 @@ def extract_func_definitions(html_files, report_dir, undefined_funcs):
 
     return func_text, stub_text, global_vars, macros
 
-def check_error_is_covered(error_dict, json_report_dir):
+def check_error_is_covered(error_dict, json_report_dir, new_lines=[]):
     try:
         with open(os.path.join(json_report_dir, "viewer-coverage.json"), 'r') as file:
             coverage_data = json.load(file)['viewer-coverage']['coverage']
-            if error_dict['is_built_in']: # Instead check the place where the built in func was called
-                return coverage_data[error_dict['file']][error_dict['stack'][1][0]][error_dict['stack'][1][1].replace("Line ", "")] != 'miss'
+            file = error_dict['file']
+            if error_dict['is_built_in']:
+                func = error_dict['stack'][1][0]
+                line_num = int(error_dict['stack'][1][1].replace("Line ", ""))
             else:
-                line_num = error_dict['line'].replace("Line ", "")
-                if 'harness.c' in error_dict['file'] and not line_num in coverage_data[error_dict['file']][error_dict['function']]:
-                    # If a precondition was inserted before the line the line num will now be one off, so check if we need to push it up a spot
-                    # Technically it could shift by more than one line... but I rly don't want to bother
-                    line_num = str(int(line_num) + 1)
-                return coverage_data[error_dict['file']][error_dict['function']][line_num] != 'miss'
-    except:
-        print('Shi broke')
+                func = error_dict['function']
+                line_num = int(error_dict['line'].replace("Line ", ""))
+            
+            if re.match(r'.*_harness.c', error_dict['file']) and not line_num in new_lines:
+                # If lines have been added to the harness, we need to adjust the line number for the error
+                for new_line in new_lines:
+                    if line_num > new_line:
+                        line_num += 1
 
-def extract_errors_and_payload(harness_name, harness_dir, check_for_coverage=None):
+            line_num = str(line_num)
+            if coverage_data[file][func][line_num] != 'miss':
+                return True
+            else:
+                # Get the block of missing lines around the target error to provide context to the LLM
+                missed_lines = []
+                found_target_line = False
+                for line, status in coverage_data[file][func].items():
+                    if line == line_num:
+                        found_target_line = True
+
+                    if status == 'miss':
+                        missed_lines.append(line)
+                    else:
+                        if found_target_line:
+                            # If we found the target line, we can return the block as an error
+                            raise CoverageError(f"ERROR: Line {line_num} in function {func} is no longer covered by the harness", lines=missed_lines)
+                        else:
+                            missed_lines = []
+                    
+
+    except Exception as e:
+        if isinstance(e, CoverageError):
+            raise e
+        print('Shi broke')
+        raise e
+
+def extract_errors_and_payload(harness_name, harness_dir, check_for_coverage=None, new_precon_lines=[]):
     """
     Runs the harness in the specified directory and extracts all information needed by the LLM from the CBMC reports
     Can optionally pass in an error dictionary to check if it is still covered in the current run, and will raise an error if not
@@ -465,17 +507,16 @@ def extract_errors_and_payload(harness_name, harness_dir, check_for_coverage=Non
     
     print ("Make command completed")
 
-    # If check_for_coverage['file'] is None then it's a built-in function
-    # It's not ideal to skip the coverage check for built-in funcs but it would be a pain to set up a trace to the proper line to check for coverage
-    if check_for_coverage is not None and not check_error_is_covered(check_for_coverage, json_report_dir):
-        raise CoverageError("Target error is no longer covered by the current harness")
+    if check_for_coverage is not None:
+        # This call will throw a custom error if the error is not covered by the harness
+        check_error_is_covered(check_for_coverage, json_report_dir, new_precon_lines)
 
     error_report = os.path.join(html_report_dir, "index.html")
     with open(error_report, "r") as f:
         soup = BeautifulSoup(f, "html.parser")
     
     errors_div = soup.find("div", class_="errors")
-    error_clusters, undefined_funcs = analyze_error_report(errors_div, html_report_dir)
+    error_clusters, undefined_funcs = analyze_error_report(errors_div, html_report_dir, new_precon_lines)
     if len(error_clusters) == 0:
         print("No error traces found")
         return {}
