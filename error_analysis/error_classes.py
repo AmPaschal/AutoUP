@@ -19,7 +19,8 @@ class InsertError(Exception):
     """
     Exception raised when an error occurs while inserting a precondition into the harness
     """
-    def __init__(self, message, prev_line, next_line):
+    def __init__(self, message, prev_line, next_line, func):
         super().__init__(self, message)
         self.prev_line = prev_line
         self.next_line = next_line
+        self.func = func

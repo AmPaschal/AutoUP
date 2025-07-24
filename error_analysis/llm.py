@@ -46,7 +46,8 @@ class LLMProofWriter:
         
         *** IMPORTANT ***
         You should aim to keep your preconditions as logically simple as possible and rely on simple comparisons. Highly complex preconditions are rarely necessary. \
-        If your suggested precondition fails to resolve an error, it is generally better to consider other variables that could be contributing to the error, rather than adding more specific and complex constraints to a single variable.
+        If your suggested precondition fails to resolve an error, it is generally better to consider other variables that could be a factor in causing the error, \
+        rather than adding more specific and complex constraints to a single variable.
         """
 
     def __init__(self, openai_api_key, harness_path, test_mode=False):
@@ -212,7 +213,7 @@ class LLMProofWriter:
                     iterations = 0
                     print(f"Attempting to resolve error {self._err_to_str(target_error)}")
 
-                    while curr_cluster in curr_errors and target_error_id in curr_errors[curr_cluster] and iterations < max_attempts:
+                    while curr_cluster in curr_errors and target_error_id in curr_errors[curr_cluster] and iterations < max_attempts * 2:
 
                         # TBD: If the provided precondition does not break the harness but also does not fix the error, do we want to keep the suggestion and provide the updated harness to the LLM?
                         # Current implementation assumes we do not keep harness changes that do not fix the error, but this could be changed
@@ -241,6 +242,7 @@ class LLMProofWriter:
                                 # These "cause_of_failure" objs will have a reason that is used to update the prompt, and data to help the llm debug
                                 cause_of_failure = { 'reason': "harness_update_error", 'error': e }
                                 curr_error_report['responses'][-1]['reason_for_failure'] = "Failed to insert the suggested precondition into harness"
+                                iterations += 1
                                 continue
                             else:
                                 print("ERROR in harness update: ", traceback.format_exc())
@@ -254,27 +256,34 @@ class LLMProofWriter:
                                 print(f"Suggested precondition caused error while running make due to invalid syntax: {e}.")
                                 cause_of_failure = { "reason": "syntax_error", 'error': e }
                                 curr_error_report['responses'][-1]['reason_for_failure'] = "Suggested precondition caused a syntax error in harness"
+                                iterations += 1
+                                continue
                                                            
                             elif isinstance(e, CoverageError):
                                 print("Suggested precondition prevented coverage of the line with the target error.")
                                 cause_of_failure = { "reason": "coverage_error", "error": e }
                                 curr_error_report['responses'][-1]['reason_for_failure'] = "Suggested precondition prevented coverage of the line where error occured"
+                                iterations += 1
+                                continue
                             elif isinstance(e, PreconditionError):
                                 print(f"Suggested precondition introduced new errors to harness")
                                 cause_of_failure = {"reason": "precondition_error", "error": e }
                                 curr_error_report['responses'][-1]['reason_for_failure'] = "Suggested precondition contained CBMC errors"
+                                iterations += 1
+                                continue
                             else:
                                 if harness_backup is not None:
                                     os.remove(harness_backup)
+                                    print("Reverting changes to harness file")
                                 raise e
-                            print("Reverting changes to harness file")
-        
-                        iterations += 1
+
+                        # In the case of a precondition due to syntax problems, we want to give a "half-attempt" penalty to give the LLM time to correct it's previous suggestion
+                        iterations += 2
                     
                     # If the error was resolved, update the harness file in the vector store
                     if curr_cluster not in curr_errors or target_error_id not in curr_errors[curr_cluster]:
                         self._update_harness_in_vector_store()
-                        curr_error_report['attempts'] = iterations
+                        curr_error_report['attempts'] = iterations // 2
                         curr_error_report['added_precons'] = new_precons
                         results_report['preconditions_added'].extend(new_precons)
 
@@ -364,34 +373,49 @@ class LLMProofWriter:
         else:
             if cause_of_failure is None:
                 # If the error just wasn't resolved by the new precondition
+
+                # TODO: Refer to variable values to help the LLM determine if it's previous precondition had the intended impact, and allow it to find different "paths" to the error 
                 user_prompt = f"""
                     The previously suggested precondition did not resolve the provided error. \
-                    The value of each variable during the previous run, grouped by the scope they were defined in, is provided below: \
+                    The updated value of each variable during the previous run, grouped by the scope they were defined in, is provided below: \
                     {json.dumps(error['harness_vars'], indent=4)}
 
-                    First, use these values to answer the following questions and evaluate each of your your previously suggested preconditions. \
-                    1. Were the variables constrained by the precondition actually relevant to the error? \
-                    2. If the variables were correct, were the constraints on these variables SIMPLE and SUFFICIENT? \
-                    3. If the variables were correct and the constraints were simple and sufficient, did you place the precondition in the correct place in the harness? \
-                    4. If all of the above are true, are there other variables that could be contributing to the error? \
-                    5. If all of the above are true, should you keep this precondition in the harness? If so, include it in your next response. \
-                                    
-                    Then, use the provided variable values to repeat your analysis and provide an improved set of preconditions.
+                    Your first objective is to evaluate the preconditions you suggested adding in your previous response, and determine whether they should still be included in the harness.
+
+                    For each precondition you suggested in your last response, use the updated variable values provided to answer the following questions: \
+                    1. What potential cause for the error was addressed by this precondition? \
+                    2. Based on the updated variable values provided, did this precondition sufficiently constrain the variable(s) to address the potential cause of the error? \
+                    3. If the variable(s) in the precondition were sufficiently constrained, is this precondition absolutely necessary to ensure there is no error? \
+                    4. If the variable(s) in the precondition were NOT constrained properly, is this suggeted precondition SIMPLE while covering all use cases of that variable? \
+                    5. If the error occured in a helper function to the main harness function, is the precondition placed in an appropriate location? \
+                    6. Are there other DISTINCT variables that could also be contributing to the error that were not addressed by this precondition? \
+                    
+                    Based on your responses to these questions, determine if this precondition  should be kept without changes, kept with modified constraints, or discarded. \
+                    If you determined a this precondition should be kept, then include it in the "new_preconditions" output field. \
+                    If you determined a this precondition should be kept with modified constraints, then include the modified version of the precondition in the "new_preconditions" output field. \
+                    
+                    Your second objective is to repeat the analysis steps laid out in the initial prompt using the updated variable values, and explore other variables that may need preconditions to prevent the error.
+                    Based on this analysis and your analysis of your previously suggested preconditions, provide an improved set of preconditions.
                 """
             elif cause_of_failure['reason'] == 'harness_update_error':
                 # If we couldn't find the place where we were supposed to insert the precondition into the harness
                 user_prompt = f"""
                     When attempting to insert the new preconditions into the harness, we could not find a match for the previous line of code you provided: {cause_of_failure['error'].prev_line}. \
-                    First, confirm that this line of code is actually exists in the harness file and the syntax matches exactly. \
-                    If the syntax was mismatched, please provide a fixed version with exactly matching syntax. \
-                    If the syntax is correct, double-check the function where that line of code is defined. \
-                    If you did not provide the correct function in your response, please adjust accordingly. \
+                    
+                    Please use the following steps to understand the cause of the error and fix your precondition appropriately.
+                    1. Confirm this line of code is actually exists in the harness file and the syntax matches exactly. \
+                    2. If the syntax was mismatched, please provide the same precondition but with a previous line of code that exactly matches the syntax. \
+                    3. If the syntax is correct, double-check that this previous line of code exists in the {cause_of_failure['error'].func} function. \
+                    4. If you did not provide the correct function in your response, please provide the same precondition with the correct function that contains the previous line of code. \
+                    
+                    Follow this debugging process to revise your previous precondition.
                 """
             elif cause_of_failure['reason'] == 'syntax_error':
                 # If make failed to run, which is most likely due to a syntax error
                 user_prompt = """
                     The previously suggested precondition caused a syntax error in the harness. \
-                    Review your previously suggested preconditions and check if the following requirements are met: \
+                    
+                    Review each of your previously suggested preconditions and check if the following requirements are met: \
                     1. The precondition only uses valid C syntax \
                     2. The precondition only uses variables in scope of your chosen function (local or global variables). \
                     3. For each variable used in your pre-condition, was it defined before the line where the precondition was inserted? \
@@ -468,7 +492,7 @@ class LLMProofWriter:
                 if "(function model)" in precondition['function']['name']:
                     precondition['function']['name'] = precondition['function']['name'].replace("(function model)", "").strip()
                 for line_num, line in enumerate(harness_lines):
-                    if not in_function and re.match(fr'\s*[a-zA-Z0-9_ \*]+\s+{precondition['function']['name']}\(', line): # Find the initial function call
+                    if not in_function and re.match(fr'\s*[a-zA-Z0-9_ \*\s]+{precondition['function']['name']}\(', line): # Find the initial function call
                         in_function = True
 
                     if not in_function:
@@ -492,7 +516,7 @@ class LLMProofWriter:
                         found_insertion_point = True
                         break
                 if not found_insertion_point:
-                    raise InsertError("Could not find line matching LLM-provided precondition", prev_line=precondition['previous_line_of_code'], next_line=precondition['next_line_of_code'])        
+                    raise InsertError("Could not find line matching LLM-provided precondition", prev_line=precondition['previous_line_of_code'], next_line=precondition['next_line_of_code'], func=precondition['function']['name'])        
                 
         except IndexError as e:
             print(f"Error inserting precondition: {e}")

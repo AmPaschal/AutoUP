@@ -141,7 +141,7 @@ def _restore_backup(backup_path, settings):
 
 def test_workflow(harnesses=[], testing_rounds=1):
 
-    with open('./test_config.json', 'r') as f:
+    with open('./contiki_test_config.json', 'r') as f:
         config = json.load(f)
 
     openai_api_key = os.getenv("OPENAI_API_KEY", None)
@@ -173,7 +173,7 @@ def test_workflow(harnesses=[], testing_rounds=1):
 
     
     for harness, settings in config.items():
-        if len(harnesses) > 0 and harness.replace('_plus_func_models', '') not in harnesses:
+        if len(harnesses) > 0 and harness not in harnesses:
             continue
 
         print(f"\n===== Running test for harness: {harness} =====")

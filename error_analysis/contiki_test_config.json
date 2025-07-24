@@ -1,0 +1,88 @@
+{
+    "snmp_ber_encode_string_len": {
+        "harness": "../../contiki-ng/cbmc/proofs/net/snmp/snmp_ber/encode_string_len/esl_harness.c",
+        "preconditions_lines_to_remove": [
+            27,
+            30,
+            39,
+            45
+        ]
+    },
+    "snmp_message_decode": {
+        "harness": "../../contiki-ng/cbmc/proofs/net/snmp/snmp_message/message_decode/mde_harness.c",
+        "preconditions_lines_to_remove": [
+            27,
+            29,
+            35
+        ]
+    },
+    "snmp_engine_get_bulk": {
+        "harness": "../../contiki-ng/cbmc/proofs/net/snmp/snmp_engine/get_bulk/gbu_harness.c",
+        "preconditions_lines_to_remove": [
+            27,
+            42
+        ]
+    },
+    "uipbuf_get_next_header": {
+        "harness": "../../contiki-ng/cbmc/proofs/net/ipv6/uipbuf/get_next_header/gnh_harness.c",
+        "preconditions_lines_to_remove": [
+            28,
+            29,
+            37
+        ]
+    },
+    "rpl_ext_header_srh_update": {
+        "harness": "../../contiki-ng/cbmc/proofs/net/rpl-classic/ext-header/srh-update/srhu_harness.c",
+        "preconditions_lines_to_remove": [
+            25,
+            35
+        ]
+    },
+    "dao_input_storing": {
+        "harness": "../../contiki-ng/cbmc/proofs/net/rpl-classic/icmp6/dao_input_storing/dis_harness.c",
+        "preconditions_lines_to_remove": [
+            26,
+            45,
+            53,
+            60,
+            96,
+            100
+        ]
+    },
+    "input_l2cap_credit": {
+        "harness": "../../contiki-ng/cbmc/proofs/net/l2cap/input_l2cap_credit/ilc_harness.c",
+        "preconditions_lines_to_remove": [
+            23,
+            27
+        ]
+    },
+    "check_for_tcp_syn": {
+        "harness": "../../contiki-ng/cbmc/proofs/net/ipv6/tcp/check_for_tcp_syn/cts_harness.c",
+        "preconditions_lines_to_remove": [
+            25,
+            29
+        ]
+    },
+    "uncompress_addr": {
+        "harness": "../../contiki-ng/cbmc/proofs/net/6lowpan/uncompress_addr/ua_harness.c",
+        "preconditions_lines_to_remove": [
+            63,
+            67
+        ]
+    },
+    "rs_input": {
+        "harness": "../../contiki-ng/cbmc/proofs/net/ipv6/rs_input/rsi_harness.c",
+        "preconditions_lines_to_remove": [
+            79,
+            85
+        ]
+    },
+    "rpl_process_dio": {
+        "harness": "../../contiki-ng/cbmc/proofs/net/rpl-lite/icmp6/rpl_process_dio/dio_harness.c",
+        "preconditions_lines_to_remove": [
+            84,
+            87,
+            90
+        ]
+    }
+}

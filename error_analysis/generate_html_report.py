@@ -392,11 +392,11 @@ class HTMLTestReportGenerator:
             content.append(self.create_details_section("Initial Errors", initial_errors_content, False, "nested-details"))
         
         # Processed Errors section
-        if len(harness['Successful Errors']) > 0:
+        if 'Successful Errors' in harness and len(harness['Successful Errors']) > 0:
             processed_errors_content = self.process_processed_errors(harness['Successful Errors'], mode='success')
             content.append(self.create_details_section("Successful Errors", processed_errors_content, False, "nested-details"))
         
-        if len(harness['Failed Errors']) > 0:
+        if 'Failed Errors' in harness and len(harness['Failed Errors']) > 0:
             processed_errors_content = self.process_processed_errors(harness['Failed Errors'], mode='failed')
             content.append(self.create_details_section("Failed Errors", processed_errors_content, False, "nested-details"))
 
@@ -499,6 +499,7 @@ class HTMLTestReportGenerator:
         
         # Overall Token Usage section
         if 'Total Token Usage' in data:
+            data['Total Token Usage']['Cost'] = self.get_cost_of_test(data['Total Token Usage'])
             html_parts.append('<div class="summary-section">')
             html_parts.append(self.dict_to_table(data['Total Token Usage'], "Total Token Usage"))
             html_parts.append('</div>')
@@ -530,6 +531,9 @@ class HTMLTestReportGenerator:
         
         print(f"HTML report generated successfully: {output_filename}")
         return output_filename
+
+    def get_cost_of_test(self, token_usage):
+        return f'${round((token_usage['Input'] * 2 + token_usage['Cached'] * 0.5 + token_usage['Output'] * 8) / 1000000, 2):.2f}'
 
 def generate_html_report(data: Dict[str, Any], output_filename: str = "test_report.html") -> str:
     """Convenience function to generate HTML report."""

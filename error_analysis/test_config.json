@@ -15,11 +15,9 @@
     "_gcoap_forward_proxy_copy_options": {
         "harness": "../../RIOT/cbmc/proofs/_gcoap_forward_proxy_copy_options/_gcoap_forward_proxy_copy_options_harness.c",
         "preconditions_lines_to_remove": [
-            59,
             63,
             66,
             71,
-            86,
             90,
             93,
             98,

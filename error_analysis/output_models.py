@@ -52,15 +52,28 @@ class DebuggingQuestions(BaseModel):
     problem_variables: Optional[list[Variable]]
     reasoning: str
 
-class PreviousSuggestions(BaseModel):
-    preconditions: list[str]
-    analyis: str
-    provided_analysis_questions: list[OptionalQuestions]
+class PreconditionDebuggingQuestions(BaseModel):
+    evaluation_step: int
+    evaluation_question: str
     further_analysis_questions: Optional[list[OptionalQuestions]]
+    was_cause_of_failure: bool
+    problem_variables: Optional[list[Variable]]
+    reasoning: str
+
+class PrevPreconditionStatus(BaseModel):
+    should_keep_with_no_changes: bool
+    should_keep_with_changes: bool
+    should_discard: bool
+
+class PreviousPreconditionsEvaluation(BaseModel):
+    precondition: list[str]
+    precondition_evaluation_questions: list[PreconditionDebuggingQuestions]
+    status: PrevPreconditionStatus
+    reasoning: str
 
 class ModelOutput(BaseModel):
     existing_preconditions: list[ExistingPrecondition]
+    previous_precondition_analysis: Optional[list[PreviousPreconditionsEvaluation]]
     debugging_analysis_questions: list[DebuggingQuestions]
-    previous_suggestions: Optional[list[PreviousSuggestions]]
     new_preconditions: list[NewPrecondition]
     # func_models: list[FunctionModel]
