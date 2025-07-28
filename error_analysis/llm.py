@@ -354,7 +354,10 @@ class LLMProofWriter:
                 First, find the current definition of the "harness" function and note which variables have existing preconditions, along with the line numbers for each preconditon. \
                 Next, find the definition of the function where the error occurred. \
                 Finally, list out the variable values for each modeled variable when error occured. \
-                Use this information to answer the following questions and determine the variable responsible for the error: \
+                
+                Then, provide a general analysis of the error and the variables involved.
+
+                Finally, use this information to answer the following questions and determine the variable responsible for the error: \
                 {'\n'.join([f'{i + 1}. {step}' for i, step in enumerate(advice)])}
 
                 Based on this analysis, determine the smallest possible set of preconditions that can be added to the harness to resolve the error. \

@@ -23,13 +23,15 @@ def convert_c_struct_to_json(struct_str):
     """
     Converts a C-struct string into a Python-style struct string, generated using LLM
     """
+    # Problem comes from a statically defined array of struct POINTERS
+
     json_str = re.sub('\n', '', struct_str)
 
     # Step 1: Remove 'u' suffix from unsigned integers
     json_str = re.sub(r'(\d+)u(?:ll)?', r'\1', json_str)
 
     # Step 2: Convert C-style arrays of ints or chars to JSON arrays
-    json_str = re.sub(r'{\s*((?:[0-9\-]|\'.*\')+(?:\s*,\s*(?:[0-9\-]|\'.*\')+)*)\s*}', r'[\1]', json_str)
+    json_str = re.sub(r'{\s*((?:[0-9\-]|\'.*\'|&.*)+(?:\s*,\s*(?:[0-9\-]|\'.*\'|&.*)+)*)\s*}', r'[\1]', json_str)
     
     # Step 3: Replace field names (.field=) with JSON keys ("field":)
     json_str = re.sub(r'\.([$a-zA-Z_][a-zA-Z0-9_]*)\s*=', r'"\1":', json_str)\
@@ -47,7 +49,7 @@ def convert_c_struct_to_json(struct_str):
     json_str = re.sub(r'/\*enum\*/([A-Z_][A-Z0-9_]*)', r'"\1"', json_str)
     
     # Step 7: Turn dynamic object pointers into strings:
-    json_str = re.sub(r'(&dynamic_object(?:\$\d)?)', r'"\1"', json_str)
+    json_str = re.sub(r'(&[A-Za-z0-9_\$\.]+)', r'"\1"', json_str)
 
     # Step 8: Convert C-style booleans (true/false) to JSON booleans
     json_str = re.sub(r'(TRUE|FALSE)', lambda m: 'true' if m.group(0) == 'TRUE' else 'false', json_str)
