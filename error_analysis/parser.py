@@ -222,11 +222,10 @@ def analyze_error_report(errors_div, report_dir, new_precon_lines=[]):
                             continue
                         
                         
-                        
                         error_hash = sha256(f"{line_num}{func_name}{error_msg}".encode()).hexdigest(), # Create a unique ID for the error by taking a hash of the complete error info
                         error_obj = {
                             "function": func_name,
-                            "line": f"Line {line_num}",
+                            "line": line_num,
                             "msg": error_msg,
                             'trace': trace_href,
                             'file': func_file_path,
@@ -238,13 +237,14 @@ def analyze_error_report(errors_div, report_dir, new_precon_lines=[]):
                 error_report = error_report.find_next_sibling('li')
     return error_clusters, undefined_funcs
 
-def analyze_traces(extracted_errors, json_path):
+def analyze_traces(extracted_errors, json_path, new_precon_lines=[]):
     with open(os.path.join(json_path, "viewer-trace.json"), 'r') as file:
         error_traces = json.load(file)
     
     html_files = dict()
     for errors in extracted_errors.values():
-        for i, error in enumerate(errors.values()):
+        errs_to_remap = dict()
+        for error_hash, error in errors.items():
             trace_file = error.pop('trace')
             with open(trace_file, "r") as f:
                 soup = BeautifulSoup(f, "html.parser")
@@ -352,13 +352,29 @@ def analyze_traces(extracted_errors, json_path):
                 func_call = caller.find("div", class_="function-call").find("div", class_="header")
                 if error['is_built_in'] and error['file'] is None: # If it's a built-in func get coverage of the place where it was called
                     error['file'] = re.match(r'(?:\.+/)?((?:.*)\.c)', func_call.find("a")['href']).group(1)
-                caller_func_name, line_num = re.match(r'Step \d+: Function (.*), File .*, (Line \d+)', func_call.text).groups()
+                caller_func_name, file_name, line_num = re.match(r'Step \d+: Function (.*), File (.*), Line (\d+)', func_call.text).groups()
+                line_num = int(line_num)
                 if caller_func_name == 'None':
                     break
+
+                # if file_name != None and re.match(r'.*_harness.c', file_name): # Make the line number adjustment in the harness file
+                #     for new_line in new_precon_lines:
+                #         if line_num > new_line:
+                #             line_num -= 1
                 stack_trace.append((caller_func_name, line_num))
 
                 caller = caller.find_parent("div", class_="function")
+
             error['stack'] = stack_trace
+            # Re-define the error hash to include the stack trace
+            # It technically is super redundant to redefine the hash, but we need to include the stack trace in the hash and it only gets defined here
+        #     hash_str = error_hash + str(error['stack'])
+        #     new_error_hash = sha256(hash_str.encode()).hexdigest()
+        #     errs_to_remap[error_hash] = new_error_hash
+        
+        # # Swap out the hashes, can't do it in place
+        # for error_hash, new_error_hash in errs_to_remap.items():
+        #     errors[new_error_hash] = errors.pop(error_hash)
 
     return html_files
 
@@ -446,19 +462,18 @@ def extract_func_definitions(html_files, report_dir, undefined_funcs):
 
     return func_text, stub_text, global_vars, macros
 
-def check_error_is_covered(error_dict, json_report_dir, new_lines=[]):
+def check_error_is_covered(error, json_report_dir, new_lines=[]):
     try:
         with open(os.path.join(json_report_dir, "viewer-coverage.json"), 'r') as file:
             coverage_data = json.load(file)['viewer-coverage']['coverage']
-            file = error_dict['file']
-            if error_dict['is_built_in']:
-                func = error_dict['stack'][1][0]
-                line_num = int(error_dict['stack'][1][1].replace("Line ", ""))
+            file = error.file
+            if error.is_built_in:
+                func, line_num = error.stack[1]
             else:
-                func = error_dict['function']
-                line_num = int(error_dict['line'].replace("Line ", ""))
-            
-            if re.match(r'.*_harness.c', error_dict['file']) and not line_num in new_lines:
+                func = error.func
+                line_num = int(error.line)
+
+            if re.match(r'.*_harness.c', error.file) and not line_num in new_lines:
                 # If lines have been added to the harness, we need to adjust the line number for the error
                 for new_line in new_lines:
                     if line_num > new_line:
@@ -523,7 +538,7 @@ def extract_errors_and_payload(harness_name, harness_dir, check_for_coverage=Non
         print("No error traces found")
         return {}
 
-    html_files = analyze_traces(error_clusters, json_report_dir)
+    html_files = analyze_traces(error_clusters, json_report_dir, new_precon_lines)
     print(f"Extracted {len(html_files)} trace files")
     func_text, stub_text, global_vars, macros = extract_func_definitions(html_files, html_report_dir, undefined_funcs)
     

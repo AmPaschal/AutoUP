@@ -8,7 +8,7 @@ from advice import get_advice_for_cluster
 from parser import extract_errors_and_payload
 from error_classes import CoverageError, PreconditionError, InsertError
 from output_models import ModelOutput
-
+from error_report import ErrorReport
 
 
 
@@ -17,16 +17,7 @@ class LLMProofWriter:
 
     # Ideally, this ordering should address all instances of earlier errors "obscuring" later errors
     # For example, some deref_arr_oob errors can be obscured by null pointer errors and won't show up until those are fixed
-    CLUSTER_ORDER = [
-            'deref_null',
-            'memcpy_src',
-            'memcpy_dest',
-            'memcpy_overlap',
-            'arithmetic_overflow',
-            'deref_arr_oob',
-            'deref_obj_oob',
-            'misc'
-        ]
+
 
     SYSTEM_PROMPT = """
         You are a helpful AI assistant that is assisting in the development of unit proofs. \
@@ -139,109 +130,65 @@ class LLMProofWriter:
                     }
                 )
 
-    def _err_to_str(self, error_obj):
-        return f"{error_obj['msg']} @ {error_obj['function']} {error_obj['line']}"
-
     def iterate_proof(self, max_attempts=1):
-        # NEED TO:
-        # - Re-work the "error in harness" logic
-        # - Adjust how it iterates through errors and clusters to account for more errors being added in later clusters
-        #   and for errors in the same cluster being removed
-        curr_errors = extract_errors_and_payload(self.harness_name, self.harness_dir)
-        init_error_mapping = dict() # This only needed to help with identifying the "also resolved errors"
-        results_report = {
-            'initial_errors': dict(),
-            'processed_errors': {
-                'success': dict(),
-                'failure': dict()
-            },
-            'preconditions_added': [],
-        }
-        for cluster, errors in curr_errors.items():
-            results_report['initial_errors'][cluster] = []
-            for err_id, err in errors.items():
-                results_report['initial_errors'][cluster].append(self._err_to_str(err))
-                init_error_mapping[err_id] = self._err_to_str(err)
-        results_report['initial_errors']['total'] = len(init_error_mapping)
+
+        error_report = ErrorReport(
+            extract_errors_and_payload(self.harness_name, self.harness_dir)
+        ) # The initial error report we will be maintaining
 
         self._create_vector_store_files()
-        
-        added_precon_lines = [] # We need to keep track of the lines we add because adding lines to the harness shifts the line numbers of errors, and thus changes their IDs
+
+        # We need to keep track of the lines we add because adding lines to the harness shifts the line numbers of any errors within the harness, and thus changes their IDs
+        new_precon_line_nums = [] 
         try:
-            for curr_cluster in LLMProofWriter.CLUSTER_ORDER:
-                if curr_cluster not in curr_errors:  
-                    continue
-                advice = get_advice_for_cluster(curr_cluster, self.harness_name)
-
-                # With the way this works currently, I think that any new errors that happen to be added to the same cluster will be ignored
-                while curr_cluster in curr_errors and len(curr_errors[curr_cluster]) > 0:
-                    # *** IMPORTANT ***
-                    # We are currently take a niave approach, which means we:
-                    # - Only check if the error we are targeting was fixed and ignore if any others were fixed/added in the process
-                    # - Assume the error can be fixed in a single set of preconditions (as opposed to something like _rbuf_add, where one error requires several distinct preconditions)
-
-                    target_error_id = None
-                    for err in curr_errors[curr_cluster]:
-                        if err not in results_report['processed_errors']['failure']:
-                            target_error_id = err
-                            break
+                cluster, target_error_id, target_error = error_report.get_next_error()
+                while target_error is not None:
                     
-                    if target_error_id is None:
-                        break
-                    
-                    elif target_error_id in results_report['processed_errors']['success']:
+                    if target_error_id in error_report.resolved_errs or target_error_id in error_report.failed_errs:
                         print(f"WARNING: Error {target_error_id} was already processed and somehow reappeared")
 
-                    target_error = curr_errors[curr_cluster][target_error_id] # Recognizable string for this particular error
-                    last_response_id = None
-                    cause_of_failure = None
-                    harness_backup = None
-                    curr_error_report = {
-                        'function': target_error['function'],
-                        'line': target_error['line'],
-                        'msg': target_error['msg'],
-                        'attempts': -1,
-                        'added_precons': None,
-                        'indirectly_resolved': [],
-                        'tokens': {
-                            'input': 0,
-                            'output': 0, 
-                            'cached': 0
-                        },
-                        'responses': []
-                    }
+                    advice = get_advice_for_cluster(cluster, self.harness_name)
+
+                    last_response_id = None # For API call
+                    cause_of_failure = None # For tracking why last run failed to provide targetted prompts
+                    harness_backup = None # For restoring previous harness definitions after a failed new preconditions
+                    err_was_resolved = False # For exiting the loop
+
                     iterations = 0
-                    print(f"Attempting to resolve error {self._err_to_str(target_error)}")
 
-                    while curr_cluster in curr_errors and target_error_id in curr_errors[curr_cluster] and iterations < max_attempts * 2:
+                    print(f"Attempting to resolve error {target_error}")
 
-                        # TBD: If the provided precondition does not break the harness but also does not fix the error, do we want to keep the suggestion and provide the updated harness to the LLM?
-                        # Current implementation assumes we do not keep harness changes that do not fix the error, but this could be changed
+                    while not err_was_resolved and iterations < max_attempts * 2:
+
                         if harness_backup is not None:
                             self._restore_harness(harness_backup)
-                            curr_error_report['responses'][-1]['reason_for_failure'] = "Suggested precondition did not fix error"
+                            if cause_of_failure is None: # If the harness didn't fail for a specific reason, it just simply didn't fix the error
+                                target_error.responses[-1]['reason_for_failure'] = "Suggested precondition did not fix error"
 
-                        # By only passing in the error using the target_error_id, we can pass in the updated variable values after failure
-                        # With that said the LLM doesn't currently use them
-                        llm_response = self.request_llm_analysis(curr_errors[curr_cluster][target_error_id], advice, cause_of_failure=cause_of_failure, prev_response=last_response_id)
+                        llm_response = self.request_llm_analysis(target_error, advice, cause_of_failure=cause_of_failure, prev_response=last_response_id)
+
                         last_response_id = llm_response.pop('id')
-                        curr_error_report['responses'].append(llm_response['response'])
-                        curr_error_report['tokens']['input'] += llm_response['usage'].input_tokens
-                        curr_error_report['tokens']['output'] += llm_response['usage'].output_tokens
-                        if iterations > 0:
-                            curr_error_report['tokens']['cached'] = llm_response['usage'].input_tokens_details.cached_tokens
+                        
+                        target_error.responses.append(llm_response['response'])
+                        target_error.tokens['input'] += llm_response['usage'].input_tokens
+                        target_error.tokens['output'] += llm_response['usage'].output_tokens
 
+                        if iterations > 0:
+                            target_error.tokens['cached'] = llm_response['usage'].input_tokens_details.cached_tokens
 
                         # Implement suggested harness changes and re-run the harness
                         try:
-                            harness_backup, new_precons, new_precon_lines = self._update_harness(llm_response['response']['new_preconditions'])
+                            harness_backup, added_precons, added_precon_line_nums = self._update_harness(llm_response['response']['new_preconditions'])
+                            
                         except Exception as e:
+                            # In the case of a failure due to insertion errors, we only penalize a "half-attempt" to give the LLM more attempts to correct it's previous suggestion
+
                             if isinstance(e, InsertError):
                                 print(f"Failed to update harness with new preconditions: {e}")
 
                                 # These "cause_of_failure" objs will have a reason that is used to update the prompt, and data to help the llm debug
                                 cause_of_failure = { 'reason': "harness_update_error", 'error': e }
-                                curr_error_report['responses'][-1]['reason_for_failure'] = "Failed to insert the suggested precondition into harness"
+                                target_error.responses[-1]['reason_for_failure'] = "Failed to insert the suggested precondition into harness"
                                 iterations += 1
                                 continue
                             else:
@@ -249,26 +196,36 @@ class LLMProofWriter:
                                 raise e
 
                         try:
-                            curr_errors = extract_errors_and_payload(self.harness_name, self.harness_dir, check_for_coverage=target_error, new_precon_lines=(new_precon_lines + added_precon_lines))
+                            curr_errors = ErrorReport(
+                                extract_errors_and_payload(
+                                    self.harness_name, 
+                                    self.harness_dir, 
+                                    check_for_coverage=target_error, 
+                                    new_precon_lines=(added_precon_line_nums + new_precon_line_nums)
+                                )
+                            )
                             cause_of_failure = None
                         except Exception as e:
+
+                            # In the case of a failure due to syntax/coverage errors, we only penalize a "half-attempt" to give the LLM more attempts to correct it's previous suggestion
+
                             if isinstance(e, SyntaxError):
                                 print(f"Suggested precondition caused error while running make due to invalid syntax: {e}.")
                                 cause_of_failure = { "reason": "syntax_error", 'error': e }
-                                curr_error_report['responses'][-1]['reason_for_failure'] = "Suggested precondition caused a syntax error in harness"
+                                target_error.responses[-1]['reason_for_failure'] = "Suggested precondition caused a syntax error in harness"
                                 iterations += 1
                                 continue
                                                            
                             elif isinstance(e, CoverageError):
                                 print("Suggested precondition prevented coverage of the line with the target error.")
                                 cause_of_failure = { "reason": "coverage_error", "error": e }
-                                curr_error_report['responses'][-1]['reason_for_failure'] = "Suggested precondition prevented coverage of the line where error occured"
+                                target_error.responses[-1]['reason_for_failure'] = "Suggested precondition prevented coverage of the line where error occured"
                                 iterations += 1
                                 continue
                             elif isinstance(e, PreconditionError):
-                                print(f"Suggested precondition introduced new errors to harness")
+                                print("Suggested precondition introduced new errors to harness")
                                 cause_of_failure = {"reason": "precondition_error", "error": e }
-                                curr_error_report['responses'][-1]['reason_for_failure'] = "Suggested precondition contained CBMC errors"
+                                target_error.responses[-1]['reason_for_failure'] = "Suggested precondition contained CBMC errors"
                                 iterations += 1
                                 continue
                             else:
@@ -277,53 +234,38 @@ class LLMProofWriter:
                                     print("Reverting changes to harness file")
                                 raise e
 
-                        # In the case of a precondition due to syntax problems, we want to give a "half-attempt" penalty to give the LLM time to correct it's previous suggestion
+                        err_was_resolved = target_error_id not in curr_errors 
+                        if not err_was_resolved:
+                            # Update the variable values of the target error from the latest run
+                            error_report.get_err(target_error_id).update(curr_errors.get_err(target_error_id))
+
+
                         iterations += 2
                     
-                    # If the error was resolved, update the harness file in the vector store
-                    if curr_cluster not in curr_errors or target_error_id not in curr_errors[curr_cluster]:
-                        self._update_harness_in_vector_store()
-                        curr_error_report['attempts'] = iterations // 2
-                        curr_error_report['added_precons'] = new_precons
-                        results_report['preconditions_added'].extend(new_precons)
-
-                        # Update the lines where these were added
-                        for line in new_precon_lines:
-                            for i in range(len(added_precon_lines)):
-                                if added_precon_lines[i] >= line:
-                                    added_precon_lines[i] += 1
-                        added_precon_lines.extend(new_precon_lines) # Keep track of the lines we added so we can update the error IDs
+                    # If we exited the bc loop the error was resolved
+                    if err_was_resolved:
                         
-                        init_error_mapping.pop(target_error_id, None) # Remove the error from the initial error mapping
-                        remaining_errors = set([err_id for cluster in curr_errors.values() for err_id in cluster.keys()])
-                        init_errors = set(init_error_mapping.keys())
-                        also_resolved = init_errors - remaining_errors
+                        self._update_harness_in_vector_store() # Update the definition of the harness in the vector store
 
-                        for err_id in also_resolved:
-                            error_str = init_error_mapping.pop(err_id)
-                            curr_error_report['indirectly_resolved'].append(error_str)
-                            if err_id in results_report['processed_errors']['failure']:
-                                results_report['processed_errors']['failure'][err_id]['resolved_by'] = self._err_to_str(target_error)
+                        target_error.attempts = iterations // 2
+                        target_error.added_precons = added_precons
 
-                        if len(remaining_errors - init_errors) > 0:
-                            print(f"WARNING: new errors introduced by precondition:\n")
-                            for cluster in curr_errors:
-                                for err in curr_errors[cluster]:
-                                    if err not in init_errors:
-                                        print(f"  {self._err_to_str(curr_errors[cluster][err])}")
+                        # Update the line numbers where preconditions were added
+                        for line in added_precon_line_nums:
+                            for i in range(len(new_precon_line_nums)):
+                                if new_precon_line_nums[i] >= line:
+                                    new_precon_line_nums[i] += 1
+                        new_precon_line_nums.extend(added_precon_line_nums) # Keep track of the lines we added so we can update the error IDs
 
-                        results_report['processed_errors']['success'][target_error_id] = curr_error_report
-
-                        print(f"Successfully resolved error {self._err_to_str(target_error)}\n")
+                        error_report.update_all_errs(target_error_id, curr_errors)
+                        print(f"Successfully resolved error {target_error}\n")
 
                     else:
-                        print(f"Failed to resolve error {self._err_to_str(target_error)}")
+                        print(f"Failed to resolve error {target_error}")
 
-                        if not 'reason_for_failure' in curr_error_report['responses'][-1]:
-                            curr_error_report['responses'][-1]['reason_for_failure'] = "Suggested precondition did not fix error"
-
-                        curr_errors[curr_cluster].pop(target_error_id, None) # Remove the error from the current errors
-                        results_report['processed_errors']['failure'][target_error_id] = curr_error_report
+                        error_report.update_failed_err(target_error_id)
+                        if cause_of_failure is None:
+                            target_error.responses[-1]['reason_for_failure'] = "Suggested precondition did not fix error"
 
                         if harness_backup is not None:
                             self._restore_harness(harness_backup)
@@ -332,23 +274,25 @@ class LLMProofWriter:
                     # Remove the backup file
                     if harness_backup is not None:
                         os.remove(harness_backup)
+
+                    cluster, target_error_id, target_error = error_report.get_next_error()
                     
         except Exception as e:
-            print(f"Exception during proof iteration: ", traceback.format_exc())
+            print("Exception during proof iteration: ", traceback.format_exc())
             raise e
         
         self._cleanup_vector_store()
-        return results_report
+        return error_report.generate_results_report()
 
     def request_llm_analysis(self, error, advice, cause_of_failure=None, prev_response=None):
         
         if prev_response is None:
             user_prompt = f"""The most recent execution of the harness resulted in the following error: \
-                {error['msg']}\n
-                {'\n'.join([f'in {func}, Line: {line}' for func, line in error['stack']])}
+                {error.msg}\n
+                {'\n'.join([f'in {func}, Line: {line}' for func, line in error.stack])}
 
                 The value of each variable passed into the target function before the error occurred, grouped by the scope they were initalized in, is provided below: \
-                {json.dumps(error['harness_vars'], indent=4)}
+                {json.dumps(error.vars, indent=4)}
 
                 Complete the following steps to determine an appropriate precondition that will resolve the error. \
                 First, find the current definition of the "harness" function and note which variables have existing preconditions, along with the line numbers for each preconditon. \
@@ -381,7 +325,7 @@ class LLMProofWriter:
                 user_prompt = f"""
                     The previously suggested precondition did not resolve the provided error. \
                     The updated value of each variable during the previous run, grouped by the scope they were defined in, is provided below: \
-                    {json.dumps(error['harness_vars'], indent=4)}
+                    {json.dumps(error.vars, indent=4)}
 
                     Your first objective is to evaluate the preconditions you suggested adding in your previous response, and determine whether they should still be included in the harness.
 

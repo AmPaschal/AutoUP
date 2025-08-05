@@ -216,9 +216,9 @@ def test_workflow(harnesses=[], testing_rounds=1):
 
             for error in list(harness_report['processed_errors']['success'].values()) + list(harness_report['processed_errors']['failure'].values()):
                 error_report = {
-                    "Error": proof_writer._err_to_str(error),
+                    "Error": error['msg'],
                     "Attempts": error['attempts'] if error['attempts'] != -1 else 3,
-                    "Resolved": error['attempts'] != -1 or 'resolved_by' in error,
+                    "Resolved": error['attempts'] != -1 or error.get('resolved_by', None) is not None,
                     "Preconditions Added": error['added_precons'],
                     "Indirectly Resolved": error['indirectly_resolved'],
                     "Token Usage": error['tokens'],
@@ -232,7 +232,7 @@ def test_workflow(harnesses=[], testing_rounds=1):
                 if error['attempts'] == -1:
 
                     results['Failed Errors'].append(error_report)
-                    if "resolved_by" in error:
+                    if error.get('resolved_by', None) is not None:
                         error_report['Resolved By'] = error['resolved_by']
                     else:
                         results['Summary']['Unresolved'] += 1
