@@ -9,9 +9,9 @@ import signal
 import traceback
 import sys
 from dotenv import load_dotenv
-from llm import LLMProofWriter
+from error_analysis.debugger import LLMProofDebugger
 import shutil
-from generate_html_report import generate_html_report
+from error_analysis.test.generate_html_report import generate_html_report
 load_dotenv()
 
 """
@@ -141,7 +141,7 @@ def _restore_backup(backup_path, settings):
 
 def test_workflow(harnesses=[], testing_rounds=1):
 
-    with open('./contiki_test_config.json', 'r') as f:
+    with open('./configs/contiki_test_config.json', 'r') as f:
         config = json.load(f)
 
     openai_api_key = os.getenv("OPENAI_API_KEY", None)
@@ -206,7 +206,8 @@ def test_workflow(harnesses=[], testing_rounds=1):
         backup_path = _remove_preconditions_and_make_backup(settings, results)
 
         try:
-            proof_writer = LLMProofWriter(openai_api_key, settings['harness'], test_mode=True)
+            abs_harness_path = os.path.abspath(settings['harness'])
+            proof_writer = LLMProofDebugger(openai_api_key, abs_harness_path, test_mode=True)
             start = time.time()
             harness_report = proof_writer.iterate_proof(max_attempts=3)
             results['Execution Time'] = time.time() - start

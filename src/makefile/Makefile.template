@@ -1,0 +1,23 @@
+# Defines the root of the project.
+# Be aware of how many directories deep you go!
+ROOT ?= ../../.. # I'll assume it's always 3 directories deep
+
+# Defines file(s) to link to harness, MUST be a full path!
+# (We recommend $(ROOT)/os/... for defining these paths)
+# Each file is space seperated, and multiple can be defined
+LINK = 
+
+# Harness to utilize, omit the extension!
+H_ENTRY = 
+
+# Extra CBMC flags to be passed during CBMC analysis
+H_CBMCFLAGS = --nondet-static --unwind 1 # Rest to be filled in by LLM
+
+
+H_DEF = # Env vars, filled in by LLM
+
+H_INC = # filled in by LLM
+
+# Include our special build file
+MAKE_INCLUDE_PATH ?= ..
+include $(MAKE_INCLUDE_PATH)/Makefile.include

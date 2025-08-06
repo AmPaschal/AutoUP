@@ -3,20 +3,15 @@ import json
 import re
 import shutil
 import traceback
-from openai import OpenAI
-from advice import get_advice_for_cluster
-from parser import extract_errors_and_payload
-from error_classes import CoverageError, PreconditionError, InsertError
-from output_models import ModelOutput
-from error_report import ErrorReport
+from error_analysis.advice import get_advice_for_cluster
+from error_analysis.parser import extract_errors_and_payload
+from error_analysis.error_classes import CoverageError, PreconditionError, InsertError
+from error_analysis.output_models import ModelOutput
+from error_analysis.error_report import ErrorReport
+from agent import OpenAIAgent
 
-
-
-class LLMProofWriter:
+class LLMProofDebugger(OpenAIAgent):
     """Proof writer using LLMs to generate CBMC proofs"""
-
-    # Ideally, this ordering should address all instances of earlier errors "obscuring" later errors
-    # For example, some deref_arr_oob errors can be obscured by null pointer errors and won't show up until those are fixed
 
 
     SYSTEM_PROMPT = """
@@ -42,48 +37,27 @@ class LLMProofWriter:
         """
 
     def __init__(self, openai_api_key, harness_path, test_mode=False):
-        self.full_harness_path = harness_path
-        self.harness_dir = os.path.dirname(harness_path)
-        self.harness_name = os.path.basename(harness_path).replace('_harness.c', '')
-        if self.harness_name == '_rbuf_add':
-            self.harness_name = '_rbuf_add2'
-
-        self.payload_dir = os.path.join("payloads_v2", self.harness_name)
-        self.client = OpenAI(api_key=openai_api_key)
-        self.test_mode = test_mode
-        self.vector_store = self._create_vector_store()
-
-        
-
-    def _create_vector_store(self):
-        """
-        Checks if a vector store already exists and initializes it with the relevant files if it does not
-        """
-
-        for store in self.client.vector_stores.list():
-            if store.name == self.harness_name:
-                print(f"Found existing vector store with ID {store.id}")
-                if self.test_mode:
-                    print(f"Cleaning up old vector store {store.id} for testing")
-                    self.vector_store = store
-                    self._cleanup_vector_store()
-                else:
-                    return store
-
-        print(f"Initializing vector store for {self.harness_name}")
-        vector_store = self.client.vector_stores.create(
-            name=self.harness_name,
+        super().__init__(
+            openai_api_key,
+            agent_name="debugger",
+            harness_name=os.path.basename(harness_path).replace('_harness.c', ''),
+            harness_path=harness_path,
+            test_mode=test_mode,
             chunking_strategy={
                 'type': 'static',
                 'static': {
                     'chunk_overlap_tokens': 0, #I believe that having this as a non-zero value can cause hallucinations about file contents
                     'max_chunk_size_tokens': 800 # Unsure if this matters
-
-                }
+                } 
             }
         )
-        
-        return vector_store
+
+        if self.harness_name == '_rbuf_add':
+            self.harness_name = '_rbuf_add2'
+
+        self.payload_dir = os.path.join("payloads", self.harness_name)
+
+
 
     def _create_vector_store_files(self):
         curr_files = self.client.vector_stores.files.list(self.vector_store.id).data
@@ -91,11 +65,12 @@ class LLMProofWriter:
             print(f"WARNING: Vector store {self.vector_store.id} already contains payload files")
             return
 
-        for file_name in os.listdir(self.payload_dir):
+        payload_dir = os.path.join("payloads", self.harness_name)
+        for file_name in os.listdir(payload_dir):
             file_info = re.match(fr'{self.harness_name}_(.*).json', file_name).group(1)
             new_file = self.client.vector_stores.files.upload_and_poll(
                 vector_store_id=self.vector_store.id,
-                file=open(os.path.join(self.payload_dir, file_name), "rb"),
+                file=open(os.path.join(payload_dir, file_name), "rb"),
             )
             self.client.vector_stores.files.update(
                 vector_store_id=self.vector_store.id,
@@ -120,7 +95,7 @@ class LLMProofWriter:
                 self.client.files.delete(file_id=file.id)
                 new_file = self.client.vector_stores.files.upload_and_poll(
                     vector_store_id=self.vector_store.id,
-                    file=open(os.path.join(self.payload_dir, f'{self.harness_name}_{file.attributes['type']}.json'), "rb")
+                    file=open(os.path.join("payloads", self.harness_name, f'{self.harness_name}_{file.attributes['type']}.json'), "rb")
                 )
                 self.client.vector_stores.files.update(
                     vector_store_id=self.vector_store.id,
@@ -133,7 +108,7 @@ class LLMProofWriter:
     def iterate_proof(self, max_attempts=1):
 
         error_report = ErrorReport(
-            extract_errors_and_payload(self.harness_name, self.harness_dir)
+            extract_errors_and_payload(self.harness_name, self.harness_path)
         ) # The initial error report we will be maintaining
 
         self._create_vector_store_files()
@@ -199,7 +174,7 @@ class LLMProofWriter:
                             curr_errors = ErrorReport(
                                 extract_errors_and_payload(
                                     self.harness_name, 
-                                    self.harness_dir, 
+                                    self.harness_path, 
                                     check_for_coverage=target_error, 
                                     new_precon_lines=(added_precon_line_nums + new_precon_line_nums)
                                 )
@@ -394,7 +369,7 @@ class LLMProofWriter:
         try:
             response = self.client.responses.parse(
                 model='gpt-4.1', # Most recent tests were done on 4.1 I think
-                instructions=LLMProofWriter.SYSTEM_PROMPT,
+                instructions=LLMProofDebugger.SYSTEM_PROMPT,
                 input=[{'role': 'user', 'content': user_prompt}],
                 text_format=ModelOutput,
                 previous_response_id=prev_response,
@@ -416,8 +391,8 @@ class LLMProofWriter:
         """
         Create an unmodified copy of the harness file that we can restore
         """
-        backup_path = os.path.join(self.harness_dir, f'{self.harness_name}_harness_{backup_suffix}.c')
-        shutil.copy(self.full_harness_path, backup_path)
+        backup_path = os.path.join(os.path.dirname(self.harness_path), f'{self.harness_name}_harness_{backup_suffix}.c')
+        shutil.copy(self.harness_path, backup_path)
         return backup_path
 
     def _update_harness(self, preconditions):
@@ -426,7 +401,7 @@ class LLMProofWriter:
         new_precons = []
         new_precon_lines = []
 
-        with open(self.full_harness_path, 'r') as f:
+        with open(self.harness_path, 'r') as f:
             harness_lines = f.readlines()
         
         # By default, use the previous_line_of_code field to insert statements for better consistancy
@@ -469,7 +444,7 @@ class LLMProofWriter:
             print(f"Error inserting precondition: {e}")
             raise e
 
-        with open(self.full_harness_path, 'w') as f:
+        with open(self.harness_path, 'w') as f:
             f.writelines(harness_lines)
 
         return backup_path, new_precons, new_precon_lines
@@ -479,22 +454,7 @@ class LLMProofWriter:
             print(f"Backup file {backup_path} does not exist. Cannot restore harness.")
             return
 
-        shutil.copy(backup_path, self.full_harness_path)
-        print(f"Restored harness from {backup_path} to {self.full_harness_path}")
+        shutil.copy(backup_path, self.harness_path)
+        print(f"Restored harness from {backup_path} to {self.harness_path}")
         os.remove(backup_path)
-    
-    def _cleanup_vector_store(self):
-        """
-        Deletes the vector store and all files associated with the tag name
-        Then moves the updated harness into a different file and restores the original harness file from the backup
-        """
-        if self.vector_store.id not in [store.id for store in self.client.vector_stores.list()]:
-            return
 
-        file_ids = self.client.vector_stores.files.list(self.vector_store.id)
-        for file in file_ids:
-            print(f"Deleting file {file.id} from vector store {self.vector_store.id}")
-            self.client.files.delete(file_id=file.id)
-
-        self.client.vector_stores.delete(self.vector_store.id)
-        print(f"Deleted vector store {self.vector_store.id} for {self.harness_name}")

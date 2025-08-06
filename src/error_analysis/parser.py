@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 from collections import defaultdict
 import json
 import sys
-from error_classes import CoverageError, PreconditionError
+from error_analysis.error_classes import CoverageError, PreconditionError
 
 def run_command(command, cwd=None):
 
@@ -506,11 +506,13 @@ def check_error_is_covered(error, json_report_dir, new_lines=[]):
         print('Shi broke')
         raise e
 
-def extract_errors_and_payload(harness_name, harness_dir, check_for_coverage=None, new_precon_lines=[]):
+def extract_errors_and_payload(harness_name, harness_path, check_for_coverage=None, new_precon_lines=[]):
     """
     Runs the harness in the specified directory and extracts all information needed by the LLM from the CBMC reports
     Can optionally pass in an error dictionary to check if it is still covered in the current run, and will raise an error if not
     """
+
+    harness_dir = os.path.dirname(harness_path)
 
     html_report_dir = os.path.join(harness_dir, Path("build", "report", "html"))
     json_report_dir = os.path.join(harness_dir, Path("build", "report", "json"))
@@ -555,17 +557,14 @@ def extract_errors_and_payload(harness_name, harness_dir, check_for_coverage=Non
     if len(macros) > 0:
         harness_info['macros'] = macros
 
-    if not os.path.exists(f'./payloads_v2/{harness_name}'):
-        os.makedirs(f'./payloads_v2/{harness_name}')
+    if not os.path.exists(f'./payloads/{harness_name}'):
+        os.makedirs(f'./payloads/{harness_name}')
 
-    with open(f'./payloads_v2/{harness_name}/{harness_name}_functions.json', 'w') as f:
+    with open(f'./payloads/{harness_name}/{harness_name}_functions.json', 'w') as f:
         json.dump(func_text,f,indent=4)
     
-    with open(f'./payloads_v2/{harness_name}/{harness_name}_harness.json', 'w') as f:
+    with open(f'./payloads/{harness_name}/{harness_name}_harness.json', 'w') as f:
         json.dump(harness_info, f, indent=4)
-
-    # with open(f'./payloads_v2/{harness_name}/{harness_name}_errors.json', 'w') as f:
-    #     json.dump(error_clusters, f, indent=4)
 
     return error_clusters
 

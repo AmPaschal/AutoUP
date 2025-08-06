@@ -1,6 +1,6 @@
 {
     "gcoap_dns_server_proxy_get": {
-        "harness": "../../RIOT/cbmc/proofs/gcoap_dns_server_proxy_get/gcoap_dns_server_proxy_get_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/gcoap_dns_server_proxy_get/gcoap_dns_server_proxy_get_harness.c",
         "preconditions_lines_to_remove": [
             34,
             35,
@@ -13,7 +13,7 @@
         ]
     },
     "_gcoap_forward_proxy_copy_options": {
-        "harness": "../../RIOT/cbmc/proofs/_gcoap_forward_proxy_copy_options/_gcoap_forward_proxy_copy_options_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/_gcoap_forward_proxy_copy_options/_gcoap_forward_proxy_copy_options_harness.c",
         "preconditions_lines_to_remove": [
             63,
             66,
@@ -28,7 +28,7 @@
         ]
     },
     "_gcoap_forward_proxy_copy_options_plus_func_models": {
-        "harness": "../../RIOT/cbmc/proofs/_gcoap_forward_proxy_copy_options/_gcoap_forward_proxy_copy_options_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/_gcoap_forward_proxy_copy_options/_gcoap_forward_proxy_copy_options_harness.c",
         "preconditions_lines_to_remove": [
             50,
             59,
@@ -47,7 +47,7 @@
         ]
     },
     "_on_rd_init": {
-        "harness": "../../RIOT/cbmc/proofs/_on_rd_init/_on_rd_init_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/_on_rd_init/_on_rd_init_harness.c",
         "preconditions_lines_to_remove": [
             36,
             38,
@@ -57,7 +57,7 @@
         ]
     },
     "gnrc_sixlowpan_frag_sfr_send": {
-        "harness": "../../RIOT/cbmc/proofs/gnrc_sixlowpan_frag_sfr_send/gnrc_sixlowpan_frag_sfr_send_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/gnrc_sixlowpan_frag_sfr_send/gnrc_sixlowpan_frag_sfr_send_harness.c",
         "preconditions_lines_to_remove": [
             112,
             119,
@@ -67,7 +67,7 @@
         ]
     },
     "gnrc_rpl_srh_process": {
-        "harness": "../../RIOT/cbmc/proofs/gnrc_rpl_srh_process/gnrc_rpl_srh_process_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/gnrc_rpl_srh_process/gnrc_rpl_srh_process_harness.c",
         "preconditions_lines_to_remove": [
             32,
             38,
@@ -75,7 +75,7 @@
         ]
     },
     "dns_msg_parse_reply": {
-        "harness": "../../RIOT/cbmc/proofs/dns_msg_parse_reply/dns_msg_parse_reply_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/dns_msg_parse_reply/dns_msg_parse_reply_harness.c",
         "preconditions_lines_to_remove": [
             37,
             39,
@@ -85,7 +85,7 @@
         ]
     },
     "uri_parser_process": {
-        "harness": "../../RIOT/cbmc/proofs/uri_parser_process/uri_parser_process_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/uri_parser_process/uri_parser_process_harness.c",
         "preconditions_lines_to_remove": [
             33,
             38,
@@ -93,7 +93,7 @@
         ]
     },
     "clif_get_attr": {
-        "harness": "../../RIOT/cbmc/proofs/clif_get_attr/clif_get_attr_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/clif_get_attr/clif_get_attr_harness.c",
         "preconditions_lines_to_remove": [
             32,
             35,
@@ -101,7 +101,7 @@
         ]
     },
     "clif_decode_link": {
-        "harness": "../../RIOT/cbmc/proofs/clif_decode_link/clif_decode_link_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/clif_decode_link/clif_decode_link_harness.c",
         "preconditions_lines_to_remove": [
             50,
             55,
@@ -110,7 +110,7 @@
         ]
     },
     "_parse_options": {
-        "harness": "../../RIOT/cbmc/proofs/_parse_options/_parse_options_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/_parse_options/_parse_options_harness.c",
         "preconditions_lines_to_remove": [
             49,
             53,
@@ -118,7 +118,7 @@
         ]
     },
     "emcute_run": {
-        "harness": "../../RIOT/cbmc/proofs/emcute_run/emcute_run_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/emcute_run/emcute_run_harness.c",
         "preconditions_lines_to_remove": [
             41,
             43,
@@ -126,7 +126,7 @@
         ]
     },
     "_on_regack": {
-        "harness": "../../RIOT/cbmc/proofs/_on_regack/_on_regack_harness.c",
+        "harness": "../../../../RIOT/cbmc/proofs/_on_regack/_on_regack_harness.c",
         "preconditions_lines_to_remove": [
             35,
             40,
