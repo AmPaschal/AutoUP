@@ -59,7 +59,7 @@ class LLMProofDebugger(OpenAIAgent):
 
 
 
-    def _create_vector_store_files(self):
+    def _upload_vector_store_files(self):
         curr_files = self.client.vector_stores.files.list(self.vector_store.id).data
         if len(curr_files) > 0:
             print(f"WARNING: Vector store {self.vector_store.id} already contains payload files")
@@ -111,7 +111,7 @@ class LLMProofDebugger(OpenAIAgent):
             extract_errors_and_payload(self.harness_name, self.harness_path)
         ) # The initial error report we will be maintaining
 
-        self._create_vector_store_files()
+        self._upload_vector_store_files()
 
         # We need to keep track of the lines we add because adding lines to the harness shifts the line numbers of any errors within the harness, and thus changes their IDs
         new_precon_line_nums = [] 

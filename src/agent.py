@@ -41,7 +41,7 @@ class OpenAIAgent(ABC):
         return vector_store
 
     @abstractmethod
-    def _create_vector_store_files(self, file_path):
+    def _upload_vector_store_files(self, file_path):
         """
         Actually upload the relevant files to the vector store
         This should be implemented in the subclass
