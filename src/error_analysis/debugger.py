@@ -80,7 +80,7 @@ class LLMProofDebugger(OpenAIAgent):
                 }
             )
 
-    def _update_harness_in_vector_store(self):
+    def _update_files_in_vector_store(self):
         """
         Update the harness files in the vector store with the latest definitions
         """
@@ -220,7 +220,7 @@ class LLMProofDebugger(OpenAIAgent):
                     # If we exited the bc loop the error was resolved
                     if err_was_resolved:
                         
-                        self._update_harness_in_vector_store() # Update the definition of the harness in the vector store
+                        self._update_files_in_vector_store() # Update the definition of the harness in the vector store
 
                         target_error.attempts = iterations // 2
                         target_error.added_precons = added_precons

@@ -49,7 +49,7 @@ class OpenAIAgent(ABC):
         pass
     
     @abstractmethod
-    def _update_harness_in_vector_store(self):
+    def _update_files_in_vector_store(self):
         """
         Update any files that may have changed locally in the vector store
         Not every agent will necessarily need to use this, so some subclasses may just leave this as an empty function
