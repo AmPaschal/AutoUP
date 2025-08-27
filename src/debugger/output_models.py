@@ -1,6 +1,10 @@
 from pydantic import BaseModel
 from typing import Optional
 
+"""
+Part of our "show your work" prompting, where we require the LLM to provide values that indicate each step of its reasoning to encourage better results.
+"""
+
 class ExistingPrecondition(BaseModel):
     precondition: str
     function: str

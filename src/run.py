@@ -2,8 +2,8 @@ import sys
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from AutoUP.src.debugger.debugger import LLMProofDebugger
-from AutoUP.src.makefile.gen_makefile import LLMMakefileGenerator
+from src.debugger.debugger import LLMProofDebugger
+from src.makefile.gen_makefile import LLMMakefileGenerator
 load_dotenv()
 
 if __name__ == "__main__":
@@ -24,7 +24,7 @@ if __name__ == "__main__":
             print("Error: 'makefile' mode requires args: <target_function_name> <harness_path> <target_func_path>.")
             sys.exit(1)
         _, arg1, arg2, arg3 = args
-        print(f"Running in makefile mode with args: {arg1}, {arg2}, {arg3}")
+        print(f"Running makefile module with args: {arg1}, {arg2}, {arg3}")
 
         cwd = Path.cwd()
 
@@ -36,7 +36,7 @@ if __name__ == "__main__":
             print("Error: 'debugger' mode requires args: <harness_path>")
             sys.exit(1)
         _, arg1 = args
-        print(f"Running in debugger mode with arg: {arg1}")
+        print(f"Running debugger module with arg: {arg1}")
         proof_writer = LLMProofDebugger(openai_api_key, arg1, test_mode=True)
         harness_report = proof_writer.iterate_proof(max_attempts=3)
         print(harness_report)

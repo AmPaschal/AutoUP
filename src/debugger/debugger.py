@@ -10,9 +10,9 @@ from debugger.output_models import ModelOutput
 from debugger.error_report import ErrorReport
 from agent import OpenAIAgent
 
-class LLMProofDebugger(OpenAIAgent):
-    """Proof writer using LLMs to generate CBMC proofs"""
 
+class LLMProofDebugger(OpenAIAgent):
+    """Proof writer using LLMs to resolve CBMC modelling errors"""
 
     SYSTEM_PROMPT = """
         You are a helpful AI assistant that is assisting in the development of unit proofs. \
@@ -40,26 +40,28 @@ class LLMProofDebugger(OpenAIAgent):
         super().__init__(
             openai_api_key,
             agent_name="debugger",
-            harness_name=os.path.basename(harness_path).replace('_harness.c', ''),
+            harness_name=os.path.basename(harness_path).replace("_harness.c", ""),
             harness_path=harness_path,
             test_mode=test_mode,
             chunking_strategy={
-                'type': 'static',
-                'static': {
-                    'chunk_overlap_tokens': 0, #I believe that having this as a non-zero value can cause hallucinations about file contents
-                    'max_chunk_size_tokens': 800 # Unsure if this matters
-                } 
-            }
+                "type": "static",
+                "static": {
+                    "chunk_overlap_tokens": 0,  # I believe that having this as a non-zero value can cause hallucinations about file contents
+                    "max_chunk_size_tokens": 800,  # Unsure if this matters
+                },
+            },
         )
 
-        if self.harness_name == '_rbuf_add':
-            self.harness_name = '_rbuf_add2'
+        if self.harness_name == "_rbuf_add":
+            self.harness_name = "_rbuf_add2"
 
         self.payload_dir = os.path.join("payloads", self.harness_name)
 
-
-
     def _upload_vector_store_files(self):
+        """
+        Upload the function definitions file and the initial harness definition file from the payloads created by the parser
+        """
+
         curr_files = self.client.vector_stores.files.list(self.vector_store.id).data
         if len(curr_files) > 0:
             print(f"WARNING: Vector store {self.vector_store.id} already contains payload files")
@@ -67,18 +69,12 @@ class LLMProofDebugger(OpenAIAgent):
 
         payload_dir = os.path.join("payloads", self.harness_name)
         for file_name in os.listdir(payload_dir):
-            file_info = re.match(fr'{self.harness_name}_(.*).json', file_name).group(1)
+            file_info = re.match(rf"{self.harness_name}_(.*).json", file_name).group(1)
             new_file = self.client.vector_stores.files.upload_and_poll(
                 vector_store_id=self.vector_store.id,
                 file=open(os.path.join(payload_dir, file_name), "rb"),
             )
-            self.client.vector_stores.files.update(
-                vector_store_id=self.vector_store.id,
-                file_id=new_file.id,
-                attributes={
-                    'type': file_info
-                }
-            )
+            self.client.vector_stores.files.update(vector_store_id=self.vector_store.id, file_id=new_file.id, attributes={"type": file_info})
 
     def _update_files_in_vector_store(self):
         """
@@ -86,7 +82,7 @@ class LLMProofDebugger(OpenAIAgent):
         """
 
         for file in self.client.vector_stores.files.list(self.vector_store.id).data:
-            if file.attributes['type'] == 'harness':
+            if file.attributes["type"] == "harness":
                 print(f"Updating {file.attributes['type']} file in vector store {self.vector_store.id}")
                 self.client.vector_stores.files.delete(
                     vector_store_id=self.vector_store.id,
@@ -95,176 +91,169 @@ class LLMProofDebugger(OpenAIAgent):
                 self.client.files.delete(file_id=file.id)
                 new_file = self.client.vector_stores.files.upload_and_poll(
                     vector_store_id=self.vector_store.id,
-                    file=open(os.path.join("payloads", self.harness_name, f'{self.harness_name}_{file.attributes['type']}.json'), "rb")
+                    file=open(os.path.join("payloads", self.harness_name, f"{self.harness_name}_{file.attributes['type']}.json"), "rb"),
                 )
                 self.client.vector_stores.files.update(
-                    vector_store_id=self.vector_store.id,
-                    file_id=new_file.id,
-                    attributes={
-                        'type': file.attributes['type']
-                    }
+                    vector_store_id=self.vector_store.id, file_id=new_file.id, attributes={"type": file.attributes["type"]}
                 )
 
     def iterate_proof(self, max_attempts=1):
+        """
+        Continuously attempts to resolve each modelling error in the harness until all errors have been attempted or resolved
+        """
 
-        error_report = ErrorReport(
-            extract_errors_and_payload(self.harness_name, self.harness_path)
-        ) # The initial error report we will be maintaining
+        error_report = ErrorReport(extract_errors_and_payload(self.harness_name, self.harness_path))
 
         self._upload_vector_store_files()
 
-        # We need to keep track of the lines we add because adding lines to the harness shifts the line numbers of any errors within the harness, and thus changes their IDs
-        new_precon_line_nums = [] 
+        new_precon_line_nums = []  # We need to keep track of the lines we add because adding lines to the harness shifts the line numbers of any errors within the harness, and thus changes their IDs
+
         try:
-                cluster, target_error_id, target_error = error_report.get_next_error()
-                while target_error is not None:
-                    
-                    if target_error_id in error_report.resolved_errs or target_error_id in error_report.failed_errs:
-                        print(f"WARNING: Error {target_error_id} was already processed and somehow reappeared")
+            cluster, target_error_id, target_error = error_report.get_next_error()
+            while target_error is not None:
+                if target_error_id in error_report.resolved_errs or target_error_id in error_report.failed_errs:
+                    print(f"WARNING: Error {target_error_id} was already processed and somehow reappeared")
 
-                    advice = get_advice_for_cluster(cluster, self.harness_name)
+                advice = get_advice_for_cluster(cluster, self.harness_name)
 
-                    last_response_id = None # For API call
-                    cause_of_failure = None # For tracking why last run failed to provide targetted prompts
-                    harness_backup = None # For restoring previous harness definitions after a failed new preconditions
-                    err_was_resolved = False # For exiting the loop
+                last_response_id = None  # For API call
+                cause_of_failure = None  # For tracking why last run failed to provide targetted prompts
+                harness_backup = None  # For restoring previous harness definitions after a failed new preconditions
+                err_was_resolved = False  # For exiting the loop
 
-                    iterations = 0
+                iterations = 0
 
-                    print(f"Attempting to resolve error {target_error}")
+                print(f"Attempting to resolve error {target_error}")
 
-                    while not err_was_resolved and iterations < max_attempts * 2:
-
-                        if harness_backup is not None:
-                            self._restore_harness(harness_backup)
-                            if cause_of_failure is None: # If the harness didn't fail for a specific reason, it just simply didn't fix the error
-                                target_error.responses[-1]['reason_for_failure'] = "Suggested precondition did not fix error"
-
-                        llm_response = self.request_llm_analysis(target_error, advice, cause_of_failure=cause_of_failure, prev_response=last_response_id)
-
-                        last_response_id = llm_response.pop('id')
-                        
-                        target_error.responses.append(llm_response['response'])
-                        target_error.tokens['input'] += llm_response['usage'].input_tokens
-                        target_error.tokens['output'] += llm_response['usage'].output_tokens
-
-                        if iterations > 0:
-                            target_error.tokens['cached'] = llm_response['usage'].input_tokens_details.cached_tokens
-
-                        # Implement suggested harness changes and re-run the harness
-                        try:
-                            harness_backup, added_precons, added_precon_line_nums = self._update_harness(llm_response['response']['new_preconditions'])
-                            
-                        except Exception as e:
-                            # In the case of a failure due to insertion errors, we only penalize a "half-attempt" to give the LLM more attempts to correct it's previous suggestion
-
-                            if isinstance(e, InsertError):
-                                print(f"Failed to update harness with new preconditions: {e}")
-
-                                # These "cause_of_failure" objs will have a reason that is used to update the prompt, and data to help the llm debug
-                                cause_of_failure = { 'reason': "harness_update_error", 'error': e }
-                                target_error.responses[-1]['reason_for_failure'] = "Failed to insert the suggested precondition into harness"
-                                iterations += 1
-                                continue
-                            else:
-                                print("ERROR in harness update: ", traceback.format_exc())
-                                raise e
-
-                        try:
-                            curr_errors = ErrorReport(
-                                extract_errors_and_payload(
-                                    self.harness_name, 
-                                    self.harness_path, 
-                                    check_for_coverage=target_error, 
-                                    new_precon_lines=(added_precon_line_nums + new_precon_line_nums)
-                                )
-                            )
-                            cause_of_failure = None
-                        except Exception as e:
-
-                            # In the case of a failure due to syntax/coverage errors, we only penalize a "half-attempt" to give the LLM more attempts to correct it's previous suggestion
-
-                            if isinstance(e, SyntaxError):
-                                print(f"Suggested precondition caused error while running make due to invalid syntax: {e}.")
-                                cause_of_failure = { "reason": "syntax_error", 'error': e }
-                                target_error.responses[-1]['reason_for_failure'] = "Suggested precondition caused a syntax error in harness"
-                                iterations += 1
-                                continue
-                                                           
-                            elif isinstance(e, CoverageError):
-                                print("Suggested precondition prevented coverage of the line with the target error.")
-                                cause_of_failure = { "reason": "coverage_error", "error": e }
-                                target_error.responses[-1]['reason_for_failure'] = "Suggested precondition prevented coverage of the line where error occured"
-                                iterations += 1
-                                continue
-                            elif isinstance(e, PreconditionError):
-                                print("Suggested precondition introduced new errors to harness")
-                                cause_of_failure = {"reason": "precondition_error", "error": e }
-                                target_error.responses[-1]['reason_for_failure'] = "Suggested precondition contained CBMC errors"
-                                iterations += 1
-                                continue
-                            else:
-                                if harness_backup is not None:
-                                    os.remove(harness_backup)
-                                    print("Reverting changes to harness file")
-                                raise e
-
-                        err_was_resolved = target_error_id not in curr_errors 
-                        if not err_was_resolved:
-                            # Update the variable values of the target error from the latest run
-                            error_report.get_err(target_error_id).update(curr_errors.get_err(target_error_id))
-
-
-                        iterations += 2
-                    
-                    # If we exited the bc loop the error was resolved
-                    if err_was_resolved:
-                        
-                        self._update_files_in_vector_store() # Update the definition of the harness in the vector store
-
-                        target_error.attempts = iterations // 2
-                        target_error.added_precons = added_precons
-
-                        # Update the line numbers where preconditions were added
-                        for line in added_precon_line_nums:
-                            for i in range(len(new_precon_line_nums)):
-                                if new_precon_line_nums[i] >= line:
-                                    new_precon_line_nums[i] += 1
-                        new_precon_line_nums.extend(added_precon_line_nums) # Keep track of the lines we added so we can update the error IDs
-
-                        error_report.update_all_errs(target_error_id, curr_errors)
-                        print(f"Successfully resolved error {target_error}\n")
-
-                    else:
-                        print(f"Failed to resolve error {target_error}")
-
-                        error_report.update_failed_err(target_error_id)
-                        if cause_of_failure is None:
-                            target_error.responses[-1]['reason_for_failure'] = "Suggested precondition did not fix error"
-
-                        if harness_backup is not None:
-                            self._restore_harness(harness_backup)
-                            harness_backup = None
-
-                    # Remove the backup file
+                while not err_was_resolved and iterations < max_attempts * 2:
                     if harness_backup is not None:
-                        os.remove(harness_backup)
+                        self._restore_harness(harness_backup)
+                        if cause_of_failure is None:  # If the harness didn't fail for a specific reason, it just simply didn't fix the error
+                            target_error.responses[-1]["reason_for_failure"] = "Suggested precondition did not fix error"
 
-                    cluster, target_error_id, target_error = error_report.get_next_error()
-                    
+                    llm_response = self.request_llm_analysis(target_error, advice, cause_of_failure=cause_of_failure, prev_response=last_response_id)
+
+                    last_response_id = llm_response.pop("id")
+
+                    target_error.responses.append(llm_response["response"])
+                    target_error.tokens["input"] += llm_response["usage"].input_tokens
+                    target_error.tokens["output"] += llm_response["usage"].output_tokens
+
+                    if iterations > 0:
+                        target_error.tokens["cached"] = llm_response["usage"].input_tokens_details.cached_tokens
+
+                    # Implement suggested harness changes and re-run the harness
+                    try:
+                        harness_backup, added_precons, added_precon_line_nums = self._update_harness(llm_response["response"]["new_preconditions"])
+
+                    except Exception as e:
+                        # In the case of a failure due to insertion errors, we only penalize a "half-attempt" to give the LLM more attempts to correct it's previous suggestion
+
+                        if isinstance(e, InsertError):
+                            print(f"Failed to update harness with new preconditions: {e}")
+
+                            # These "cause_of_failure" objs will have a reason that is used to update the prompt, and data to help the llm debug
+                            cause_of_failure = {"reason": "harness_update_error", "error": e}
+                            target_error.responses[-1]["reason_for_failure"] = "Failed to insert the suggested precondition into harness"
+                            iterations += 1
+                            continue
+                        else:
+                            print("ERROR in harness update: ", traceback.format_exc())
+                            raise e
+
+                    try:
+                        curr_errors = ErrorReport(
+                            extract_errors_and_payload(
+                                self.harness_name,
+                                self.harness_path,
+                                check_for_coverage=target_error,
+                                new_precon_lines=(added_precon_line_nums + new_precon_line_nums),
+                            )
+                        )
+                        cause_of_failure = None
+                    except Exception as e:
+                        # In the case of a failure due to syntax/coverage errors, we only penalize a "half-attempt" to give the LLM more attempts to correct it's previous suggestion
+
+                        if isinstance(e, SyntaxError):
+                            print(f"Suggested precondition caused error while running make due to invalid syntax: {e}.")
+                            cause_of_failure = {"reason": "syntax_error", "error": e}
+                            target_error.responses[-1]["reason_for_failure"] = "Suggested precondition caused a syntax error in harness"
+                            iterations += 1
+                            continue
+
+                        elif isinstance(e, CoverageError):
+                            print("Suggested precondition prevented coverage of the line with the target error.")
+                            cause_of_failure = {"reason": "coverage_error", "error": e}
+                            target_error.responses[-1]["reason_for_failure"] = (
+                                "Suggested precondition prevented coverage of the line where error occured"
+                            )
+                            iterations += 1
+                            continue
+                        elif isinstance(e, PreconditionError):
+                            print("Suggested precondition introduced new errors to harness")
+                            cause_of_failure = {"reason": "precondition_error", "error": e}
+                            target_error.responses[-1]["reason_for_failure"] = "Suggested precondition contained CBMC errors"
+                            iterations += 1
+                            continue
+                        else:
+                            if harness_backup is not None:
+                                os.remove(harness_backup)
+                                print("Reverting changes to harness file")
+                            raise e
+
+                    err_was_resolved = target_error_id not in curr_errors
+                    if not err_was_resolved:
+                        # Update the variable values of the target error from the latest run
+                        error_report.get_err(target_error_id).update(curr_errors.get_err(target_error_id))
+
+                    iterations += 2
+
+                # If we exited the bc loop the error was resolved
+                if err_was_resolved:
+                    self._update_files_in_vector_store()  # Update the definition of the harness in the vector store
+
+                    target_error.attempts = iterations // 2
+                    target_error.added_precons = added_precons
+
+                    # Update the line numbers where preconditions were added
+                    for line in added_precon_line_nums:
+                        for i in range(len(new_precon_line_nums)):
+                            if new_precon_line_nums[i] >= line:
+                                new_precon_line_nums[i] += 1
+                    new_precon_line_nums.extend(added_precon_line_nums)  # Keep track of the lines we added so we can update the error IDs
+
+                    error_report.update_all_errs(target_error_id, curr_errors)
+                    print(f"Successfully resolved error {target_error}\n")
+
+                else:
+                    print(f"Failed to resolve error {target_error}")
+
+                    error_report.update_failed_err(target_error_id)
+                    if cause_of_failure is None:
+                        target_error.responses[-1]["reason_for_failure"] = "Suggested precondition did not fix error"
+
+                    if harness_backup is not None:
+                        self._restore_harness(harness_backup)
+                        harness_backup = None
+
+                # Remove the backup file
+                if harness_backup is not None:
+                    os.remove(harness_backup)
+
+                cluster, target_error_id, target_error = error_report.get_next_error()
+
         except Exception as e:
             print("Exception during proof iteration: ", traceback.format_exc())
             raise e
-        
+
         self._cleanup_vector_store()
         return error_report.generate_results_report()
 
     def request_llm_analysis(self, error, advice, cause_of_failure=None, prev_response=None):
-        
         if prev_response is None:
             user_prompt = f"""The most recent execution of the harness resulted in the following error: \
                 {error.msg}\n
-                {'\n'.join([f'in {func}, Line: {line}' for func, line in error.stack])}
+                {"\n".join([f"in {func}, Line: {line}" for func, line in error.stack])}
 
                 The value of each variable passed into the target function before the error occurred, grouped by the scope they were initalized in, is provided below: \
                 {json.dumps(error.vars, indent=4)}
@@ -277,7 +266,7 @@ class LLMProofDebugger(OpenAIAgent):
                 Then, provide a general analysis of the error and the variables involved.
 
                 Finally, use this information to answer the following questions and determine the variable responsible for the error: \
-                {'\n'.join([f'{i + 1}. {step}' for i, step in enumerate(advice)])}
+                {"\n".join([f"{i + 1}. {step}" for i, step in enumerate(advice)])}
 
                 Based on this analysis, determine the smallest possible set of preconditions that can be added to the harness to resolve the error. \
                 
@@ -291,12 +280,12 @@ class LLMProofDebugger(OpenAIAgent):
                 Finally, indicate where the precondition should be inserted by providing the function where it should be inserted and the lines of code that should come directly before and after the new precondition. \
 
                 Provide your response in the specified schema format.
-            """ 
+            """
         else:
             if cause_of_failure is None:
                 # If the error just wasn't resolved by the new precondition
 
-                # TODO: Refer to variable values to help the LLM determine if it's previous precondition had the intended impact, and allow it to find different "paths" to the error 
+                # TODO: Refer to variable values to help the LLM determine if it's previous precondition had the intended impact, and allow it to find different "paths" to the error
                 user_prompt = f"""
                     The previously suggested precondition did not resolve the provided error. \
                     The updated value of each variable during the previous run, grouped by the scope they were defined in, is provided below: \
@@ -319,20 +308,20 @@ class LLMProofDebugger(OpenAIAgent):
                     Your second objective is to repeat the analysis steps laid out in the initial prompt using the updated variable values, and explore other variables that may need preconditions to prevent the error.
                     Based on this analysis and your analysis of your previously suggested preconditions, provide an improved set of preconditions.
                 """
-            elif cause_of_failure['reason'] == 'harness_update_error':
+            elif cause_of_failure["reason"] == "harness_update_error":
                 # If we couldn't find the place where we were supposed to insert the precondition into the harness
                 user_prompt = f"""
-                    When attempting to insert the new preconditions into the harness, we could not find a match for the previous line of code you provided: {cause_of_failure['error'].prev_line}. \
+                    When attempting to insert the new preconditions into the harness, we could not find a match for the previous line of code you provided: {cause_of_failure["error"].prev_line}. \
                     
                     Please use the following steps to understand the cause of the error and fix your precondition appropriately.
                     1. Confirm this line of code is actually exists in the harness file and the syntax matches exactly. \
                     2. If the syntax was mismatched, please provide the same precondition but with a previous line of code that exactly matches the syntax. \
-                    3. If the syntax is correct, double-check that this previous line of code exists in the {cause_of_failure['error'].func} function. \
+                    3. If the syntax is correct, double-check that this previous line of code exists in the {cause_of_failure["error"].func} function. \
                     4. If you did not provide the correct function in your response, please provide the same precondition with the correct function that contains the previous line of code. \
                     
                     Follow this debugging process to revise your previous precondition.
                 """
-            elif cause_of_failure['reason'] == 'syntax_error':
+            elif cause_of_failure["reason"] == "syntax_error":
                 # If make failed to run, which is most likely due to a syntax error
                 user_prompt = """
                     The previously suggested precondition caused a syntax error in the harness. \
@@ -347,7 +336,7 @@ class LLMProofDebugger(OpenAIAgent):
                     
                     Otherwise, repeat your analysis and provide an improved set of preconditions.
                 """
-            elif cause_of_failure['reason'] == 'coverage_error':
+            elif cause_of_failure["reason"] == "coverage_error":
                 # If the target error line is no longer covered
                 user_prompt = """
                     Harness execution no longer reaches the line where the error occurred. \
@@ -357,10 +346,10 @@ class LLMProofDebugger(OpenAIAgent):
 
                     Finally, create a new precondition that still resolves the error without reducing line coverage in the target function.
                 """
-            elif cause_of_failure['reason'] == 'precondition_error':
+            elif cause_of_failure["reason"] == "precondition_error":
                 user_prompt = f"""
                     The previously suggested precondition introduced the following new CBMC errors to the harness: \
-                    {cause_of_failure['error'].new_errors}
+                    {cause_of_failure["error"].new_errors}
                     
                     First, consider the variables you used in the precondition and determine why they caused new errors in the harness. \
                     Then, evaluate which of these variables are absolutely necessary to resolve the original error, and restrict your next response to only those variables. \
@@ -368,42 +357,43 @@ class LLMProofDebugger(OpenAIAgent):
                 """
         try:
             response = self.client.responses.parse(
-                model='gpt-4.1', # Most recent tests were done on 4.1 I think
+                model="gpt-4.1",  # Most recent tests were done on 4.1 I think
                 instructions=LLMProofDebugger.SYSTEM_PROMPT,
-                input=[{'role': 'user', 'content': user_prompt}],
+                input=[{"role": "user", "content": user_prompt}],
                 text_format=ModelOutput,
                 previous_response_id=prev_response,
                 tool_choice="required",
-                tools=[{
-                    "type": "file_search",
-                    "vector_store_ids": [self.vector_store.id]
-                }],
-                temperature=1.0, # Sometimes constraints on preconditions are randomly ignored, so hopefully this will help fix it
-                include=["file_search_call.results"] 
+                tools=[{"type": "file_search", "vector_store_ids": [self.vector_store.id]}],
+                temperature=1.0,  # Sometimes constraints on preconditions are randomly ignored, so hopefully this will help fix it
+                include=["file_search_call.results"],
             )
             # print(f"Newly suggested preconditions:\n{'\n'.join([precon["precondition_as_code"] for precon in json.loads(response.output_text)["new_preconditions"]])}")
-            print(f"Newly suggested preconditions:\n{json.dumps(json.loads(response.output_text)["new_preconditions"], indent=4)}")
-            return { 'id': response.id, 'response': json.loads(response.output_text), 'usage': response.usage}
+            print(f"Newly suggested preconditions:\n{json.dumps(json.loads(response.output_text)['new_preconditions'], indent=4)}")
+            return {"id": response.id, "response": json.loads(response.output_text), "usage": response.usage}
         except Exception as e:
             print(f"Exception while making OpenAI API call: {str(e)}")
-        
-    def _backup_harness(self, backup_suffix='temp'):
+
+    def _backup_harness(self, backup_suffix="temp"):
         """
         Create an unmodified copy of the harness file that we can restore
         """
-        backup_path = os.path.join(os.path.dirname(self.harness_path), f'{self.harness_name}_harness_{backup_suffix}.c')
+        backup_path = os.path.join(os.path.dirname(self.harness_path), f"{self.harness_name}_harness_{backup_suffix}.c")
         shutil.copy(self.harness_path, backup_path)
         return backup_path
 
     def _update_harness(self, preconditions):
+        """
+        Insert the suggested preconditions into the harness.
+        Because the LLM is not good at correctly identifying line numbers, we place the new precondition relative to the next line of code instead.
+        """
 
         backup_path = self._backup_harness()
         new_precons = []
         new_precon_lines = []
 
-        with open(self.harness_path, 'r') as f:
+        with open(self.harness_path, "r") as f:
             harness_lines = f.readlines()
-        
+
         # By default, use the previous_line_of_code field to insert statements for better consistancy
         # If we can't find a match then rely on the provided line number
         try:
@@ -411,40 +401,47 @@ class LLMProofDebugger(OpenAIAgent):
                 # First try to match previous_line_of_code
                 in_function = False
                 found_insertion_point = False
-                if "(function model)" in precondition['function']['name']:
-                    precondition['function']['name'] = precondition['function']['name'].replace("(function model)", "").strip()
+                if "(function model)" in precondition["function"]["name"]:
+                    precondition["function"]["name"] = precondition["function"]["name"].replace("(function model)", "").strip()
                 for line_num, line in enumerate(harness_lines):
-                    if not in_function and re.match(fr'\s*[a-zA-Z0-9_ \*\s]+{precondition['function']['name']}\(', line): # Find the initial function call
+                    if not in_function and re.match(
+                        rf"\s*[a-zA-Z0-9_ \*\s]+{precondition['function']['name']}\(", line
+                    ):  # Find the initial function call
                         in_function = True
 
                     if not in_function:
                         continue
-                    
-                    # Remove all whitespace bc it can sometimes cause a false mismatch                    
-                    prev_line = precondition['previous_line_of_code'].replace(' ', '').strip()
-                    next_line = precondition['next_line_of_code'].replace(' ', '').strip()
-                    line = line.replace(' ', '').strip()
+
+                    # Remove all whitespace bc it can sometimes cause a false mismatch
+                    prev_line = precondition["previous_line_of_code"].replace(" ", "").strip()
+                    next_line = precondition["next_line_of_code"].replace(" ", "").strip()
+                    line = line.replace(" ", "").strip()
 
                     if prev_line in line:
-                        harness_lines.insert(line_num + 1, precondition['precondition_as_code'] + '\n')
+                        harness_lines.insert(line_num + 1, precondition["precondition_as_code"] + "\n")
                         new_precons.append(f"{precondition['precondition_as_code']} @ {precondition['function']['name']}:{line_num + 1}")
-                        new_precon_lines.append(line_num + 2) # Do + 2 because line numbers are 1-indexed
+                        new_precon_lines.append(line_num + 2)  # Do + 2 because line numbers are 1-indexed
                         found_insertion_point = True
                         break
                     elif next_line != "" and next_line in line:
-                        harness_lines.insert(line_num, precondition['precondition_as_code'] + '\n')
+                        harness_lines.insert(line_num, precondition["precondition_as_code"] + "\n")
                         new_precons.append(f"{precondition['precondition_as_code']} @ {precondition['function']['name']}:{line_num}")
                         new_precon_lines.append(line_num + 1)
                         found_insertion_point = True
                         break
                 if not found_insertion_point:
-                    raise InsertError("Could not find line matching LLM-provided precondition", prev_line=precondition['previous_line_of_code'], next_line=precondition['next_line_of_code'], func=precondition['function']['name'])        
-                
+                    raise InsertError(
+                        "Could not find line matching LLM-provided precondition",
+                        prev_line=precondition["previous_line_of_code"],
+                        next_line=precondition["next_line_of_code"],
+                        func=precondition["function"]["name"],
+                    )
+
         except IndexError as e:
             print(f"Error inserting precondition: {e}")
             raise e
 
-        with open(self.harness_path, 'w') as f:
+        with open(self.harness_path, "w") as f:
             f.writelines(harness_lines)
 
         return backup_path, new_precons, new_precon_lines
@@ -457,4 +454,3 @@ class LLMProofDebugger(OpenAIAgent):
         shutil.copy(backup_path, self.harness_path)
         print(f"Restored harness from {backup_path} to {self.harness_path}")
         os.remove(backup_path)
-

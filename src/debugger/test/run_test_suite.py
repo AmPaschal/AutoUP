@@ -9,14 +9,11 @@ import signal
 import traceback
 import sys
 from dotenv import load_dotenv
-from AutoUP.src.debugger.debugger import LLMProofDebugger
+from debugger.debugger import LLMProofDebugger
 import shutil
-from AutoUP.src.debugger.test.generate_html_report import generate_html_report
+from debugger.test.generate_html_report import generate_html_report
 load_dotenv()
 
-"""
-Runs the 18 test cases we have
-"""
 
 def launch_results_server(results, port):
     if port == -1:
@@ -57,42 +54,11 @@ def launch_results_server(results, port):
             httpd.server_close()
             print("Server closed.")
 
-# def test_parser():
-#     args = {
-#         "_on_rd_init_1": ["_on_rd_init", "_on_rd_init_precon_1"],
-#         "_on_rd_init_2": ["_on_rd_init", "_on_rd_init_precon_2"],
-#         "_on_rd_init_3": ["_on_rd_init", "_on_rd_init_precon_3"],
-#         "_on_rd_init_4": ["_on_rd_init", "_on_rd_init_precon_4"],
-#         "gcoap_dns_server_proxy_get_1": ["gcoap_dns_server_proxy_get", "gcoap_dns_server_proxy_get_precon_1"],
-#         "gcoap_dns_server_proxy_get_2": ["gcoap_dns_server_proxy_get", "gcoap_dns_server_proxy_get_precon_2"],
-#         "_gcoap_forward_proxy_copy_options_1": ["_gcoap_forward_proxy_copy_options", "_gcoap_forward_proxy_copy_options_precon_1"],
-#         "_gcoap_forward_proxy_copy_options_2": ["_gcoap_forward_proxy_copy_options", "_gcoap_forward_proxy_copy_options_precon_2"],
-#         "_iphc_ipv6_encode_1": ["_iphc_ipv6_encode", "_iphc_ipv6_encode_precon_1"],
-#         "_iphc_ipv6_encode_2": ["_iphc_ipv6_encode", "_iphc_ipv6_encode_precon_2"],
-#         "dns_msg_parse_reply_1": ["dns_msg_parse_reply", "dns_msg_parse_reply_precon_1"],
-#         "dns_msg_parse_reply_2": ["dns_msg_parse_reply", "dns_msg_parse_reply_precon_2"],
-#         "_rbuf_add_1": ["_rbuf_add2", "_rbuf_add_precon_1"],
-#         "_rbuf_add_2": ["_rbuf_add2", "_rbuf_add_precon_2"],
-#         "_rbuf_add_3": ["_rbuf_add2", "_rbuf_add_precon_3"],
-#         "_rbuf_add_4": ["_rbuf_add2", "_rbuf_add_precon_4"],
-#         "_rbuf_add_5": ["_rbuf_add2", "_rbuf_add_precon_5"],
-#         "_rbuf_add_6": ["_rbuf_add2", "_rbuf_add_precon_6"]
-#     }
-
-#     for case, args in args.items():
-#         print(f"\n===== Running {case} =====")
-
-#         try:
-#             extract_errors_and_payload(args[0], args[1])
-        
-#         except Exception as e:
-#             print(f"Error running {case}: {e}")
-#             # Uncomment next line if you want to stop on first error
-#             # sys.exit(result.returncode)
-#         else:
-#             print(f"===== Completed {case} Successfully =====\n")
-
 def _remove_preconditions_and_make_backup(settings, report):
+    """
+    Removes the specified lines from the harness and creates a backup that can be restored after testing
+    """
+
     if not os.path.exists('./backups'):
         os.makedirs('./backups')
 
@@ -124,7 +90,7 @@ def _remove_preconditions_and_make_backup(settings, report):
     return backup_path
 
 def _restore_backup(backup_path, settings):
-    # First save a copy of the final harness
+    # First save a copy of the final LLM-modified harness
     results_path = './results'
     if not os.path.exists(results_path):
         os.makedirs(results_path)
@@ -135,13 +101,14 @@ def _restore_backup(backup_path, settings):
     if not os.path.exists(backup_path):
         raise FileNotFoundError("No backups found to restore from")
 
+    # Then restore the original
     shutil.copy(backup_path, settings['harness'])
     os.remove(backup_path)
     print("Backup harness restored successfully.")
 
-def test_workflow(harnesses=[], testing_rounds=1):
+def test_workflow(harnesses=[], repo='RIOT', testing_rounds=1):
 
-    with open('./configs/contiki_test_config.json', 'r') as f:
+    with open(f'./configs/{repo}_test_config.json', 'r') as f:
         config = json.load(f)
 
     openai_api_key = os.getenv("OPENAI_API_KEY", None)
@@ -324,6 +291,6 @@ if __name__ == '__main__':
     # if args.parser_only:
     #     test_parser()
     # else:
-    results = test_workflow(harnesses=args.harnesses, testing_rounds=args.rounds)
+    results = test_workflow(harnesses=args.harnesses, repo=args.repo, testing_rounds=args.rounds)
     if results is not None and args.render_results:
         launch_results_server(results, port=args.results_port)

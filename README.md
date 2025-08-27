@@ -4,6 +4,8 @@ This repo contains the components for a workflow that uses ChatGPT 4.1 iterate t
 
 You MUST have your OpenAI API key stored as an environment variable (either through the command line or from a .env file) called OPENAI_API_KEY in order to use this system.
 
+It is also highly recommended that you set PYTHONPATH to `/path/to/repo/AutoUP/` to avoid import issues.
+
 These tests all assume you have pulled our version of the RIOT and contiki repos to the same directory as `AutoUP/`, and that you have checked out the `AutoUP-multi-precon-test` branch for RIOT and the `AutoUP-testing` branch for contiki.
 
 # Repo Use
@@ -31,7 +33,7 @@ python src/run.py makefile <function_name> <harness_path> <target_func_path>
 
 Example:
 ```bash
-python src/run.py makefile _on_rd_init ./RIOT/cbmc/proofs/_on_rd_init/Makefile ./RIOT/sys/net/application_layer/cord/lc/cord_lc.c
+python src/run.py makefile _on_rd_init ../RIOT/cbmc/proofs/_on_rd_init/Makefile ../RIOT/sys/net/application_layer/cord/lc/cord_lc.c
 ```
 
 ### Debugger Mode
@@ -44,7 +46,7 @@ python src/run.py debugger <harness_path>
 
 Example:
 ```bash
-python script.py debugger ../RIOT/cbmc/proofs/_on_rd_init/_on_rd_init_harness.c
+python src/run.py debugger ../RIOT/cbmc/proofs/_on_rd_init/_on_rd_init_harness.c
 ```
 
 
@@ -56,7 +58,7 @@ Each module has a `<module>/tests/run_test_suite.py`, which is the massively pre
 
 For **debugger** mode, use `run_test_suite.py --help` to see the command line args needed. The tests are specified in the `configs/` subdir, with seperate config files for each repo. Each file contains a list of harnesses to test and specifies the lines of the harness to be removed before testing (which should all be lines with CPROVER_ASSUME statements). Feel free to add new harnesses to these files.
 
-For **makefile** mode, `run_test_suite.py` is currently essentially a copy of `run.py` that will be implemented properly later.
+For **makefile** mode, `run_test_suite.py` currently has no functional difference from `run.py`, and will be implemented properly later.
 
 # Modules
 

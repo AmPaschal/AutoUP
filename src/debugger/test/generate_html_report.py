@@ -3,7 +3,7 @@ import html
 from typing import Dict, Any, List
 from datetime import datetime
 
-# 95% of this code was generated using Claude 4
+# Most of this code was generated using Claude 4
 
 class HTMLTestReportGenerator:
     def __init__(self):

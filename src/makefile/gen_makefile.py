@@ -5,9 +5,9 @@ import subprocess
 import json
 import shutil
 from dotenv import load_dotenv
-from agent import OpenAIAgent
+from src.agent import OpenAIAgent
 from pathlib import Path
-from makefile.output_models import MakefileFields
+from src.makefile.output_models import MakefileFields
 
 load_dotenv()
 
@@ -39,8 +39,10 @@ class LLMMakefileGenerator(OpenAIAgent):
         )
         self.func_file = target_file_path
         self.root_dir = os.path.dirname(self.harness_path) # This will get overwritten later, this is the dir where we run the bash commands
+        self.curr_dir = Path(__file__).parent
 
-        with open('./Makefile.example', 'r') as file:
+
+        with open(self.curr_dir / './Makefile.example', 'r') as file:
             example_makefile = file.read()
             LLMMakefileGenerator.SYSTEM_PROMPT += f"\n```\n{example_makefile}\n```\n"
 
@@ -82,12 +84,12 @@ class LLMMakefileGenerator(OpenAIAgent):
 
     def generate_makefile(self):
 
-        # First, go through and insert anything we need programmatically
+        # First, go through the template and insert anything that can be done programmatically into the makefile
         self._upload_vector_store_files()
 
         backup_path = self._backup_makefile()
         makefile_lines = []
-        with open('./Makefile.template', 'r') as file:
+        with open(self.curr_dir / './Makefile.template', 'r') as file:
             for line in file.readlines():
                 if line.startswith('ROOT'):
                     root_path = line.split('=')[1].strip()
@@ -107,6 +109,7 @@ class LLMMakefileGenerator(OpenAIAgent):
         with open(self.harness_path, 'w') as file:
             file.write(makefile_content)
 
+        # The 10 attempt limit is completely arbitrary and should definitely be changed later
         make_results = self.run_make()
         attempts = 0
         while make_results['stderr'] != "" and attempts < 10:
@@ -115,8 +118,6 @@ class LLMMakefileGenerator(OpenAIAgent):
             makefile_content = self.update_makefile(makefile_content, makefile_updates['response'])
             make_results = self.run_make()
             attempts += 1
-
-        # self.run_make()
 
         # self._restore_makefile(backup_path)
 
@@ -320,18 +321,4 @@ class LLMMakefileGenerator(OpenAIAgent):
 
     def _update_files_in_vector_store(self):
         pass
-
-if __name__ == "__main__":
-
-    if len(sys.argv) < 3:
-        print("Usage: python gen_makefile.py <target function> <file path>")
-
-    target_function = sys.argv[1]
-    file_path = sys.argv[2]
-    openai_api_key = os.getenv("OPENAI_API_KEY", None)
-    if not openai_api_key:
-        raise EnvironmentError("No OpenAI API key found")
-
-    makefile_generator = LLMMakefileGenerator(target_function, os.getcwd(), file_path, openai_api_key)
-    makefile_generator.generate_makefile()
 
