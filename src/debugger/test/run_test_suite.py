@@ -9,9 +9,9 @@ import signal
 import traceback
 import sys
 from dotenv import load_dotenv
-from error_analysis.debugger import LLMProofDebugger
+from AutoUP.src.debugger.debugger import LLMProofDebugger
 import shutil
-from error_analysis.test.generate_html_report import generate_html_report
+from AutoUP.src.debugger.test.generate_html_report import generate_html_report
 load_dotenv()
 
 """
@@ -283,6 +283,12 @@ def test_workflow(harnesses=[], testing_rounds=1):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Test runner configuration")
+    parser.add_argument(
+        "--repo",
+        choices=["contiki", "RIOT"],
+        required=True,
+        help="Specify which harness repo to test (contiki or RIOT)."
+    )
     parser.add_argument(
         "--harnesses",
         nargs="*",

@@ -3,11 +3,11 @@ import json
 import re
 import shutil
 import traceback
-from error_analysis.advice import get_advice_for_cluster
-from error_analysis.parser import extract_errors_and_payload
-from error_analysis.error_classes import CoverageError, PreconditionError, InsertError
-from error_analysis.output_models import ModelOutput
-from error_analysis.error_report import ErrorReport
+from debugger.advice import get_advice_for_cluster
+from debugger.parser import extract_errors_and_payload
+from debugger.error_classes import CoverageError, PreconditionError, InsertError
+from debugger.output_models import ModelOutput
+from debugger.error_report import ErrorReport
 from agent import OpenAIAgent
 
 class LLMProofDebugger(OpenAIAgent):

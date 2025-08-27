@@ -108,11 +108,13 @@ class LLMMakefileGenerator(OpenAIAgent):
             file.write(makefile_content)
 
         make_results = self.run_make()
-        while make_results['stderr'] != "":
+        attempts = 0
+        while make_results['stderr'] != "" and attempts < 10:
 
             makefile_updates = self.llm_complete_makefile(makefile_content, make_results['stderr'])
             makefile_content = self.update_makefile(makefile_content, makefile_updates['response'])
             make_results = self.run_make()
+            attempts += 1
 
         # self.run_make()
 

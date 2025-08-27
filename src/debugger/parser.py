@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 from collections import defaultdict
 import json
 import sys
-from error_analysis.error_classes import CoverageError, PreconditionError
+from debugger.error_classes import CoverageError, PreconditionError
 
 def run_command(command, cwd=None):
 
