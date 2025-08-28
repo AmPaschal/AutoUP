@@ -11,8 +11,8 @@ from src.makefile.output_models import MakefileFields
 
 load_dotenv()
 
-class LLMMakefileGenerator(OpenAIAgent):
 
+class LLMMakefileGenerator(OpenAIAgent):
     SYSTEM_PROMPT = """
         You are a helpful AI assistant that is assisting in the development of Makefiles for CBMC proof harnesses. \
         Your objective is to complete the provided Makefile template such that the harness compiles successfully with CBMC. \
@@ -31,18 +31,12 @@ class LLMMakefileGenerator(OpenAIAgent):
         """
 
     def __init__(self, target_func, harness_path, target_file_path, openai_api_key, test_mode=False):
-        super().__init__(
-            openai_api_key,
-            agent_name="makefile",
-            harness_name=target_func,
-            harness_path=harness_path
-        )
+        super().__init__(openai_api_key, agent_name="makefile", harness_name=target_func, harness_path=harness_path)
         self.func_file = target_file_path
-        self.root_dir = os.path.dirname(self.harness_path) # This will get overwritten later, this is the dir where we run the bash commands
+        self.root_dir = os.path.dirname(self.harness_path)  # This will get overwritten later, this is the dir where we run the bash commands
         self.curr_dir = Path(__file__).parent
 
-
-        with open(self.curr_dir / './Makefile.example', 'r') as file:
+        with open(self.curr_dir / "./Makefile.example", "r") as file:
             example_makefile = file.read()
             LLMMakefileGenerator.SYSTEM_PROMPT += f"\n```\n{example_makefile}\n```\n"
 
@@ -50,9 +44,7 @@ class LLMMakefileGenerator(OpenAIAgent):
         """Run a command-line command and return the output."""
         try:
             print("Running command: ", cmd)
-            result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, check=True, cwd=self.root_dir
-            )
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True, cwd=self.root_dir)
             return {"cmd": cmd, "exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
         except subprocess.CalledProcessError as e:
             print(f"Command failed with error:\n{e.stderr}")
@@ -60,11 +52,9 @@ class LLMMakefileGenerator(OpenAIAgent):
 
     def run_make(self):
         try:
-            result = subprocess.run(
-                "make", shell=True, capture_output=True, text=True, cwd=os.path.dirname(self.harness_path), timeout=60
-            )
+            result = subprocess.run("make", shell=True, capture_output=True, text=True, cwd=os.path.dirname(self.harness_path), timeout=60)
             print(result.stdout)
-            print(result.stderr) 
+            print(result.stderr)
             return {"exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
         except Exception as e:
             if isinstance(e, subprocess.TimeoutExpired):
@@ -73,7 +63,7 @@ class LLMMakefileGenerator(OpenAIAgent):
             else:
                 print(f"An error occurred while running make: {e}")
                 return result.stderr
-            
+
     def _upload_vector_store_files(self):
         upload_complete = self.client.vector_stores.files.upload_and_poll(
             vector_store_id=self.vector_store.id,
@@ -83,39 +73,37 @@ class LLMMakefileGenerator(OpenAIAgent):
         return upload_complete
 
     def generate_makefile(self):
-
         # First, go through the template and insert anything that can be done programmatically into the makefile
         self._upload_vector_store_files()
 
         backup_path = self._backup_makefile()
         makefile_lines = []
-        with open(self.curr_dir / './Makefile.template', 'r') as file:
+        with open(self.curr_dir / "./Makefile.template", "r") as file:
             for line in file.readlines():
-                if line.startswith('ROOT'):
-                    root_path = line.split('=')[1].strip()
+                if line.startswith("ROOT"):
+                    root_path = line.split("=")[1].strip()
                     self.root_dir = (Path(os.path.dirname(self.harness_path)) / Path(root_path)).resolve()
 
-                if line.startswith('LINK'):
+                if line.startswith("LINK"):
                     # Insert the file path
-                    makefile_lines.append('LINK = ' + re.sub(rf"{str(self.root_dir)}/(.*)", r"$(ROOT)/\1", str(self.func_file)))
-                elif line.startswith('H_ENTRY'):
+                    makefile_lines.append("LINK = " + re.sub(rf"{str(self.root_dir)}/(.*)", r"$(ROOT)/\1", str(self.func_file)))
+                elif line.startswith("H_ENTRY"):
                     # Insert the target function
-                    makefile_lines.append(f'H_ENTRY = {self.harness_name}')
+                    makefile_lines.append(f"H_ENTRY = {self.harness_name}")
                 else:
                     makefile_lines.append(line)
-        
-        makefile_content = ''.join(makefile_lines)
-        
-        with open(self.harness_path, 'w') as file:
+
+        makefile_content = "".join(makefile_lines)
+
+        with open(self.harness_path, "w") as file:
             file.write(makefile_content)
 
         # The 10 attempt limit is completely arbitrary and should definitely be changed later
         make_results = self.run_make()
         attempts = 0
-        while make_results['stderr'] != "" and attempts < 10:
-
-            makefile_updates = self.llm_complete_makefile(makefile_content, make_results['stderr'])
-            makefile_content = self.update_makefile(makefile_content, makefile_updates['response'])
+        while make_results["stderr"] != "" and attempts < 10:
+            makefile_updates = self.llm_complete_makefile(makefile_content, make_results["stderr"])
+            makefile_content = self.update_makefile(makefile_content, makefile_updates["response"])
             make_results = self.run_make()
             attempts += 1
 
@@ -152,10 +140,8 @@ class LLMMakefileGenerator(OpenAIAgent):
         If no additions are needed for that field, return an empty array for that field. Please only include one copy of each output field. \
         """
 
-        llm_tools = [{
-                "type": "file_search",
-                "vector_store_ids": [self.vector_store.id]
-            },
+        llm_tools = [
+            {"type": "file_search", "vector_store_ids": [self.vector_store.id]},
             {
                 "type": "function",
                 "name": "run_bash_command",
@@ -163,34 +149,28 @@ class LLMMakefileGenerator(OpenAIAgent):
                 "strict": True,
                 "parameters": {
                     "type": "object",
-                    "properties": {
-                        "cmd": {
-                            "type": "string",
-                            "description": "A bash command-line command to run"
-                        }
-                    },
+                    "properties": {"cmd": {"type": "string", "description": "A bash command-line command to run"}},
                     "required": ["cmd"],
-                    "additionalProperties": False
-                }
-            }
+                    "additionalProperties": False,
+                },
+            },
         ]
-        
-        input_messages = [{'role': 'user', 'content': user_prompt}]
+
+        input_messages = [{"role": "user", "content": user_prompt}]
 
         response = self.client.responses.create(
-            model='gpt-4.1', # Most recent tests were done on 4.1 I think
+            model="gpt-4.1",  # Most recent tests were done on 4.1 I think
             instructions=LLMMakefileGenerator.SYSTEM_PROMPT,
             input=input_messages,
             # text_format=MakefileFields,
             tool_choice="auto",
             tools=llm_tools,
-            temperature=1.0, # Sometimes constraints on preconditions are randomly ignored, so hopefully this will help fix it
-            include=["file_search_call.results"] 
+            temperature=1.0,  # Sometimes constraints on preconditions are randomly ignored, so hopefully this will help fix it
+            include=["file_search_call.results"],
         )
 
         # Continue running bash commands for the model until it gives an output message
         while not any([output.type == "message" for output in response.output]):
-
             for tool_call in response.output:
                 if tool_call.type != "function_call":
                     continue
@@ -198,15 +178,11 @@ class LLMMakefileGenerator(OpenAIAgent):
                 func_args = json.loads(tool_call.arguments)
 
                 if func_name == "run_bash_command":
-                    bash_result = self.run_bash_command(func_args['cmd'])
+                    bash_result = self.run_bash_command(func_args["cmd"])
                     input_messages.append(tool_call)
-                    input_messages.append({
-                        "type": "function_call_output",
-                        "call_id": tool_call.call_id,
-                        "output": str(bash_result)
-                    })
+                    input_messages.append({"type": "function_call_output", "call_id": tool_call.call_id, "output": str(bash_result)})
                     response = self.client.responses.create(
-                        model='gpt-4.1', # Most recent tests were done on 4.1 I think
+                        model="gpt-4.1",  # Most recent tests were done on 4.1 I think
                         instructions=LLMMakefileGenerator.SYSTEM_PROMPT,
                         input=input_messages,
                         text={
@@ -217,96 +193,81 @@ class LLMMakefileGenerator(OpenAIAgent):
                                 "schema": {
                                     "type": "object",
                                     "properties": {
-                                        "LINK": {
-                                            "type": "array",
-                                            "items": { "type": "string" }
-                                        },
-                                        "H_CBMCFLAGS": {
-                                            "type": "array",
-                                            "items": { "type": "string" }
-                                        },
-                                        "H_DEF": {
-                                            "type": "array",
-                                            "items": { "type": "string" }
-                                        },
-                                        "H_INC": {
-                                            "type": "array",
-                                            "items": { "type": "string" }
-                                        },
-                                        "reasoning": {
-                                            "type": 'string'
-                                        }
+                                        "LINK": {"type": "array", "items": {"type": "string"}},
+                                        "H_CBMCFLAGS": {"type": "array", "items": {"type": "string"}},
+                                        "H_DEF": {"type": "array", "items": {"type": "string"}},
+                                        "H_INC": {"type": "array", "items": {"type": "string"}},
+                                        "reasoning": {"type": "string"},
                                     },
                                     "additionalProperties": False,
                                     "required": ["LINK", "H_CBMCFLAGS", "H_DEF", "H_INC", "reasoning"],
                                 },
-
                             }
                         },
                         tool_choice="auto",
                         tools=llm_tools,
-                        temperature=1.0, # Sometimes constraints on preconditions are randomly ignored, so hopefully this will help fix it
-                        include=["file_search_call.results"] 
+                        temperature=1.0,  # Sometimes constraints on preconditions are randomly ignored, so hopefully this will help fix it
+                        include=["file_search_call.results"],
                     )
                 else:
                     raise ValueError(f"Unknown function call: {func_name}")
 
-        return { 'id': response.id, 'response': json.loads(response.output_text), 'usage': response.usage}
+        return {"id": response.id, "response": json.loads(response.output_text), "usage": response.usage}
 
     def update_makefile(self, makefile_content, makefile_updates):
-        link = makefile_updates.get('LINK', [])
-        cbmc_flags = makefile_updates.get('H_CBMCFLAGS', [])
-        env_vars = makefile_updates.get('H_DEF', [])
-        include_paths = makefile_updates.get('H_INC', [])
+        link = makefile_updates.get("LINK", [])
+        cbmc_flags = makefile_updates.get("H_CBMCFLAGS", [])
+        env_vars = makefile_updates.get("H_DEF", [])
+        include_paths = makefile_updates.get("H_INC", [])
 
-        ins_h_inc = False # Need a variable to track this bc there are initially several includes on multiple lines
+        ins_h_inc = False  # Need a variable to track this bc there are initially several includes on multiple lines
 
         updated_lines = []
         for line in makefile_content.splitlines():
-            if line.startswith('LINK =') and len(link) > 0:
-                # Insert the file path 
-                updated_lines.append(line + ' \\')
+            if line.startswith("LINK =") and len(link) > 0:
+                # Insert the file path
+                updated_lines.append(line + " \\")
                 for l in link:
-                    updated_lines.append(' ' * 7 + l + ' \\')
+                    updated_lines.append(" " * 7 + l + " \\")
 
-            elif line.startswith('H_CBMCFLAGS =') and len(cbmc_flags) > 0:
+            elif line.startswith("H_CBMCFLAGS =") and len(cbmc_flags) > 0:
                 # Insert the target function
-                updated_lines.append(line + ' '.join(cbmc_flags))
+                updated_lines.append(line + " ".join(cbmc_flags))
 
-            elif line.startswith('H_DEF =') and len(env_vars) > 0:
-                line = line + ' ' + env_vars[0] + ' \\'
+            elif line.startswith("H_DEF =") and len(env_vars) > 0:
+                line = line + " " + env_vars[0] + " \\"
                 updated_lines.append(line)
                 for var in env_vars[1:]:
-                    updated_lines.append(' ' * 7 + var + ' \\')
-            
-            elif line.startswith('H_INC =') and len(include_paths) > 0:
+                    updated_lines.append(" " * 7 + var + " \\")
+
+            elif line.startswith("H_INC =") and len(include_paths) > 0:
                 ins_h_inc = True
                 updated_lines.append(line)
 
-            elif ins_h_inc and (line == '' or line.startswith('#') or line.startswith('MAKE_INCLUDE_PATH')):
+            elif ins_h_inc and (line == "" or line.startswith("#") or line.startswith("MAKE_INCLUDE_PATH")):
                 # Once we've iterated past the other H_INC statements
                 for inc in include_paths:
-                    updated_lines.append(' ' * 8 + inc + ' \\')
+                    updated_lines.append(" " * 8 + inc + " \\")
 
                 updated_lines.append(line)
                 ins_h_inc = False
-                    
+
             else:
                 updated_lines.append(line)
 
-        makefile_content = '\n'.join(updated_lines)
-        
+        makefile_content = "\n".join(updated_lines)
+
         # IDK where I'd be dumping these file contents for now
-        with open(self.harness_path, 'w') as file:
+        with open(self.harness_path, "w") as file:
             file.write(makefile_content)
 
         return makefile_content
 
-    def _backup_makefile(self, backup_suffix='temp'):
+    def _backup_makefile(self, backup_suffix="temp"):
         """
         Create an unmodified copy of the harness file that we can restore
         """
-        backup_path = os.path.join(os.path.dirname(self.harness_path), 'Makefile.backup')
+        backup_path = os.path.join(os.path.dirname(self.harness_path), "Makefile.backup")
         shutil.copy(self.harness_path, backup_path)
         return backup_path
 
@@ -321,4 +282,3 @@ class LLMMakefileGenerator(OpenAIAgent):
 
     def _update_files_in_vector_store(self):
         pass
-

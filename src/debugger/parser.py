@@ -8,7 +8,7 @@ from pathlib import Path
 from hashlib import sha256
 from bs4 import BeautifulSoup
 from collections import defaultdict
-from debugger.error_classes import CoverageError, PreconditionError
+from src.debugger.error_classes import CoverageError, PreconditionError
 
 
 def run_command(command, cwd=None):

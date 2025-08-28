@@ -3,12 +3,13 @@ import json
 import re
 import shutil
 import traceback
-from debugger.advice import get_advice_for_cluster
-from debugger.parser import extract_errors_and_payload
-from debugger.error_classes import CoverageError, PreconditionError, InsertError
-from debugger.output_models import ModelOutput
-from debugger.error_report import ErrorReport
-from agent import OpenAIAgent
+from pathlib import Path
+from src.debugger.advice import get_advice_for_cluster
+from src.debugger.parser import extract_errors_and_payload
+from src.debugger.error_classes import CoverageError, PreconditionError, InsertError
+from src.debugger.output_models import ModelOutput
+from src.debugger.error_report import ErrorReport
+from src.agent import OpenAIAgent
 
 
 class LLMProofDebugger(OpenAIAgent):
@@ -54,8 +55,9 @@ class LLMProofDebugger(OpenAIAgent):
 
         if self.harness_name == "_rbuf_add":
             self.harness_name = "_rbuf_add2"
-
-        self.payload_dir = os.path.join("payloads", self.harness_name)
+        self.curr_dir = Path(__file__).parent
+        print(self.curr_dir)
+        self.payload_dir = os.path.join(self.curr_dir, "payloads", self.harness_name)
 
     def _upload_vector_store_files(self):
         """
