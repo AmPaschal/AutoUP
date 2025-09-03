@@ -8,9 +8,9 @@ from debugger.parser import extract_errors_and_payload
 from debugger.error_classes import CoverageError, PreconditionError, InsertError
 from debugger.output_models import ModelOutput
 from debugger.error_report import ErrorReport
-from agent import OpenAIAgent
+from agent import AIAgent
 
-class LLMProofDebugger(OpenAIAgent):
+class LLMProofDebugger(AIAgent):
     """Proof writer using LLMs to generate CBMC proofs"""
 
 

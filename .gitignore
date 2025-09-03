@@ -3,4 +3,5 @@
 **/results/**
 **/__pycache__/
 .env
+.venv/
 **/backups/**

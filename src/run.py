@@ -1,10 +1,17 @@
 import sys
 import os
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
-from AutoUP.src.debugger.debugger import LLMProofDebugger
-from AutoUP.src.makefile.gen_makefile import LLMMakefileGenerator
+from debugger.debugger import LLMProofDebugger
+from makefile.gen_makefile import LLMMakefileGenerator
 load_dotenv()
+
+# Configure logging once, usually at the entry point of your program
+logging.basicConfig(
+    level=logging.INFO,  # Set minimum log level
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
 if __name__ == "__main__":
     args = sys.argv[1:]  # skip the script name
@@ -20,15 +27,16 @@ if __name__ == "__main__":
         raise EnvironmentError("No OpenAI API key found")
 
     if mode == "makefile":
-        if len(args) != 4:
+        if len(args) != 5:
             print("Error: 'makefile' mode requires args: <target_function_name> <harness_path> <target_func_path>.")
             sys.exit(1)
-        _, arg1, arg2, arg3 = args
+        _, arg1, arg2, arg3, arg4 = args
         print(f"Running in makefile mode with args: {arg1}, {arg2}, {arg3}")
 
         cwd = Path.cwd()
 
-        generator = LLMMakefileGenerator(target_func=arg1, harness_path=(cwd / arg2).resolve(), target_file_path=(cwd / arg3).resolve(), openai_api_key=openai_api_key, test_mode=False)
+        generator = LLMMakefileGenerator(root_dir=arg2, harness_dir=arg3, target_func=arg1, target_file_path=arg4)
+        # generator = LLMMakefileGenerator(target_func=arg1, harness_dir=(cwd / arg2).resolve(), target_file_path=(cwd / arg3).resolve(), openai_api_key=openai_api_key, test_mode=False)
         generator.generate_makefile()
     
     elif mode == "debugger":

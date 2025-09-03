@@ -2,15 +2,15 @@
 # Be aware of how many directories deep you go!
 
 # The value of root changes project by project but for now I'll have it be the static RIOT path
-ROOT ?= ../../..
+ROOT ?= {ROOT}
 
 # Defines file(s) to link to harness, MUST be a full path!
 # (We recommend $(ROOT)/os/... for defining these paths)
 # Each file is space seperated, and multiple can be defined
-LINK = 
+LINK = {LINK}
 
 # Harness to utilize, omit the extension!
-H_ENTRY = 
+H_ENTRY = {H_ENTRY}
 
 # Extra CBMC flags to be passed during CBMC analysis
 H_CBMCFLAGS = --nondet-static --unwind 1 # Rest to be filled in by LLM

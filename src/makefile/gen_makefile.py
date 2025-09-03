@@ -1,57 +1,105 @@
+import random
 import re
 import sys
 import os
 import subprocess
 import json
 import shutil
+import logging
+import time
+import tiktoken
+import traceback
+import openai
+from typing import Any, Callable, Type
 from dotenv import load_dotenv
-from agent import OpenAIAgent
+from agent import AIAgent
 from pathlib import Path
 from makefile.output_models import MakefileFields
+from commons.models import GPT
 
 load_dotenv()
 
-class LLMMakefileGenerator(OpenAIAgent):
+class LLMMakefileGenerator(AIAgent):
 
-    SYSTEM_PROMPT = """
-        You are a helpful AI assistant that is assisting in the development of Makefiles for CBMC proof harnesses. \
-        Your objective is to complete the provided Makefile template such that the harness compiles successfully with CBMC. \
-        
-        In completing the Makefile, you should will need to: \
-        1. Identify and include any paths necessary for successful compilation (H_INC). \
-        2. Specify any necessary CBMC flags (H_CBMCFLAGS) required for the harness, such as loop unwinding limits. \
-        3. Define any environment variables (H_DEF) that are needed to resolve errors during compilation. \
-        4. List any additional source files or libraries (LINK) that need to be linked. \
-
-        You have been provided with the file containing the definition of the target function, and any include statements that may be relevant. \
-        Additionally, you have access to a function that will allow you to run bash commands such as grep that can help search the repo for relevant information. \
-        If the makefile fails to compile, you will provided with the error output, and you should iteratively refine the Makefile until it compiles successfully. \
-        
-        Below is an example of what a completed Makefile might look like:
-        """
-
-    def __init__(self, target_func, harness_path, target_file_path, openai_api_key, test_mode=False):
+    def __init__(self, root_dir, harness_dir, target_func, target_file_path):
         super().__init__(
-            openai_api_key,
-            agent_name="makefile",
-            harness_name=target_func,
-            harness_path=harness_path
+            "MakefileGenerator"
         )
-        self.func_file = target_file_path
-        self.root_dir = os.path.dirname(self.harness_path) # This will get overwritten later, this is the dir where we run the bash commands
+        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
+        
+        self.root_dir = os.path.abspath(root_dir)
+        self.harness_dir = os.path.abspath(harness_dir)
+        self.target_func = target_func
+        self.target_file_path = os.path.abspath(target_file_path)
+        self._max_attempts = 5
 
-        with open('./Makefile.example', 'r') as file:
-            example_makefile = file.read()
-            LLMMakefileGenerator.SYSTEM_PROMPT += f"\n```\n{example_makefile}\n```\n"
+    def truncate_result_custom(self, result, cmd: str, max_input_tokens: int, model: str) -> dict:
+        """
+        Truncates stdout and stderr of a result object to fit within a token limit.
+        Rules:
+            - If stderr > 50% of max tokens, truncate stderr first.
+            - Otherwise, keep stderr in full and truncate stdout.
+            - Replace truncated content with '[Truncated to fit context window]'.
+        
+        Args:
+            result: The result object with attributes `returncode`, `stdout`, `stderr`.
+            cmd (str): The executed command.
+            max_input_tokens (int): Maximum total tokens allowed.
+            model (str): Model name for tokenization.
+        
+        Returns:
+            dict: Dictionary with truncated stdout/stderr and command info.
+        """
+        encoding = tiktoken.get_encoding("cl100k_base")
+        
+        stdout_tokens = encoding.encode(result.stdout)
+        stderr_tokens = encoding.encode(result.stderr)
+
+        total_tokens = len(stdout_tokens) + len(stderr_tokens)
+
+        if total_tokens > 130000:
+            max_input_tokens = 180000      
+        
+        trunc_msg = "[Truncated to fit context window]"
+        trunc_msg_tokens = encoding.encode(trunc_msg)
+        
+        stderr_limit_threshold = max_input_tokens // 2
+        
+        if len(stderr_tokens) > stderr_limit_threshold:
+            # Truncate stderr to 50% of max tokens
+            allowed_stderr_tokens = stderr_limit_threshold - len(trunc_msg_tokens)
+            truncated_stderr = encoding.decode(stderr_tokens[:allowed_stderr_tokens]) + " " + trunc_msg
+            # Truncate stdout to fit remaining tokens
+            remaining_tokens = max_input_tokens - len(encoding.encode(truncated_stderr))
+            allowed_stdout_tokens = max(0, remaining_tokens - len(trunc_msg_tokens))
+            truncated_stdout = encoding.decode(stdout_tokens[:allowed_stdout_tokens])
+            if allowed_stdout_tokens < len(stdout_tokens):
+                truncated_stdout += " " + trunc_msg
+        else:
+            # Keep stderr in full, truncate stdout to fit
+            remaining_tokens = max_input_tokens - len(stderr_tokens)
+            allowed_stdout_tokens = max(0, remaining_tokens - len(trunc_msg_tokens))
+            truncated_stdout = encoding.decode(stdout_tokens[:allowed_stdout_tokens])
+            truncated_stderr = result.stderr
+            if allowed_stdout_tokens < len(stdout_tokens):
+                truncated_stdout += " " + trunc_msg
+        
+        return {
+            "cmd": cmd,
+            "exit_code": result.returncode,
+            "stdout": truncated_stdout,
+            "stderr": truncated_stderr
+        }
+
 
     def run_bash_command(self, cmd):
         """Run a command-line command and return the output."""
         try:
-            print("Running command: ", cmd)
+            logging.info(f"Running command: {cmd}")
             result = subprocess.run(
                 cmd, shell=True, capture_output=True, text=True, check=True, cwd=self.root_dir
             )
-            return {"cmd": cmd, "exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
+            return self.truncate_result_custom(result, cmd, max_input_tokens=3000, model='gpt-5')
         except subprocess.CalledProcessError as e:
             print(f"Command failed with error:\n{e.stderr}")
             return None
@@ -59,18 +107,18 @@ class LLMMakefileGenerator(OpenAIAgent):
     def run_make(self):
         try:
             result = subprocess.run(
-                "make", shell=True, capture_output=True, text=True, cwd=os.path.dirname(self.harness_path), timeout=60
+                "make", shell=True, capture_output=True, text=True, cwd=self.harness_dir, timeout=60
             )
-            print(result.stdout)
-            print(result.stderr) 
-            return {"exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
+            logging.info('Stdout:\n' + result.stdout)
+            logging.info('Stderr:\n' + result.stderr) 
+            return {"error": 0, "exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
         except Exception as e:
             if isinstance(e, subprocess.TimeoutExpired):
                 print("Make command timed out.")
-                return "timeout"
+                return {"error": -1}
             else:
                 print(f"An error occurred while running make: {e}")
-                return result.stderr
+                return {"error": -2}
             
     def _upload_vector_store_files(self):
         upload_complete = self.client.vector_stores.files.upload_and_poll(
@@ -80,81 +128,82 @@ class LLMMakefileGenerator(OpenAIAgent):
         )
         return upload_complete
 
-    def generate_makefile(self):
+    def get_relative_path(self, base_path, target_path):
+        """We want to get the relative path of target, in terms of how many ../ we need to get back to base"""
+        base_path = Path(base_path).resolve()
+        target_path = Path(target_path).resolve()
+        return target_path.relative_to(base_path)
+    
+    def get_backward_path(self, base_path, target_path):
+        """We want to get the relative path of target, in terms of how many ../ we need to get back to base"""
+        relative_path = self.get_relative_path(base_path, target_path)
 
-        # First, go through and insert anything we need programmatically
-        self._upload_vector_store_files()
+        up_levels = len(relative_path.parts)
 
-        backup_path = self._backup_makefile()
-        makefile_lines = []
-        with open('./Makefile.template', 'r') as file:
-            for line in file.readlines():
-                if line.startswith('ROOT'):
-                    root_path = line.split('=')[1].strip()
-                    self.root_dir = (Path(os.path.dirname(self.harness_path)) / Path(root_path)).resolve()
+        go_back = '/'.join([".."] * up_levels)
 
-                if line.startswith('LINK'):
-                    # Insert the file path
-                    makefile_lines.append('LINK = ' + re.sub(rf"{str(self.root_dir)}/(.*)", r"$(ROOT)/\1", str(self.func_file)))
-                elif line.startswith('H_ENTRY'):
-                    # Insert the target function
-                    makefile_lines.append(f'H_ENTRY = {self.harness_name}')
-                else:
-                    makefile_lines.append(line)
-        
-        makefile_content = ''.join(makefile_lines)
-        
-        with open(self.harness_path, 'w') as file:
+        return go_back
+    
+    def setup_initial_makefile(self):
+
+        harness_relative_root = self.get_backward_path(self.root_dir, self.harness_dir)
+        target_relative_root = self.get_relative_path(self.root_dir, self.target_file_path)
+
+        with open('src/makefile/Makefile.template', 'r') as file:
+            makefile = file.read()
+
+        makefile = makefile.replace('{ROOT}', str(harness_relative_root))
+        makefile = makefile.replace('{H_ENTRY}', self.target_func)
+        makefile = makefile.replace('{LINK}', f'$(ROOT)/{target_relative_root}')
+
+        return makefile
+
+    def update_makefile(self, makefile_content):
+        with open(f'{self.harness_dir}/Makefile', 'w') as file:
             file.write(makefile_content)
 
-        make_results = self.run_make()
-        attempts = 0
-        while make_results['stderr'] != "" and attempts < 10:
+    def prepare_prompt(self, makefile_content, make_results):
+        # Create the system prompt
+        with open('prompts/gen_makefile_system.prompt', 'r') as file:
+            system_prompt = file.read()
 
-            makefile_updates = self.llm_complete_makefile(makefile_content, make_results['stderr'])
-            makefile_content = self.update_makefile(makefile_content, makefile_updates['response'])
-            make_results = self.run_make()
-            attempts += 1
+        with open('src/makefile/Makefile.example', 'r') as file:
+            example_makefile = file.read()
 
-        # self.run_make()
+        system_prompt = system_prompt.replace('{SAMPLE_MAKEFILE}', example_makefile)
 
-        # self._restore_makefile(backup_path)
+        # Create the user prompt
+        with open('prompts/gen_makefile_user.prompt', 'r') as file:
+            user_prompt = file.read()
 
-    def llm_complete_makefile(self, makefile_content, make_error):
+        user_prompt = user_prompt.replace('{TARGET_FUNC}', self.target_func)
+        user_prompt = user_prompt.replace('{MAKEFILE_DIR}', self.harness_dir)
+        user_prompt = user_prompt.replace('{PROJECT_DIR}', self.root_dir)
+        user_prompt = user_prompt.replace('{MAKEFILE_CONTENT}', makefile_content)
+        user_prompt = user_prompt.replace('{MAKE_ERROR}', make_results.get('stderr', ''))   
+
+        return system_prompt, user_prompt
+    
+    def handle_tool_calls(self, function_name, function_args):
+        logging_text = f"""
+        Function call: 
+        Name: {function_name} 
+        Args: {function_args}
         """
-        Prompt the LLM to provide the remaining fields needed to complete the makefile
-        """
-
-        user_prompt = f"""
-        Below is the current Makefile used for compiling a CBMC proof harness for the target function '{self.harness_name}': \
-        {makefile_content}
-
-        When running the `make` command in the directory `{os.path.dirname(self.harness_path)}`, the following error occured.
-        {make_error}
-
-        If the error is the result of a failed include statement, then you should attempt to expand the include paths under H_INC to include that file. \
+        logging.info(logging_text)
+        # Parse function_args string to dict
+        function_args = json.loads(function_args)
+        if function_name == "run_bash_command":
+            cmd = function_args.get("cmd", "")
+            tool_response = self.run_bash_command(cmd)
+        else:
+            raise ValueError(f"Unknown function call: {function_name}")
         
-        If the error is the result of a syntax or syntax-related error, it is likely due to an environment variable that needs to be set under H_DEF. \
-        Use command line tools to determine the cause of the syntax error, and find any locations where an environment variable may cause that syntax error.
-        
-        Please provide any necessary additions to the H_INC, H_CBMCFLAGS, H_DEF, and LINK fields to ensure successful compilation of the harness. \
-        If you would like to get more information about the codebase to help you fill in these fields, \
-        you can run bash commands using the provided function 'run_bash_command'. \
-        These commands will be run from the directory {self.root_dir}, and the output will be formatted as a JSON object \
-        containing the original command, the exit code, stdout output, and stderr output.  \
-        
-        Once you have gathered enough information, please provide a JSON object containing the added fields in the specified format. \
-        Please only respond with entirely new entries for each file, and do not include any already existing entries from the provided Makefile. \
-        
-        Please ensure that your suggestions for additions to the H_INC field are not redundant with any existing paths under that field. \
+        logging.info(f"Function call response: {tool_response}")
+        return str(tool_response)
 
-        If no additions are needed for that field, return an empty array for that field. Please only include one copy of each output field. \
-        """
-
-        llm_tools = [{
-                "type": "file_search",
-                "vector_store_ids": [self.vector_store.id]
-            },
+    def get_tools(self):
+        return [
             {
                 "type": "function",
                 "name": "run_bash_command",
@@ -163,159 +212,100 @@ class LLMMakefileGenerator(OpenAIAgent):
                 "parameters": {
                     "type": "object",
                     "properties": {
+                        "reason": {
+                            "type": "string",
+                            "description": "The reason for running the command"
+                        },
                         "cmd": {
                             "type": "string",
                             "description": "A bash command-line command to run"
                         }
                     },
-                    "required": ["cmd"],
+                    "required": ["reason", "cmd"],
                     "additionalProperties": False
                 }
             }
         ]
+    
+    def generate_makefile(self):
+        """
+        Main function to generate the Makefile using the LLM.
+        """
         
-        input_messages = [{'role': 'user', 'content': user_prompt}]
+        # For testing purposes, backup existing Makefile
+        backup_path = self._backup_makefile()
 
-        response = self.client.responses.create(
-            model='gpt-4.1', # Most recent tests were done on 4.1 I think
-            instructions=LLMMakefileGenerator.SYSTEM_PROMPT,
-            input=input_messages,
-            # text_format=MakefileFields,
-            tool_choice="auto",
-            tools=llm_tools,
-            temperature=1.0, # Sometimes constraints on preconditions are randomly ignored, so hopefully this will help fix it
-            include=["file_search_call.results"] 
-        )
+        # First, we setup the initial Makefile
+        makefile = self.setup_initial_makefile()
+        self.update_makefile(makefile)
+        
+        # Next, we build and see if it succeeds
+        make_results = self.run_make()
 
-        # Continue running bash commands for the model until it gives an output message
-        while not any([output.type == "message" for output in response.output]):
+        attempts = 0
 
-            for tool_call in response.output:
-                if tool_call.type != "function_call":
-                    continue
-                func_name = tool_call.name
-                func_args = json.loads(tool_call.arguments)
+        system_prompt, user_prompt = self.prepare_prompt(makefile, make_results)
+        tools = self.get_tools()
 
-                if func_name == "run_bash_command":
-                    bash_result = self.run_bash_command(func_args['cmd'])
-                    input_messages.append(tool_call)
-                    input_messages.append({
-                        "type": "function_call_output",
-                        "call_id": tool_call.call_id,
-                        "output": str(bash_result)
-                    })
-                    response = self.client.responses.create(
-                        model='gpt-4.1', # Most recent tests were done on 4.1 I think
-                        instructions=LLMMakefileGenerator.SYSTEM_PROMPT,
-                        input=input_messages,
-                        text={
-                            "format": {
-                                "type": "json_schema",
-                                "name": "makefile_fields",
-                                "strict": True,
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "LINK": {
-                                            "type": "array",
-                                            "items": { "type": "string" }
-                                        },
-                                        "H_CBMCFLAGS": {
-                                            "type": "array",
-                                            "items": { "type": "string" }
-                                        },
-                                        "H_DEF": {
-                                            "type": "array",
-                                            "items": { "type": "string" }
-                                        },
-                                        "H_INC": {
-                                            "type": "array",
-                                            "items": { "type": "string" }
-                                        },
-                                        "reasoning": {
-                                            "type": 'string'
-                                        }
-                                    },
-                                    "additionalProperties": False,
-                                    "required": ["LINK", "H_CBMCFLAGS", "H_DEF", "H_INC", "reasoning"],
-                                },
+        logging.info(f'System Prompt:\n{system_prompt}')
+        
+        # Finally, we iteratively call the LLM to fix any errors until it succeeds
+        while user_prompt and attempts < self._max_attempts:
 
-                            }
-                        },
-                        tool_choice="auto",
-                        tools=llm_tools,
-                        temperature=1.0, # Sometimes constraints on preconditions are randomly ignored, so hopefully this will help fix it
-                        include=["file_search_call.results"] 
-                    )
-                else:
-                    raise ValueError(f"Unknown function call: {func_name}")
-
-        return { 'id': response.id, 'response': json.loads(response.output_text), 'usage': response.usage}
-
-    def update_makefile(self, makefile_content, makefile_updates):
-        link = makefile_updates.get('LINK', [])
-        cbmc_flags = makefile_updates.get('H_CBMCFLAGS', [])
-        env_vars = makefile_updates.get('H_DEF', [])
-        include_paths = makefile_updates.get('H_INC', [])
-
-        ins_h_inc = False # Need a variable to track this bc there are initially several includes on multiple lines
-
-        updated_lines = []
-        for line in makefile_content.splitlines():
-            if line.startswith('LINK =') and len(link) > 0:
-                # Insert the file path 
-                updated_lines.append(line + ' \\')
-                for l in link:
-                    updated_lines.append(' ' * 7 + l + ' \\')
-
-            elif line.startswith('H_CBMCFLAGS =') and len(cbmc_flags) > 0:
-                # Insert the target function
-                updated_lines.append(line + ' '.join(cbmc_flags))
-
-            elif line.startswith('H_DEF =') and len(env_vars) > 0:
-                line = line + ' ' + env_vars[0] + ' \\'
-                updated_lines.append(line)
-                for var in env_vars[1:]:
-                    updated_lines.append(' ' * 7 + var + ' \\')
+            logging.info(f'LLM Prompt:\n{user_prompt}')
             
-            elif line.startswith('H_INC =') and len(include_paths) > 0:
-                ins_h_inc = True
-                updated_lines.append(line)
+            llm_response = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls)
+            if not llm_response:
+                user_prompt += "\nThe LLM did not return a valid response. Please try again."
+                continue
 
-            elif ins_h_inc and (line == '' or line.startswith('#') or line.startswith('MAKE_INCLUDE_PATH')):
-                # Once we've iterated past the other H_INC statements
-                for inc in include_paths:
-                    updated_lines.append(' ' * 8 + inc + ' \\')
+            logging.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
+            self.update_makefile(llm_response.updated_makefile)
+            make_results = self.run_make()
+            attempts += 1
 
-                updated_lines.append(line)
-                ins_h_inc = False
-                    
+            if make_results.get('error', 0) == 0:
+                if make_results.get('exit_code', -1) == 0:
+                    print("Makefile successfully generated and build succeeded.")
+                    break
+
+                system_prompt, user_prompt = self.prepare_prompt(llm_response.updated_makefile, make_results)
             else:
-                updated_lines.append(line)
+                print("Make command failed to run.")
+                break
+                
 
-        makefile_content = '\n'.join(updated_lines)
-        
-        # IDK where I'd be dumping these file contents for now
-        with open(self.harness_path, 'w') as file:
-            file.write(makefile_content)
-
-        return makefile_content
+        # For testing purposes, we restore the original Makefile
+        if backup_path:
+            self._restore_makefile(backup_path)
 
     def _backup_makefile(self, backup_suffix='temp'):
         """
-        Create an unmodified copy of the harness file that we can restore
+        Create an unmodified copy of the harness file that we can restore,
+        but only if the Makefile exists.
         """
-        backup_path = os.path.join(os.path.dirname(self.harness_path), 'Makefile.backup')
-        shutil.copy(self.harness_path, backup_path)
+        if not os.path.exists(self.harness_dir):
+            return None
+        backup_path = os.path.join(self.harness_dir, 'Makefile.backup')
+        shutil.copy(os.path.join(self.harness_dir, 'Makefile'), backup_path)
         return backup_path
 
     def _restore_makefile(self, backup_path):
         if not os.path.exists(backup_path):
             print(f"Backup file {backup_path} does not exist. Cannot restore harness.")
             return
+        
+        makefile_path = os.path.join(self.harness_dir, 'Makefile')
 
-        shutil.copy(backup_path, self.harness_path)
-        print(f"Restored harness from {backup_path} to {self.harness_path}")
+        # If Makefile was generated, back it up with the timestamp
+        if os.path.exists(makefile_path):
+            timestamp = int(time.time())
+            generated_backup_path = os.path.join(self.harness_dir, f'Makefile.{timestamp}.backup')
+            shutil.copy(makefile_path, generated_backup_path)
+            print(f"Backed up generated Makefile to {generated_backup_path}")
+
+        shutil.copy(backup_path, makefile_path)
+        print(f"Restored harness from {backup_path} to {self.harness_dir}")
         os.remove(backup_path)
 
     def _update_files_in_vector_store(self):
