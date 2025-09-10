@@ -19,16 +19,16 @@ Given a function name and its file path, the script connects to the LLM, analyze
 
 1. **Clone the repository**
    ```bash
-  git clone https://github.com/<your-username>/<your-repo>.git
-cd <your-repo>
+   git clone https://github.com/<your-username>/<your-repo>.git
+   cd <your-repo>
 
 2. **Switch to the chioma-prototype branch**
     ```bash
-  git checkout Chioma-prototype
+    git checkout Chioma-prototype
 
 3. **Navigate to the project folder**
     ```bash
-  cd harness_generator
+    cd harness_generator
 
 3. **Configure your environment**
     copy .env.example to .env
