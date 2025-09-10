@@ -284,7 +284,7 @@ class LLMMakefileGenerator(AIAgent):
         Create an unmodified copy of the harness file that we can restore,
         but only if the Makefile exists.
         """
-        if not os.path.exists(self.harness_dir):
+        if not os.path.exists(os.path.join(self.harness_dir, 'Makefile')):
             return None
         backup_path = os.path.join(self.harness_dir, 'Makefile.backup')
         shutil.copy(os.path.join(self.harness_dir, 'Makefile'), backup_path)
