@@ -19,7 +19,7 @@ Given a function name and its file path, the script connects to the LLM, analyze
 
 1. **Clone the repository**
    ```bash
-   git clone [https://github.com/<your-username>/<your-repo>.git](https://github.com/AmPaschal/AutoUP.git)
+   git clone https://github.com/AmPaschal/AutoUP.git
    cd <cloned-repo>
 
 2. **Switch to the chioma-prototype branch**
