@@ -1,0 +1,43 @@
+[
+  {
+    "file_path": "file3.c",
+    "function_name": "add"
+  },
+  {
+    "file_path": "file3.c",
+    "function_name": "subtract"
+  },
+  {
+    "file_path": "file3.c",
+    "function_name": "get_value_at_index"
+  },
+  {
+    "file_path": "/mnt/c/Users/Jennifer/Documents/Projects/Research/FreeRTOS-Plus-TCP/source/FreeRTOS_DNS_Parser.c",
+    "function_name": "DNS_ParseDNSReply"
+  },
+  {
+    "file_path": "/mnt/c/Users/Jennifer/Documents/Projects/Research/FreeRTOS-Plus-TCP/source/FreeRTOS_ARP.c",
+    "function_name": "vARPProcessPacketRequest" 
+  },
+  {
+    "file_path": "/mnt/c/Users/Jennifer/Documents/Projects/Research/FreeRTOS-Plus-TCP/source/FreeRTOS_BitConfig.c",
+    "function_name": "vBitConfig_write_uc"
+  },
+  {
+    "file_path": "/mnt/c/Users/Jennifer/Documents/Projects/Research/FreeRTOS-Plus-TCP/source/FreeRTOS_ICMP.c",
+    "function_name": "ProcessICMPPacket"
+  },
+  {
+    "file_path": "/mnt/c/Users/Jennifer/Documents/Projects/Research/FreeRTOS-Plus-TCP/source/FreeRTOS_IP_Timers.c",
+    "function_name": "prvIPTimerReload"
+  },
+  {
+    "file_path": "/mnt/c/Users/Jennifer/Documents/Projects/Research/FreeRTOS-Plus-TCP/source/FreeRTOS_IP.c",
+    "function_name": "prvProcessIPEventsAndTimers"
+  },
+  {
+    "file_path": "/mnt/c/Users/Jennifer/Documents/Projects/Research/FreeRTOS-Plus-TCP/source/FreeRTOS_DHCP.c",
+    "function_name": "vDHCPProcess"
+  }
+]
+
