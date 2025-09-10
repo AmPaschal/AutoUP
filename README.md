@@ -19,8 +19,8 @@ Given a function name and its file path, the script connects to the LLM, analyze
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/<your-username>/<your-repo>.git
-   cd <your-repo>
+   git clone [https://github.com/<your-username>/<your-repo>.git](https://github.com/AmPaschal/AutoUP.git)
+   cd <cloned-repo>
 
 2. **Switch to the chioma-prototype branch**
     ```bash
@@ -38,4 +38,4 @@ Given a function name and its file path, the script connects to the LLM, analyze
     python extract_function.py
 
 ## Further Questions
-    Stuck on any step, you can reach out via email: muofunanyajennifer1@gmail.com or slack: @Muofunanya Chioma
+    Stuck on any step, you can reach out via email: muofunanyajennifer1@gmail.com or Slack: @Muofunanya Chioma
