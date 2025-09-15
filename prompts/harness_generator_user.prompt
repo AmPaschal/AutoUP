@@ -1,0 +1,20 @@
+Your job is to create a compilable CBMC harness for the function below:
+
+<function_name>
+{FUNCTION_NAME}
+</function_name>
+
+<function_source_file>
+{FUNCTION_SOURCE_FILE}
+</function_source_file>
+
+<function_source>
+{FUNCTION_SOURCE}
+</function_source>
+
+If you would like to get more information about the codebase to help you fill in these fields, 
+you can run bash commands using the provided function 'run_bash_command'. 
+These commands will be run from the project directory `{PROJECT_DIR}`, and the output will be formatted as a JSON object 
+containing the original command, the exit code, stdout output, and stderr output. 
+
+In your response, you are to include a compilable harness and a detailed analysis of the steps you took to generate the harness.

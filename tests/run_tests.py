@@ -7,7 +7,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 def run_proof_command(entry, base_dir, output_root):
     """
-    Run the makefile command for a single proof/source file pair.
+    Run the harness command for a single proof/source file pair.
     Returns a tuple: (source_file_stem, status, success_flag)
     """
     function_name = entry["function_name"]
@@ -16,7 +16,7 @@ def run_proof_command(entry, base_dir, output_root):
 
     log_file = output_root / f"{proof_dir.stem}.log"
     cmd = [
-        "python", "src/run.py", "makefile", function_name,
+        "python", "src/run.py", "harness", function_name,
         str(base_dir),
         str(proof_dir),
         str(src_file)
@@ -37,7 +37,7 @@ def run_proof_command(entry, base_dir, output_root):
             if "Makefile successfully generated and build succeeded." in content:
                 success = True
 
-    return src_file.stem, status, "SUCCESS" if success else "FAILED"
+    return function_name, status, "SUCCESS" if success else "FAILED"
 
 def main():
     parser = argparse.ArgumentParser(description="Run proofs for CBMC makefiles.")
