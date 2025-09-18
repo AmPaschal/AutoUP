@@ -7,9 +7,6 @@ import json
 import shutil
 import logging
 import time
-import tiktoken
-import traceback
-import openai
 from typing import Any, Callable, Type
 from dotenv import load_dotenv
 from agent import AIAgent
@@ -31,7 +28,7 @@ class LLMMakefileGenerator(AIAgent):
         self.harness_dir = os.path.abspath(harness_dir)
         self.target_func = target_func
         self.target_file_path = os.path.abspath(target_file_path)
-        self._max_attempts = 5
+        self._max_attempts = 10
 
     def run_make(self):
         try:
