@@ -52,12 +52,12 @@ if __name__ == "__main__":
         makefile_generator.generate_makefile()
 
     elif mode == "debugger":
-        if len(args) != 2:
-            print("Error: 'debugger' mode requires args: <harness_path>")
+        if len(args) != 3:
+            print("Error: 'debugger' mode requires args: <harness_dir> <target_function_name>.")
             sys.exit(1)
-        _, arg1 = args
-        print(f"Running in debugger mode with arg: {arg1}")
-        proof_writer = LLMProofDebugger(openai_api_key, arg1, test_mode=True)
+        _, arg1, arg2 = args
+        print(f"Running in debugger mode with args: {arg1}, {arg2}")
+        proof_writer = LLMProofDebugger(arg1, arg2)
         harness_report = proof_writer.iterate_proof(max_attempts=3)
         print(harness_report)
 

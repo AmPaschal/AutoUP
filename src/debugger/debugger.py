@@ -9,6 +9,7 @@ from debugger.error_classes import CoverageError, PreconditionError, InsertError
 from debugger.output_models import ModelOutput
 from debugger.error_report import ErrorReport
 from agent import AIAgent
+from commons.models import GPT
 
 class LLMProofDebugger(AIAgent):
     """Proof writer using LLMs to generate CBMC proofs"""
@@ -36,21 +37,15 @@ class LLMProofDebugger(AIAgent):
         rather than adding more specific and complex constraints to a single variable.
         """
 
-    def __init__(self, openai_api_key, harness_path, test_mode=False):
+    def __init__(self, harness_dir, target_func):
         super().__init__(
-            openai_api_key,
-            agent_name="debugger",
-            harness_name=os.path.basename(harness_path).replace('_harness.c', ''),
-            harness_path=harness_path,
-            test_mode=test_mode,
-            chunking_strategy={
-                'type': 'static',
-                'static': {
-                    'chunk_overlap_tokens': 0, #I believe that having this as a non-zero value can cause hallucinations about file contents
-                    'max_chunk_size_tokens': 800 # Unsure if this matters
-                } 
-            }
+            agent_name="debugger"
         )
+
+        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
+
+        self.harness_path = os.path.join(harness_dir, f"{target_func}_harness.c")
+        self.harness_name = target_func
 
         if self.harness_name == '_rbuf_add':
             self.harness_name = '_rbuf_add2'
@@ -58,60 +53,39 @@ class LLMProofDebugger(AIAgent):
         self.payload_dir = os.path.join("payloads", self.harness_name)
 
 
-
-    def _upload_vector_store_files(self):
-        curr_files = self.client.vector_stores.files.list(self.vector_store.id).data
-        if len(curr_files) > 0:
-            print(f"WARNING: Vector store {self.vector_store.id} already contains payload files")
-            return
-
+    def upload_payload_to_vector_store(self, file_type=''):
+        """Collects the list of payload files to upload and passes them for upload."""
         payload_dir = os.path.join("payloads", self.harness_name)
+        files_to_upload = []
+
         for file_name in os.listdir(payload_dir):
-            file_info = re.match(fr'{self.harness_name}_(.*).json', file_name).group(1)
-            new_file = self.client.vector_stores.files.upload_and_poll(
-                vector_store_id=self.vector_store.id,
-                file=open(os.path.join(payload_dir, file_name), "rb"),
-            )
-            self.client.vector_stores.files.update(
-                vector_store_id=self.vector_store.id,
-                file_id=new_file.id,
-                attributes={
-                    'type': file_info
-                }
-            )
+            match = re.match(fr'{self.harness_name}_(.*).json', file_name)
+            if match:
+                file_info = match.group(1)
+                if file_type and file_info == file_type:
+                    full_path = os.path.join(payload_dir, file_name)
+                    files_to_upload.append((full_path, file_info))
 
-    def _update_files_in_vector_store(self):
+        if files_to_upload:
+            self.llm.upload_vector_store_files(files_to_upload)
+
+    def update_harness_file_in_vector_store(self):
         """
-        Update the harness files in the vector store with the latest definitions
+        Update the harness files in the vector store with the latest definitions.
         """
+        # Step 1: Delete old harness files
+        self.llm.delete_by_file_type("harness")
 
-        for file in self.client.vector_stores.files.list(self.vector_store.id).data:
-            if file.attributes['type'] == 'harness':
-                print(f"Updating {file.attributes['type']} file in vector store {self.vector_store.id}")
-                self.client.vector_stores.files.delete(
-                    vector_store_id=self.vector_store.id,
-                    file_id=file.id,
-                )
-                self.client.files.delete(file_id=file.id)
-                new_file = self.client.vector_stores.files.upload_and_poll(
-                    vector_store_id=self.vector_store.id,
-                    file=open(os.path.join("payloads", self.harness_name, f'{self.harness_name}_{file.attributes['type']}.json'), "rb")
-                )
-                self.client.vector_stores.files.update(
-                    vector_store_id=self.vector_store.id,
-                    file_id=new_file.id,
-                    attributes={
-                        'type': file.attributes['type']
-                    }
-                )
-
+        # Step 2: upload new harness files
+        self.upload_payload_to_vector_store(file_type="harness")
+    
     def iterate_proof(self, max_attempts=1):
 
         error_report = ErrorReport(
             extract_errors_and_payload(self.harness_name, self.harness_path)
         ) # The initial error report we will be maintaining
 
-        self._upload_vector_store_files()
+        self.upload_payload_to_vector_store()
 
         # We need to keep track of the lines we add because adding lines to the harness shifts the line numbers of any errors within the harness, and thus changes their IDs
         new_precon_line_nums = [] 
@@ -220,7 +194,7 @@ class LLMProofDebugger(AIAgent):
                     # If we exited the bc loop the error was resolved
                     if err_was_resolved:
                         
-                        self._update_files_in_vector_store() # Update the definition of the harness in the vector store
+                        self.update_harness_file_in_vector_store() # Update the definition of the harness in the vector store
 
                         target_error.attempts = iterations // 2
                         target_error.added_precons = added_precons
@@ -255,8 +229,8 @@ class LLMProofDebugger(AIAgent):
         except Exception as e:
             print("Exception during proof iteration: ", traceback.format_exc())
             raise e
-        
-        self._cleanup_vector_store()
+
+        self.llm._cleanup_vector_store()
         return error_report.generate_results_report()
 
     def request_llm_analysis(self, error, advice, cause_of_failure=None, prev_response=None):
@@ -366,20 +340,15 @@ class LLMProofDebugger(AIAgent):
                     Then, evaluate which of these variables are absolutely necessary to resolve the original error, and restrict your next response to only those variables. \
                     Finally, provide a revision of your precondition or suggest additional new preconditions that will prevent any memory errors from occuring within the definitions of your preconditions. \
                 """
+            else:
+                raise ValueError(f"Unknown cause_of_failure reason: {cause_of_failure['reason']}")
         try:
-            response = self.client.responses.parse(
-                model='gpt-4.1', # Most recent tests were done on 4.1 I think
-                instructions=LLMProofDebugger.SYSTEM_PROMPT,
-                input=[{'role': 'user', 'content': user_prompt}],
-                text_format=ModelOutput,
-                previous_response_id=prev_response,
-                tool_choice="required",
-                tools=[{
-                    "type": "file_search",
-                    "vector_store_ids": [self.vector_store.id]
-                }],
-                temperature=1.0, # Sometimes constraints on preconditions are randomly ignored, so hopefully this will help fix it
-                include=["file_search_call.results"] 
+            response = self.llm.chat_llm(
+                system_messages=LLMProofDebugger.SYSTEM_PROMPT,
+                input_messages=user_prompt,
+                output_format=ModelOutput,
+                llm_tools=self.get_file_search_tool(self.llm.get_vector_store_id()),
+                parsed=False
             )
             # print(f"Newly suggested preconditions:\n{'\n'.join([precon["precondition_as_code"] for precon in json.loads(response.output_text)["new_preconditions"]])}")
             print(f"Newly suggested preconditions:\n{json.dumps(json.loads(response.output_text)["new_preconditions"], indent=4)}")
