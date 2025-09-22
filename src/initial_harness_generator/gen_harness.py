@@ -1,0 +1,139 @@
+
+
+
+import json
+import logging
+import os
+from agent import AIAgent
+from commons.models import GPT
+from makefile.output_models import HarnessResponse
+
+
+class InitialHarnessGenerator(AIAgent):
+
+    def __init__(self, root_dir, harness_dir, target_func, target_file_path):
+        super().__init__(
+            "MakefileGenerator"
+        )
+        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
+        
+        self.root_dir = os.path.abspath(root_dir)
+        self.harness_dir = os.path.abspath(harness_dir)
+        self.target_func = target_func
+        self.target_file_path = os.path.abspath(target_file_path)
+        self._max_attempts = 5
+
+    def extract_function_code(self, file_path, function_name):
+        if not os.path.exists(file_path):
+            print(f"[ERROR] File not found: {file_path}")
+            return None
+
+        with open(file_path, 'r', encoding="utf-8", errors="ignore") as file:
+            lines = file.readlines()
+
+        start_index = None
+        brace_count = 0
+        inside_function = False
+        waiting_for_brace = False
+        function_lines = []
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+
+            # Detect function start - could be single or multi-line before opening brace
+            if not inside_function and function_name in stripped and "(" in stripped:
+                # Append first line of function signature
+                function_lines.append(line)
+
+                # Check if opening brace is here
+                if "{" in stripped:
+                    inside_function = True
+                    brace_count += stripped.count("{") - stripped.count("}")
+                else:
+                    waiting_for_brace = True
+                continue
+
+            # If we're still collecting function signature until we find "{"
+            if waiting_for_brace:
+                function_lines.append(line)
+                if "{" in stripped:
+                    inside_function = True
+                    waiting_for_brace = False
+                    brace_count += stripped.count("{") - stripped.count("}")
+                continue
+
+            # If inside the function body, collect lines and track braces
+            if inside_function:
+                function_lines.append(line)
+                brace_count += stripped.count("{") - stripped.count("}")
+                if brace_count == 0:
+                    break
+
+        if function_lines and inside_function:
+            return "".join(function_lines)
+        else:
+            print(f"[ERROR] Function '{function_name}' not found in {file_path}")
+            return None
+
+    def prepare_prompt(self):
+        with open("prompts/harness_generator_system.prompt", "r") as f:
+            system_prompt = f.read()
+
+        with open("prompts/harness_generator_user.prompt", "r") as f:
+            user_prompt = f.read()
+
+        sample_function_signature = ''
+        # system_prompt = system_prompt.replace("{SAMPLE_FUNCTION_SIGNATURE}", sample_function_signature)
+
+        with open('src/initial_harness_generator/harness.example', 'r') as f:
+            sample_harness = f.read()
+
+        # system_prompt = system_prompt.replace("{SAMPLE_CBMC_HARNESS}", sample_harness)
+
+        user_prompt = user_prompt.replace("{FUNCTION_NAME}", self.target_func)
+        user_prompt = user_prompt.replace("{PROJECT_DIR}", self.root_dir)
+        user_prompt = user_prompt.replace("{FUNCTION_SOURCE_FILE}", self.target_file_path)
+        function_source = self.extract_function_code(self.target_file_path, self.target_func)
+        if function_source:
+            user_prompt = user_prompt.replace("{FUNCTION_SOURCE}", function_source)
+        else:
+            raise ValueError(f"Function {self.target_func} not found in {self.target_file_path}")
+
+        return system_prompt, user_prompt
+    
+    def save_harness(self, harness_code):
+        os.makedirs(self.harness_dir, exist_ok=True)
+        harness_file_path = os.path.join(self.harness_dir, f'{self.target_func}_harness.c')
+        
+        with open(harness_file_path, 'w') as f:
+            f.write(harness_code)
+        
+        logging.info(f'Harness saved to {harness_file_path}')
+
+        return harness_file_path
+
+    def generate_harness(self):
+
+        system_prompt, user_prompt = self.prepare_prompt()
+        tools = self.get_tools()
+        attempts = 0
+
+        logging.info(f'System Prompt:\n{system_prompt}')
+
+        while user_prompt and attempts < self._max_attempts:
+            logging.info(f'User Prompt:\n{user_prompt}')
+
+            llm_response = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls)
+
+            if not llm_response:
+                user_prompt = "The LLM did not return a valid response. Please try again.\n" + user_prompt
+                attempts += 1
+                continue
+
+            logging.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
+
+            return self.save_harness(llm_response.harness_code)
+
+        logging.error("Failed to generate harness after maximum attempts.")
+        return None
+        
