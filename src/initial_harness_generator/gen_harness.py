@@ -82,14 +82,6 @@ class InitialHarnessGenerator(AIAgent):
         with open("prompts/harness_generator_user.prompt", "r") as f:
             user_prompt = f.read()
 
-        sample_function_signature = ''
-        # system_prompt = system_prompt.replace("{SAMPLE_FUNCTION_SIGNATURE}", sample_function_signature)
-
-        with open('src/initial_harness_generator/harness.example', 'r') as f:
-            sample_harness = f.read()
-
-        # system_prompt = system_prompt.replace("{SAMPLE_CBMC_HARNESS}", sample_harness)
-
         user_prompt = user_prompt.replace("{FUNCTION_NAME}", self.target_func)
         user_prompt = user_prompt.replace("{PROJECT_DIR}", self.root_dir)
         user_prompt = user_prompt.replace("{FUNCTION_SOURCE_FILE}", self.target_file_path)

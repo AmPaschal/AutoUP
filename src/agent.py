@@ -20,6 +20,7 @@ class AIAgent(ABC):
         self.store_name = f'{agent_name}-store'
         self.test_mode = test_mode
         self._max_attempts = 5
+        self.root_dir = None
         # self.vector_store = self._create_vector_store(chunking_strategy)
 
     def truncate_result_custom(self, result, cmd: str, max_input_tokens: int, model: str) -> dict:
@@ -88,7 +89,7 @@ class AIAgent(ABC):
             result = subprocess.run(
                 cmd, shell=True, capture_output=True, text=True, check=True, cwd=self.root_dir
             )
-            return self.truncate_result_custom(result, cmd, max_input_tokens=3000, model='gpt-5')
+            return self.truncate_result_custom(result, cmd, max_input_tokens=10000, model='gpt-5')
         except subprocess.CalledProcessError as e:
             print(f"Command failed with error:\n{e.stderr}")
             return None
@@ -189,53 +190,3 @@ class AIAgent(ABC):
 
         self.client.vector_stores.delete(self.vector_store.id)
         print(f"Deleted vector store {self.vector_store.id} for {self.store_name}")
-
-    def _delay_for_retry(self, attempt_count: int) -> None:
-        """Sleeps for a while based on the |attempt_count|."""
-        # Exponentially increase from 5 to 80 seconds + some random to jitter.
-        delay = 5 * 2**attempt_count + random.randint(1, 5)
-        logging.warning('Retry in %d seconds...', delay)
-        time.sleep(delay)
-
-    def _is_retryable_error(self, err: Exception,
-                            api_errors: list[Type[Exception]],
-                            tb: traceback.StackSummary) -> bool:
-        """Validates if |err| is worth retrying."""
-        if any(isinstance(err, api_error) for api_error in api_errors):
-            return True
-
-        # A known case from vertex package, no content due to mismatch roles.
-        if (isinstance(err, ValueError) and
-            'Content roles do not match' in str(err) and tb[-1].filename.endswith(
-                'vertexai/generative_models/_generative_models.py')):
-            return True
-
-        # A known case from vertex package, content blocked by safety filters.
-        if (isinstance(err, ValueError) and
-            'blocked by the safety filters' in str(err) and
-            tb[-1].filename.endswith(
-                'vertexai/generative_models/_generative_models.py')):
-            return True
-
-        return False
-
-    def with_retry_on_error(self, func: Callable,
-                            api_errs: list[Type[Exception]]) -> Any:
-        """
-        Retry when the function returns an expected error with exponential backoff.
-        """
-        for attempt in range(1, self._max_attempts + 1):
-            try:
-                return func()
-            except Exception as err:
-                logging.warning('LLM API Error when responding (attempt %d): %s',
-                                attempt, err)
-                tb = traceback.extract_tb(err.__traceback__)
-                if (not self._is_retryable_error(err, api_errs, tb) or
-                    attempt == self._max_attempts):
-                    logging.warning(
-                        'LLM API cannot fix error when responding (attempt %d) %s: %s',
-                        attempt, err, traceback.format_exc())
-                    raise err
-                self._delay_for_retry(attempt_count=attempt)
-        return None
