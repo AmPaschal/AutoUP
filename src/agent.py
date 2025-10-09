@@ -106,6 +106,9 @@ class AIAgent(ABC):
         if function_name == "run_bash_command":
             cmd = function_args.get("cmd", "")
             tool_response = self.run_bash_command(cmd)
+        elif function_name == "run_cscope_command":
+            command = function_args.get("command", "")
+            tool_response = self.run_bash_command(command)
         else:
             raise ValueError(f"Unknown function call: {function_name}")
         
@@ -132,6 +135,27 @@ class AIAgent(ABC):
                         }
                     },
                     "required": ["reason", "cmd"],
+                    "additionalProperties": False
+                }
+            },
+            {
+                "type": "function",
+                "name": "run_cscope_command",
+                "description": "Run a cscope command to search for type and function definitions, cross-references, and file paths.",
+                "strict": True,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "reason": {
+                            "type": "string",
+                            "description": "The reason for running the command"
+                        },
+                        "command": {
+                            "type": "string",
+                            "description": "A cscope command to run"
+                        }
+                    },
+                    "required": ["reason", "command"],
                     "additionalProperties": False
                 }
             }

@@ -41,6 +41,10 @@ class LLMMakefileGenerator(AIAgent):
         except Exception as e:
             if isinstance(e, subprocess.TimeoutExpired):
                 logging.error("Make command timed out.")
+                if e.stdout:
+                    logging.info('Partial stdout:\n' + str(e.stdout))
+                if e.stderr:
+                    logging.info('Partial stderr:\n' + str(e.stderr))
                 return {"error": Status.TIMEOUT}
             else:
                 logging.error(f"An error occurred while running make: {e}")
