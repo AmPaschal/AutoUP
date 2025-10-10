@@ -11,12 +11,12 @@ from makefile.output_models import HarnessResponse
 
 class InitialHarnessGenerator(AIAgent):
 
-    def __init__(self, root_dir, harness_dir, target_func, target_file_path):
+    def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
         super().__init__(
-            "MakefileGenerator"
+            "MakefileGenerator",
+            project_container
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
-        
         self.root_dir = os.path.abspath(root_dir)
         self.harness_dir = os.path.abspath(harness_dir)
         self.target_func = target_func

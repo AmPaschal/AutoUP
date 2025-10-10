@@ -39,11 +39,14 @@ def run_proof_command(entry, base_dir, output_root):
 
     log_file = output_root / f"{proof_dir.stem}.log"
     cmd = [
-        "python", "src/run.py", "harness", function_name,
-        str(base_dir),
-        str(proof_dir),
-        str(src_file)
+        "python", "src/run.py",
+        "harness",
+        "--target_function_name", function_name,
+        "--root_dir", str(base_dir),
+        "--harness_path", str(proof_dir),
+        "--target_func_path", str(src_file)
     ]
+
 
     try:
         with open(log_file, "w") as f:
