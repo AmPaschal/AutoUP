@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
+from coverage_debugger.coverage_debugger import CoverageDebugger
 from debugger.debugger import LLMProofDebugger
 from makefile.gen_makefile import LLMMakefileGenerator
 from initial_harness_generator.gen_harness import InitialHarnessGenerator
@@ -39,8 +40,8 @@ def get_parser():
 
     parser.add_argument(
         "mode",
-        choices=["harness", "debugger"],
-        help="Execution mode: 'harness' to generate harness/makefile, or 'debugger' to run proof debugger."
+        choices=["harness", "debugger", "coverage"],
+        help="Execution mode: 'harness' to generate harness/makefile, 'debugger' to run proof debugger, or 'coverage' to run coverage debugger."
     )
 
     parser.add_argument(
@@ -58,7 +59,7 @@ def get_parser():
         help="Path to the harness directory."
     )
     parser.add_argument(
-        "--target_func_path",
+        "--target_file_path",
         help="Path to target function source file (required for harness mode)."
     )
 
@@ -68,7 +69,7 @@ def get_parser():
     if args.mode == "harness":
         missing = [
             arg for arg in
-            ["target_function_name", "root_dir", "target_func_path"]
+            ["target_function_name", "root_dir", "target_file_path"]
             if getattr(args, arg) is None
         ]
         if missing:
@@ -109,7 +110,7 @@ def main():
     # -----------------
     if args.mode == "harness":
         logging.info(
-            f"Running in harness mode with args: {args.target_function_name}, {args.root_dir}, {args.harness_path}, {args.target_func_path}"
+            f"Running in harness mode with args: {args.target_function_name}, {args.root_dir}, {args.harness_path}, {args.target_file_path}"
         )
 
         harness_dir = Path(args.harness_path)
@@ -120,7 +121,7 @@ def main():
             root_dir=args.root_dir,
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
-            target_file_path=args.target_func_path,
+            target_file_path=args.target_file_path,
             project_container=project_container
         )
         success = harness_generator.generate_harness()
@@ -133,7 +134,7 @@ def main():
             root_dir=args.root_dir,
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
-            target_file_path=args.target_func_path,
+            target_file_path=args.target_file_path,
             project_container=project_container
         )
         makefile_generator.generate_makefile()
@@ -146,6 +147,17 @@ def main():
         proof_writer = LLMProofDebugger(openai_api_key, args.harness_path, test_mode=True)
         harness_report = proof_writer.iterate_proof(max_attempts=3)
         logging.info(f"Harness report:\n{harness_report}")
+
+    elif args.mode == "coverage":
+        logging.info(f"Running in coverage debugger mode with arg: {args.harness_path}")
+        coverage_debugger = CoverageDebugger(
+            root_dir=args.root_dir,
+            harness_dir=args.harness_path,
+            target_func=args.target_function_name,
+            target_file_path=args.target_file_path,
+            project_container=project_container
+        )
+        coverage_debugger.debug_coverage()
 
     project_container.terminate()
 

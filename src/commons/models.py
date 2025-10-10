@@ -24,7 +24,7 @@ class LLM(ABC):
         self,
         system_messages: str,
         input_messages: str,
-        output_format: BaseModel,
+        output_format: Type[BaseModel],
         llm_tools: list = [],
         call_function: Callable = None
     ):
@@ -94,7 +94,7 @@ class GPT(LLM):
         self,
         system_messages: str,
         input_messages: str,
-        output_format: BaseModel,
+        output_format: Type[BaseModel],
         llm_tools: list = [],
         call_function: Callable = None
     ):
