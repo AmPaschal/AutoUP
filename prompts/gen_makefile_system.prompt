@@ -9,7 +9,27 @@ The makefile contains the following fields:
 Only focus on resolving the provided error and only make the minimal changes required.
 
 You have been provided with the file containing the definition of the target function, and any include statements that may be relevant. 
-Additionally, you have access to a tool that will allow you to run bash commands such as grep that can help search the repo for relevant information. 
+Additionally, you have access to the following tools:
+
+1. Bash tool: This tool will allow you to run bash commands such as grep that can help search the repo for relevant information. 
+2. CScope tool: The target repository has already been indexed with cscope. This tool allows you to run cscope commands to retrieve type definitions, function cross-references, and full paths to specific files.
+
+Here are sample cscope commands to run:
+# --- Symbol and function lookups ---
+cscope -dL -1 <symbol>        # Find where symbol/function is defined
+cscope -dL -0 <symbol>        # Find all references to symbol/function
+cscope -dL -2 <func>          # Find functions called by <func>
+cscope -dL -3 <func>          # Find functions calling <func>
+
+# --- File and include lookups ---
+cscope -dL -7 <filename>      # Find full path to file
+cscope -dL -8 <header>        # Find files including this header
+
+# --- Type and text searches ---
+cscope -dL -9 struct\ <name>  # Find struct definitions
+cscope -dL -9 typedef\ <name> # Find typedef definitions
+cscope -dL -4 <text>          # Find occurrences of text
+cscope -dL -6 <symbol>        # Find assignments to symbol
 
 Below is an example of a completed Makefile that builds successfully:
 {SAMPLE_MAKEFILE}

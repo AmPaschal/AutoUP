@@ -1,5 +1,4 @@
-import random
-import re
+
 import sys
 import os
 import subprocess
@@ -13,14 +12,16 @@ from agent import AIAgent
 from pathlib import Path
 from makefile.output_models import MakefileFields
 from commons.models import GPT
+from commons.utils import Status
 
 load_dotenv()
 
 class LLMMakefileGenerator(AIAgent):
 
-    def __init__(self, root_dir, harness_dir, target_func, target_file_path):
+    def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
         super().__init__(
-            "MakefileGenerator"
+            "MakefileGenerator",
+            project_container
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
         
@@ -33,26 +34,22 @@ class LLMMakefileGenerator(AIAgent):
     def run_make(self):
         try:
             result = subprocess.run(
-                "make", shell=True, capture_output=True, text=True, cwd=self.harness_dir, timeout=60
+                "make", shell=True, capture_output=True, text=True, cwd=self.harness_dir, timeout=150
             )
             logging.info('Stdout:\n' + result.stdout)
             logging.info('Stderr:\n' + result.stderr) 
-            return {"error": 0, "exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
+            return {"error": Status.SUCCESS, "exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
         except Exception as e:
             if isinstance(e, subprocess.TimeoutExpired):
-                print("Make command timed out.")
-                return {"error": -1}
+                logging.error("Make command timed out.")
+                if e.stdout:
+                    logging.info('Partial stdout:\n' + str(e.stdout))
+                if e.stderr:
+                    logging.info('Partial stderr:\n' + str(e.stderr))
+                return {"error": Status.TIMEOUT}
             else:
-                print(f"An error occurred while running make: {e}")
-                return {"error": -2}
-            
-    def _upload_vector_store_files(self):
-        upload_complete = self.client.vector_stores.files.upload_and_poll(
-            vector_store_id=self.vector_store.id,
-            file=open(self.func_file, "rb"),
-            poll_interval_ms=1000,
-        )
-        return upload_complete
+                logging.error(f"An error occurred while running make: {e}")
+                return {"error": Status.FAILURE}
 
     def get_relative_path(self, base_path, target_path):
         """We want to get the relative path of target, in terms of how many ../ we need to get back to base"""
@@ -109,8 +106,8 @@ class LLMMakefileGenerator(AIAgent):
         user_prompt = user_prompt.replace('{MAKE_ERROR}', make_results.get('stderr', ''))   
 
         return system_prompt, user_prompt
-    
-    def generate_makefile(self):
+
+    def generate_makefile(self) -> Status:
         """
         Main function to generate the Makefile using the LLM.
         """
@@ -131,6 +128,8 @@ class LLMMakefileGenerator(AIAgent):
         tools = self.get_tools()
 
         logging.info(f'System Prompt:\n{system_prompt}')
+
+        status = Status.ERROR
         
         # Finally, we iteratively call the LLM to fix any errors until it succeeds
         while user_prompt and attempts < self._max_attempts:
@@ -147,20 +146,26 @@ class LLMMakefileGenerator(AIAgent):
             make_results = self.run_make()
             attempts += 1
 
-            if make_results.get('error', 0) == 0:
+            error_code = make_results.get('error', Status.ERROR)
+
+            if error_code == Status.SUCCESS:
                 if make_results.get('exit_code', -1) == 0:
-                    print("Makefile successfully generated and build succeeded.")
+                    logging.info("Makefile successfully generated and build succeeded.")
+                    status = Status.SUCCESS
                     break
 
                 system_prompt, user_prompt = self.prepare_prompt(llm_response.updated_makefile, make_results)
             else:
-                print("Make command failed to run.")
+                logging.error("Make command failed to run.")
+                status = error_code
                 break
                 
 
         # For testing purposes, we restore the original Makefile
         if backup_path:
             self._restore_makefile(backup_path)
+
+        return status
 
     def _backup_makefile(self, backup_suffix='temp'):
         """
@@ -175,7 +180,7 @@ class LLMMakefileGenerator(AIAgent):
 
     def _restore_makefile(self, backup_path):
         if not os.path.exists(backup_path):
-            print(f"Backup file {backup_path} does not exist. Cannot restore harness.")
+            logging.info(f"Backup file {backup_path} does not exist. Cannot restore harness.")
             return
         
         makefile_path = os.path.join(self.harness_dir, 'Makefile')
@@ -185,10 +190,10 @@ class LLMMakefileGenerator(AIAgent):
             timestamp = int(time.time())
             generated_backup_path = os.path.join(self.harness_dir, f'Makefile.{timestamp}.backup')
             shutil.copy(makefile_path, generated_backup_path)
-            print(f"Backed up generated Makefile to {generated_backup_path}")
+            logging.info(f"Backed up generated Makefile to {generated_backup_path}")
 
         shutil.copy(backup_path, makefile_path)
-        print(f"Restored harness from {backup_path} to {self.harness_dir}")
+        logging.info(f"Restored harness from {backup_path} to {self.harness_dir}")
         os.remove(backup_path)
 
     def _update_files_in_vector_store(self):
@@ -196,15 +201,18 @@ class LLMMakefileGenerator(AIAgent):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) < 3:
-        print("Usage: python gen_makefile.py <target function> <file path>")
+    if len(sys.argv) < 5:
+        logging.error("Usage: python gen_makefile.py <target function> <root dir> <harness path> <file path>")
+        sys.exit(1)
 
     target_function = sys.argv[1]
-    file_path = sys.argv[2]
+    root_dir = sys.argv[2]
+    harness_path = sys.argv[3]
+    file_path = sys.argv[4]
     openai_api_key = os.getenv("OPENAI_API_KEY", None)
     if not openai_api_key:
         raise EnvironmentError("No OpenAI API key found")
 
-    makefile_generator = LLMMakefileGenerator(target_function, os.getcwd(), file_path, openai_api_key)
+    makefile_generator = LLMMakefileGenerator(target_function, root_dir, harness_path, file_path, None)
     makefile_generator.generate_makefile()
 

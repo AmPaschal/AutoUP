@@ -15,14 +15,16 @@ class AIAgent(ABC):
     Shared features for any OpenAI agent that interacts with a vector store
     """
 
-    def __init__(self, agent_name, test_mode=False, chunking_strategy=None):
+    def __init__(self, agent_name, project_container, test_mode=False, chunking_strategy=None):
         self.agent_name = agent_name
+        self.project_container = project_container
         self.store_name = f'{agent_name}-store'
         self.test_mode = test_mode
         self._max_attempts = 5
+        self.root_dir = None
         # self.vector_store = self._create_vector_store(chunking_strategy)
 
-    def truncate_result_custom(self, result, cmd: str, max_input_tokens: int, model: str) -> dict:
+    def truncate_result_custom(self, result: dict, cmd: str, max_input_tokens: int, model: str) -> dict:
         """
         Truncates stdout and stderr of a result object to fit within a token limit.
         Rules:
@@ -31,7 +33,7 @@ class AIAgent(ABC):
             - Replace truncated content with '[Truncated to fit context window]'.
         
         Args:
-            result: The result object with attributes `returncode`, `stdout`, `stderr`.
+            result: The result object with attributes `exit_code`, `stdout`, `stderr`.
             cmd (str): The executed command.
             max_input_tokens (int): Maximum total tokens allowed.
             model (str): Model name for tokenization.
@@ -41,8 +43,8 @@ class AIAgent(ABC):
         """
         encoding = tiktoken.get_encoding("cl100k_base")
         
-        stdout_tokens = encoding.encode(result.stdout)
-        stderr_tokens = encoding.encode(result.stderr)
+        stdout_tokens = encoding.encode(result["stdout"])
+        stderr_tokens = encoding.encode(result["stderr"])
 
         total_tokens = len(stdout_tokens) + len(stderr_tokens)
 
@@ -69,13 +71,13 @@ class AIAgent(ABC):
             remaining_tokens = max_input_tokens - len(stderr_tokens)
             allowed_stdout_tokens = max(0, remaining_tokens - len(trunc_msg_tokens))
             truncated_stdout = encoding.decode(stdout_tokens[:allowed_stdout_tokens])
-            truncated_stderr = result.stderr
+            truncated_stderr = result["stderr"]
             if allowed_stdout_tokens < len(stdout_tokens):
                 truncated_stdout += " " + trunc_msg
         
         return {
             "cmd": cmd,
-            "exit_code": result.returncode,
+            "exit_code": result["exit_code"],
             "stdout": truncated_stdout,
             "stderr": truncated_stderr
         }
@@ -85,10 +87,8 @@ class AIAgent(ABC):
         """Run a command-line command and return the output."""
         try:
             logging.info(f"Running command: {cmd}")
-            result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, check=True, cwd=self.root_dir
-            )
-            return self.truncate_result_custom(result, cmd, max_input_tokens=3000, model='gpt-5')
+            result = self.project_container.execute(cmd)
+            return self.truncate_result_custom(result, cmd, max_input_tokens=10000, model='gpt-5')
         except subprocess.CalledProcessError as e:
             print(f"Command failed with error:\n{e.stderr}")
             return None
@@ -105,6 +105,9 @@ class AIAgent(ABC):
         if function_name == "run_bash_command":
             cmd = function_args.get("cmd", "")
             tool_response = self.run_bash_command(cmd)
+        elif function_name == "run_cscope_command":
+            command = function_args.get("command", "")
+            tool_response = self.run_bash_command(command)
         else:
             raise ValueError(f"Unknown function call: {function_name}")
         
@@ -131,6 +134,27 @@ class AIAgent(ABC):
                         }
                     },
                     "required": ["reason", "cmd"],
+                    "additionalProperties": False
+                }
+            },
+            {
+                "type": "function",
+                "name": "run_cscope_command",
+                "description": "Run a cscope command to search for type and function definitions, cross-references, and file paths.",
+                "strict": True,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "reason": {
+                            "type": "string",
+                            "description": "The reason for running the command"
+                        },
+                        "command": {
+                            "type": "string",
+                            "description": "A cscope command to run"
+                        }
+                    },
+                    "required": ["reason", "command"],
                     "additionalProperties": False
                 }
             }
@@ -189,53 +213,3 @@ class AIAgent(ABC):
 
         self.client.vector_stores.delete(self.vector_store.id)
         print(f"Deleted vector store {self.vector_store.id} for {self.store_name}")
-
-    def _delay_for_retry(self, attempt_count: int) -> None:
-        """Sleeps for a while based on the |attempt_count|."""
-        # Exponentially increase from 5 to 80 seconds + some random to jitter.
-        delay = 5 * 2**attempt_count + random.randint(1, 5)
-        logging.warning('Retry in %d seconds...', delay)
-        time.sleep(delay)
-
-    def _is_retryable_error(self, err: Exception,
-                            api_errors: list[Type[Exception]],
-                            tb: traceback.StackSummary) -> bool:
-        """Validates if |err| is worth retrying."""
-        if any(isinstance(err, api_error) for api_error in api_errors):
-            return True
-
-        # A known case from vertex package, no content due to mismatch roles.
-        if (isinstance(err, ValueError) and
-            'Content roles do not match' in str(err) and tb[-1].filename.endswith(
-                'vertexai/generative_models/_generative_models.py')):
-            return True
-
-        # A known case from vertex package, content blocked by safety filters.
-        if (isinstance(err, ValueError) and
-            'blocked by the safety filters' in str(err) and
-            tb[-1].filename.endswith(
-                'vertexai/generative_models/_generative_models.py')):
-            return True
-
-        return False
-
-    def with_retry_on_error(self, func: Callable,
-                            api_errs: list[Type[Exception]]) -> Any:
-        """
-        Retry when the function returns an expected error with exponential backoff.
-        """
-        for attempt in range(1, self._max_attempts + 1):
-            try:
-                return func()
-            except Exception as err:
-                logging.warning('LLM API Error when responding (attempt %d): %s',
-                                attempt, err)
-                tb = traceback.extract_tb(err.__traceback__)
-                if (not self._is_retryable_error(err, api_errs, tb) or
-                    attempt == self._max_attempts):
-                    logging.warning(
-                        'LLM API cannot fix error when responding (attempt %d) %s: %s',
-                        attempt, err, traceback.format_exc())
-                    raise err
-                self._delay_for_retry(attempt_count=attempt)
-        return None

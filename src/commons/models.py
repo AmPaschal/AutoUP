@@ -118,7 +118,14 @@ class GPT(LLM):
             )
 
             # Add model outputs to conversation state
-            input_list += client_response.output
+            # This is a workaround for the issue https://github.com/openai/openai-python/issues/2374
+            for item in client_response.output:
+                if item.type == "function_call":
+                    mapping = dict(item)
+                    del mapping['parsed_arguments']
+                    input_list.append(mapping)
+                else:
+                    input_list.append(item)
 
             # Find function calls
             function_calls = [item for item in client_response.output if item.type == "function_call"]
