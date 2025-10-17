@@ -9,9 +9,6 @@ class CBMCError:
         self.stack = error_obj['stack']
         self.vars = error_obj['harness_vars']
         self.is_built_in = error_obj['is_built_in']
-        
-        self.cluster = ""
-        self.error_id = ""
 
         # Reporting vars
         self.attempts = -1

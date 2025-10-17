@@ -1,6 +1,0 @@
-Harness execution no longer reaches the line where the error occurred.
-First, check for any conditional statements in the target function that could prevent coverage of the failing line.
-
-Then, determine why your previous precondition may have prevented coverage of the failing line.
-
-Finally, create a new precondition that still resolves the error without reducing line coverage in the target function.

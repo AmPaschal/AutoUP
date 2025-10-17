@@ -7,7 +7,7 @@ import random
 import time
 import logging
 import traceback
-from typing import Any, Callable, Optional, Type
+from typing import Any, Callable, Type
 
 class LLM(ABC):
 
@@ -26,7 +26,7 @@ class LLM(ABC):
         input_messages: str,
         output_format: BaseModel,
         llm_tools: list = [],
-        call_function: Optional[Callable] = None
+        call_function: Callable = None
     ):
         pass
 
@@ -80,39 +80,15 @@ class LLM(ABC):
                 self._delay_for_retry(attempt_count=attempt)
         return None
 
-    def _upload_vector_store_files(self, files_to_upload):
-        """
-        Actually upload the relevant files to the vector store
-        This should be implemented in the subclass
-        """
-        pass
-
-    def delete_by_file_type(self, file_type: str):
-        """
-        Delete all vector store files of a given type
-        This should be implemented in the subclass
-        """
-        pass
-
 
 class GPT(LLM):
 
-    def __init__(self, name: str, max_input_tokens: int, agent_name: str = ''):
+    def __init__(self, name: str, max_input_tokens: int):
         super().__init__(name, max_input_tokens)
         openai_api_key = os.getenv("OPENAI_API_KEY", None)
         if not openai_api_key:
             raise EnvironmentError("No OpenAI API key found")
         self.client = openai.OpenAI(api_key=openai_api_key)
-        self.store_name = f'{agent_name}-store'
-        self.test_mode = True
-        chunking_strategy={
-                'type': 'static',
-                'static': {
-                    'chunk_overlap_tokens': 0, #I believe that having this as a non-zero value can cause hallucinations about file contents
-                    'max_chunk_size_tokens': 800 # Unsure if this matters
-                } 
-            }
-        self.vector_store = self._create_vector_store(chunking_strategy)
 
     def chat_llm(
         self,
@@ -120,8 +96,7 @@ class GPT(LLM):
         input_messages: str,
         output_format: BaseModel,
         llm_tools: list = [],
-        call_function: Optional[Callable] = None,
-        parsed: bool = True
+        call_function: Callable = None
     ):
         # Start with the initial user input
         input_list = [{'role': 'user', 'content': input_messages}]
@@ -170,78 +145,4 @@ class GPT(LLM):
                     "output": function_result,
                 })
 
-        return client_response.output_parsed if parsed else client_response
-
-    def get_vector_store_id(self):
-        return self.vector_store.id
-
-    def _create_vector_store(self, chunking_strategy):
-        """
-        Checks if a vector store already exists
-        If it does already exist, it will clear all files inside and return the existing vector store
-        """
-
-        for store in self.client.vector_stores.list():
-            if store.name == self.store_name:
-                print(f"Found existing vector store with ID {store.id}")
-                if self.test_mode:
-                    print(f"Cleaning up old vector store {store.id} for testing")
-                    self.vector_store = store
-                    self._cleanup_vector_store()
-                else:
-                    return store
-
-        print(f"Initializing vector store for {self.store_name}")
-        vector_store = self.client.vector_stores.create(
-            name=self.store_name,
-            chunking_strategy=chunking_strategy # If chunking_strategy is None, it will use OpenAI's default chunking strategy (max_chunk_size_tokens = 800, chunk_overlap_tokens = 400)
-        )
-        
-        return vector_store
-
-    def _cleanup_vector_store(self):
-        """
-        Deletes the vector store and all files associated with the tag name
-        Then moves the updated harness into a different file and restores the original harness file from the backup
-        """
-        if self.vector_store.id not in [store.id for store in self.client.vector_stores.list()]:
-            return
-
-        file_ids = self.client.vector_stores.files.list(self.vector_store.id)
-        for file in file_ids:
-            print(f"Deleting file {file.id} from vector store {self.vector_store.id}")
-            self.client.files.delete(file_id=file.id)
-
-        self.client.vector_stores.delete(self.vector_store.id)
-        print(f"Deleted vector store {self.vector_store.id} for {self.store_name}")
-
-    def upload_vector_store_files(self, files_to_upload):
-        """Uploads payload files to the vector store if none exist already."""
-        curr_files = self.client.vector_stores.files.list(self.vector_store.id).data
-        if curr_files:
-            print(f"WARNING: Vector store {self.vector_store.id} already contains payload files")
-            return
-
-        for file_path, file_info in files_to_upload:
-            with open(file_path, "rb") as f:
-                new_file = self.client.vector_stores.files.upload_and_poll(
-                    vector_store_id=self.vector_store.id,
-                    file=f,
-                )
-            self.client.vector_stores.files.update(
-                vector_store_id=self.vector_store.id,
-                file_id=new_file.id,
-                attributes={"type": file_info},
-            )
-
-    def delete_by_file_type(self, file_type: str):
-        """Delete all vector store files of a given type."""
-        files = self.client.vector_stores.files.list(self.vector_store.id).data
-        for file in files:
-            if file.attributes.get("type") == file_type:
-                print(f"Deleting {file_type} file {file.id} from vector store {self.vector_store.id}")
-                self.client.vector_stores.files.delete(
-                    vector_store_id=self.vector_store.id,
-                    file_id=file.id,
-                )
-                self.client.files.delete(file_id=file.id)
+        return client_response.output_parsed

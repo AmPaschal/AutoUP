@@ -72,11 +72,8 @@ class PreviousPreconditionsEvaluation(BaseModel):
     reasoning: str
 
 class ModelOutput(BaseModel):
-    #existing_preconditions: list[ExistingPrecondition]
-    #previous_precondition_analysis: Optional[list[PreviousPreconditionsEvaluation]]
-    #debugging_analysis_questions: list[DebuggingQuestions]
-    #new_preconditions: list[NewPrecondition]
+    existing_preconditions: list[ExistingPrecondition]
+    previous_precondition_analysis: Optional[list[PreviousPreconditionsEvaluation]]
+    debugging_analysis_questions: list[DebuggingQuestions]
+    new_preconditions: list[NewPrecondition]
     # func_models: list[FunctionModel]
-    analysis: str
-    fix_recomendation: str
-    updated_harness_file_content: str
