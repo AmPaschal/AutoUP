@@ -10,6 +10,8 @@ from typing import Any, Callable, Type
 
 import tiktoken
 
+from commons.docker_tool import ProjectContainer
+
 class AIAgent(ABC):
     """
     Shared features for any OpenAI agent that interacts with a vector store
@@ -17,7 +19,7 @@ class AIAgent(ABC):
 
     def __init__(self, agent_name, project_container, test_mode=False, chunking_strategy=None):
         self.agent_name = agent_name
-        self.project_container = project_container
+        self.project_container: ProjectContainer = project_container
         self.store_name = f'{agent_name}-store'
         self.test_mode = test_mode
         self._max_attempts = 5

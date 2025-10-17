@@ -7,6 +7,8 @@ Here is the detailed coverage report for the function:
 Here is the function's source implementation:
 {FUNCTION_SOURCE}
 
+You should focus your analysis on the uncovered code block that starts from line {TARGET_BLOCK_LINE}.
+
 The project's source code is located in the directory:
 {PROJECT_DIR}
 

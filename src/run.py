@@ -83,27 +83,7 @@ def get_parser():
 
     return args
 
-
-def main():
-    
-
-    # -----------------
-    # Parse arguments
-    # -----------------
-    args = get_parser()
-
-    # Initialize Model API key
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    if not openai_api_key:
-        raise EnvironmentError("No OpenAI API key found")
-
-    # Initialize Docker execution environment
-    project_container = ProjectContainer("tools.Dockerfile", host_dir=args.root_dir, container_name="autoup_project_container")
-    try:
-        project_container.initialize()
-    except Exception as e:
-        logging.error(f"Error initializing Project container: {e}")
-        sys.exit(1)
+def process_mode(args, project_container: ProjectContainer, openai_api_key: str):
 
     # -----------------
     # Harness mode
@@ -158,6 +138,33 @@ def main():
             project_container=project_container
         )
         coverage_debugger.debug_coverage()
+
+def main():
+    
+
+    # -----------------
+    # Parse arguments
+    # -----------------
+    args = get_parser()
+
+    # Initialize Model API key
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if not openai_api_key:
+        raise EnvironmentError("No OpenAI API key found")
+
+    # Initialize Docker execution environment
+    project_container = ProjectContainer("tools.Dockerfile", host_dir=args.root_dir, container_name="autoup_project_container2")
+    try:
+        project_container.initialize()
+    except Exception as e:
+        logging.error(f"Error initializing Project container: {e}")
+        sys.exit(1)
+
+    try:
+        process_mode(args, project_container, openai_api_key)
+    except Exception as e:
+        logging.error(f"Error occurred while processing mode: {e}")
+        sys.exit(1)
 
     project_container.terminate()
 

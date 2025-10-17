@@ -95,22 +95,29 @@ class ProjectContainer:
         self.initialize_tools()
 
     def execute(self, command: str) -> dict:
-        """Execute a command inside the container."""
+        """Execute a command inside the container using bash shell."""
         if not self.container:
             raise RuntimeError("Container not initialized. Call initialize() first.")
 
+        # Always run through bash -c for proper shell interpretation
+        shell_command = ["bash", "-c", command]
+
         logging.debug(f"[>] Executing command: {command}")
-        result = self.container.exec_run(command, demux=True)
+        result = self.container.exec_run(shell_command, demux=True)
+
         stdout, stderr = result.output
-        stdout_decoded = stdout.decode("utf-8") if stdout else ""
-        stderr_decoded = stderr.decode("utf-8") if stderr else ""
-        logging.debug(stdout_decoded)
-        logging.debug(stderr_decoded)
+        stdout_decoded = stdout.decode("utf-8", errors="ignore") if stdout else ""
+        stderr_decoded = stderr.decode("utf-8", errors="ignore") if stderr else ""
+
+        logging.debug(f"[DEBUG] exit_code: {result.exit_code}")
+        logging.debug(f"[DEBUG] stdout:\n{stdout_decoded}")
+        logging.debug(f"[DEBUG] stderr:\n{stderr_decoded}")
         return {
             "exit_code": result.exit_code,
             "stdout": stdout_decoded,
             "stderr": stderr_decoded
         }
+
 
     def terminate(self):
         """Stop and remove the container."""
