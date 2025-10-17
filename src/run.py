@@ -2,7 +2,7 @@ import signal
 import sys
 import argparse
 import os
-import json
+import time
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
@@ -97,7 +97,7 @@ def main():
 
     # Initialize Docker execution environment
     project_container = ProjectContainer(
-        "tools.Dockerfile", host_dir=args.root_dir, container_name="autoup_project_container")
+        "tools.Dockerfile", host_dir=args.root_dir, container_name=f"autoup_{int(time.time())}")
     try:
         project_container.initialize()
     except Exception as e:
