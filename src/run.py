@@ -19,21 +19,17 @@ logger = setup_logger(__name__)
 
 project_container: Optional[ProjectContainer] = None
 
+project_container: Optional[ProjectContainer] = None
+
 
 def cleanup(signum, frame):
     print("Caught signal, cleaning up container...")
-    if signum is not None:
-        print(f"Signal name: {signal.getsignal(signum)}")
     if project_container:
-        print("Project container is not none")
         project_container.terminate()
-    else:
-        print("Project container is none")
-
+    sys.exit(1)
 
 signal.signal(signal.SIGINT, cleanup)   # Ctrl+C
 signal.signal(signal.SIGTERM, cleanup)  # `kill` command
-
 
 def get_parser():
     parser = argparse.ArgumentParser(
