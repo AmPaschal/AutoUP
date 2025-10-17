@@ -11,12 +11,12 @@ from makefile.output_models import HarnessResponse
 
 class InitialHarnessGenerator(AIAgent):
 
-    def __init__(self, root_dir, harness_dir, target_func, target_file_path):
+    def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
         super().__init__(
-            "MakefileGenerator"
+            "MakefileGenerator",
+            project_container
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
-        
         self.root_dir = os.path.abspath(root_dir)
         self.harness_dir = os.path.abspath(harness_dir)
         self.target_func = target_func
@@ -81,14 +81,6 @@ class InitialHarnessGenerator(AIAgent):
 
         with open("prompts/harness_generator_user.prompt", "r") as f:
             user_prompt = f.read()
-
-        sample_function_signature = ''
-        # system_prompt = system_prompt.replace("{SAMPLE_FUNCTION_SIGNATURE}", sample_function_signature)
-
-        with open('src/initial_harness_generator/harness.example', 'r') as f:
-            sample_harness = f.read()
-
-        # system_prompt = system_prompt.replace("{SAMPLE_CBMC_HARNESS}", sample_harness)
 
         user_prompt = user_prompt.replace("{FUNCTION_NAME}", self.target_func)
         user_prompt = user_prompt.replace("{PROJECT_DIR}", self.root_dir)

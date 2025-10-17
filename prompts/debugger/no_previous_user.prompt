@@ -1,0 +1,30 @@
+The most recent execution of the harness resulted in the following error:
+{message}
+{stack}
+
+The value of each variable passed into the target function before the error occurred, grouped by the scope they were initalized in, is provided below:
+{variables}
+
+Complete the following steps to determine an appropriate precondition that will resolve the error.
+First, find the current definition of the "harness" function and note which variables have existing preconditions, along with the line numbers for each preconditon.
+Next, find the definition of the function where the error occurred.
+Finally, list out the variable values for each modeled variable when error occured.
+
+Then, provide a general analysis of the error and the variables involved.
+
+Finally, use this information to answer the following questions and determine the variable responsible for the error:
+{advice}
+
+Based on this analysis, determine the smallest possible set of preconditions that can be added to the harness to resolve the error.
+
+Then, translate these preconditions to a valid line of code based on the following criteria:
+1. Your precondition is formatted as __CPROVER_assume(<precondition>).
+2. Your precondition ONLY uses variables that are defined in the harness.
+3. Your chosen line number in the function is placed directly after the lines where all variables in the precondition are initialized.
+4. Your chosen line number is inserted is within the line numbers of the harness function, and is placed before the call to {harness}.
+5. It does not repeat any logic found in existing __CPROVER_assume statements in the harness.
+
+#Finally, indicate where the precondition should be inserted by providing the function where it should be inserted and the lines of code that should come directly before and after the new precondition.
+Finally, provide an updated harness file content to override the previous target file
+
+Provide your response in the specified schema format.

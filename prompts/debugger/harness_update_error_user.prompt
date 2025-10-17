@@ -1,0 +1,9 @@
+When attempting to insert the new preconditions into the harness, we could not find a match for the previous line of code you provided: {previous_line}.
+
+Please use the following steps to understand the cause of the error and fix your precondition appropriately.
+1. Confirm this line of code is actually exists in the harness file and the syntax matches exactly.
+2. If the syntax was mismatched, please provide the same precondition but with a previous line of code that exactly matches the syntax.
+3. If the syntax is correct, double-check that this previous line of code exists in the {function} function.
+4. If you did not provide the correct function in your response, please provide the same precondition with the correct function that contains the previous line of code.
+
+Follow this debugging process to revise your previous precondition.

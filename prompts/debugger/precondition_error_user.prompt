@@ -1,0 +1,6 @@
+The previously suggested precondition introduced the following new CBMC errors to the harness:
+{new_errors}
+
+First, consider the variables you used in the precondition and determine why they caused new errors in the harness.
+Then, evaluate which of these variables are absolutely necessary to resolve the original error, and restrict your next response to only those variables.
+Finally, provide a revision of your precondition or suggest additional new preconditions that will prevent any memory errors from occuring within the definitions of your preconditions.
