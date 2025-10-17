@@ -141,17 +141,17 @@ def main():
 
     elif args.mode == "debugger":
         logger.info("Running in debugger mode.")
-        logger.info("Harness path: %s", args.harness_path)
-        logger.info("Root directory: %s", args.root_dir)
-        logger.info("Target function name: %s", args.target_function_name)
-        proof_writer = ProofDebugger(
-            harness_path=args.harness_path,
-            root_dir=args.root_dir,
-            target_function_name=args.target_function_name,
-            project_container=project_container
-        )
-        harness_report = proof_writer.generate()
-        logger.info("Harness report: %s\n", harness_report)
+        # logger.info("Harness path: %s", args.harness_path)
+        # logger.info("Root directory: %s", args.root_dir)
+        # logger.info("Target function name: %s", args.target_function_name)
+        # proof_writer = ProofDebugger(
+        #     harness_path=args.harness_path,
+        #     root_dir=args.root_dir,
+        #     target_function_name=args.target_function_name,
+        #     project_container=project_container
+        # )
+        # harness_report = proof_writer.generate()
+        # logger.info("Harness report: %s\n", harness_report)
     project_container.terminate()
 
 
