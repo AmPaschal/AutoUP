@@ -2,23 +2,22 @@ import signal
 import sys
 import argparse
 import os
-import logging
-import json
+import time
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
-from debugger.debugger import LLMProofDebugger
+from debugger.debugger import ProofDebugger
 from makefile.gen_makefile import LLMMakefileGenerator
 from initial_harness_generator.gen_harness import InitialHarnessGenerator
+from logger import init_logging, setup_logger
+
 from commons.utils import Status
 from commons.docker_tool import ProjectContainer
 load_dotenv()
+init_logging()
+logger = setup_logger(__name__)
 
-# Configure logging once, usually at the entry point of your program
-logging.basicConfig(
-    level=logging.INFO,  # Set minimum log level
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+project_container: Optional[ProjectContainer] = None
 
 project_container: Optional[ProjectContainer] = None
 
@@ -84,7 +83,7 @@ def get_parser():
 
 
 def main():
-    
+    global project_container
 
     # -----------------
     # Parse arguments
@@ -97,18 +96,19 @@ def main():
         raise EnvironmentError("No OpenAI API key found")
 
     # Initialize Docker execution environment
-    project_container = ProjectContainer("tools.Dockerfile", host_dir=args.root_dir, container_name="autoup_project_container")
+    project_container = ProjectContainer(
+        "tools.Dockerfile", host_dir=args.root_dir, container_name=f"autoup_{int(time.time())}")
     try:
         project_container.initialize()
     except Exception as e:
-        logging.error(f"Error initializing Project container: {e}")
+        logger.error(f"Error initializing Project container: {e}")
         sys.exit(1)
 
-    # -----------------
+    # -----------------autoup_project_container
     # Harness mode
     # -----------------
     if args.mode == "harness":
-        logging.info(
+        logger.info(
             f"Running in harness mode with args: {args.target_function_name}, {args.root_dir}, {args.harness_path}, {args.target_func_path}"
         )
 
@@ -125,7 +125,8 @@ def main():
         )
         success = harness_generator.generate_harness()
         if not success:
-            logging.error("Error: Harness generation failed. Aborting makefile generation.")
+            logger.error(
+                "Error: Harness generation failed. Aborting makefile generation.")
             sys.exit(1)
 
         # Generate Makefile
@@ -138,17 +139,27 @@ def main():
         )
         makefile_generator.generate_makefile()
 
-    # -----------------
-    # Debugger mode
-    # -----------------
     elif args.mode == "debugger":
-        logging.info(f"Running in debugger mode with arg: {args.harness_path}")
-        proof_writer = LLMProofDebugger(openai_api_key, args.harness_path, test_mode=True)
-        harness_report = proof_writer.iterate_proof(max_attempts=3)
-        logging.info(f"Harness report:\n{harness_report}")
-
+        logger.info("Running in debugger mode.")
+        # logger.info("Harness path: %s", args.harness_path)
+        # logger.info("Root directory: %s", args.root_dir)
+        # logger.info("Target function name: %s", args.target_function_name)
+        # proof_writer = ProofDebugger(
+        #     harness_path=args.harness_path,
+        #     root_dir=args.root_dir,
+        #     target_function_name=args.target_function_name,
+        #     project_container=project_container
+        # )
+        # harness_report = proof_writer.generate()
+        # logger.info("Harness report: %s\n", harness_report)
     project_container.terminate()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        cleanup(None, None)
+        raise e
+    # cleanup(None, None)
+    # main()

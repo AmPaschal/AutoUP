@@ -457,4 +457,3 @@ class LLMProofDebugger(AIAgent):
         shutil.copy(backup_path, self.harness_path)
         print(f"Restored harness from {backup_path} to {self.harness_path}")
         os.remove(backup_path)
-

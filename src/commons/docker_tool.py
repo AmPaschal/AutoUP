@@ -1,7 +1,11 @@
-import logging
 import docker
 import os
 from docker.errors import ImageNotFound, BuildError, APIError
+
+from logger import setup_logger
+
+
+logger = setup_logger(__name__)
 
 class ProjectContainer:
     def __init__(self, dockerfile_path: str, host_dir: str, container_name: str, container_dir="/project",
@@ -28,21 +32,21 @@ class ProjectContainer:
         if not self.dockerfile_path or not os.path.exists(self.dockerfile_path):
             raise FileNotFoundError(f"Dockerfile path '{self.dockerfile_path}' does not exist.")
 
-        logging.info(f"[+] Building Docker image '{self.image_tag}' from {self.dockerfile_path}...")
+        logger.info(f"[+] Building Docker image '{self.image_tag}' from {self.dockerfile_path}...")
         try:
             image, logs = self.client.images.build(
                 path=os.path.dirname(os.path.abspath(self.dockerfile_path)),  # directory containing the Dockerfile
                 dockerfile=os.path.basename(self.dockerfile_path),  # name of the Dockerfile
                 tag=self.image_tag
             )
-            logging.info(f"[+] Image '{self.image_tag}' built successfully.")
+            logger.info(f"[+] Image '{self.image_tag}' built successfully.")
         except BuildError as e:
-            logging.error("[!] Docker build failed!")
+            logger.error("[!] Docker build failed!")
             for line in e.build_log:
-                logging.error(line['stream'])
+                logger.error(line['stream'])
             raise
         except APIError as e:
-            logging.error(f"[!] Docker API error: {e}")
+            logger.error(f"[!] Docker API error: {e}")
             raise
 
         return self.image_tag
@@ -53,13 +57,13 @@ class ProjectContainer:
         # If host_dir is specified, we assume it is valid. Should have been checked early on
         if self.host_dir:
             volumes = {self.host_dir: {'bind': self.container_dir, 'mode': 'rw'}}
-            logging.info(f"[+] Mapping host directory {self.host_dir} -> container {self.container_dir}")
+            logger.info(f"[+] Mapping host directory {self.host_dir} -> container {self.container_dir}")
 
         if not self.image:
             raise RuntimeError("Image not built. Call build_image() first.")
 
         # Create and run container
-        logging.info(f"[+] Creating container '{self.container_name}' from image '{self.image}'...")
+        logger.info(f"[+] Creating container '{self.container_name}' from image '{self.image}'...")
         self.container = self.client.containers.run(
             self.image,
             name=self.container_name,
@@ -69,7 +73,7 @@ class ProjectContainer:
             working_dir=self.container_dir,
             volumes=volumes
         )
-        logging.info(f"[+] Container '{self.container_name}' is running.")
+        logger.info(f"[+] Container '{self.container_name}' is running.")
 
     def initialize_tools(self):
         """Initialize tools inside the container, if necessary."""
@@ -77,14 +81,14 @@ class ProjectContainer:
         # First, initialize cscope database if cscope is installed
         cscope_check = self.execute("which cscope")
         if cscope_check['exit_code'] == 0 and cscope_check['stdout'].strip():
-            logging.info("[+] Initializing cscope database...")
+            logger.info("[+] Initializing cscope database...")
             cscope_init = self.execute("cscope -Rbqk")
             if cscope_init['exit_code'] != 0:
-                logging.warning("[!] cscope initialization failed.")
+                logger.warning("[!] cscope initialization failed.")
             else:
-                logging.info("[+] cscope database initialized.")
+                logger.info("[+] cscope database initialized.")
         else:
-            logging.info("[*] cscope not found in container; skipping cscope initialization.")
+            logger.info("[*] cscope not found in container; skipping cscope initialization.")
 
     def initialize(self):
         """Initialize container, building image if necessary."""
@@ -99,14 +103,16 @@ class ProjectContainer:
         if not self.container:
             raise RuntimeError("Container not initialized. Call initialize() first.")
 
-        logging.debug(f"[>] Executing command: {command}")
-        result = self.container.exec_run(command, demux=True)
+        logger.debug(f"[>] Executing command: {command}")
+        exec_command = ["timeout", "10s", "bash", "-c", command]
+        result = self.container.exec_run(exec_command, demux=True)
         stdout, stderr = result.output
         stdout_decoded = stdout.decode("utf-8") if stdout else ""
         stderr_decoded = stderr.decode("utf-8") if stderr else ""
-        logging.debug(stdout_decoded)
-        logging.debug(stderr_decoded)
+        logger.debug(stdout_decoded)
+        logger.debug(stderr_decoded)
         return {
+            "timeout": result.exit_code == 124,
             "exit_code": result.exit_code,
             "stdout": stdout_decoded,
             "stderr": stderr_decoded
@@ -115,9 +121,9 @@ class ProjectContainer:
     def terminate(self):
         """Stop and remove the container."""
         if self.container:
-            logging.debug(f"[-] Stopping container '{self.container_name}'...")
+            logger.debug(f"[-] Stopping container '{self.container_name}'...")
             self.container.stop()
-            logging.debug(f"[-] Removing container '{self.container_name}'...")
+            logger.debug(f"[-] Removing container '{self.container_name}'...")
             self.container.remove()
             self.container = None
-            logging.info("[+] Container terminated.")
+            logger.info("[+] Container terminated.")
