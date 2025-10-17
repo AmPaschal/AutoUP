@@ -16,7 +16,7 @@ from overwrite_file_tool import OverrideFileTool
 class Agent:
     """ OpenAI GPT manager"""
 
-    def __init__(self) -> None:8c5eb0b44b7a3d3c21654f62f15bc0110c557684
+    def __init__(self) -> None:
         openai_api_key = os.getenv("OPENAI_API_KEY", None)
         if not openai_api_key:
             raise EnvironmentError("No OpenAI API key found")
