@@ -147,7 +147,7 @@ def main():
         raise EnvironmentError("No OpenAI API key found")
 
     # Initialize Docker execution environment
-    project_container = ProjectContainer("tools.Dockerfile", host_dir=args.root_dir, container_name="autoup_project_container2")
+    project_container = ProjectContainer(dockerfile_path="tools.Dockerfile", host_dir=args.root_dir, container_name=f"autoup_{int(time.time())}")
     try:
         project_container.initialize()
     except Exception as e:
