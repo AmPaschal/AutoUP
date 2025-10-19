@@ -104,7 +104,7 @@ class ProjectContainer:
             raise RuntimeError("Container not initialized. Call initialize() first.")
 
         logger.debug(f"[>] Executing command: {command}")
-        exec_command = ["timeout", "10s", "bash", "-c", command]
+        exec_command = ["timeout", "30s", "bash", "-c", command]
         result = self.container.exec_run(exec_command, demux=True)
         stdout, stderr = result.output
         stdout_decoded = stdout.decode("utf-8", errors="ignore") if stdout else ""

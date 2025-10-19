@@ -5,6 +5,7 @@ import os
 import time
 from pathlib import Path
 from typing import Optional
+import uuid
 from dotenv import load_dotenv
 from coverage_debugger.coverage_debugger import CoverageDebugger
 from makefile.gen_makefile import LLMMakefileGenerator
@@ -88,7 +89,7 @@ def process_mode(args, project_container: ProjectContainer, openai_api_key: str)
     # -----------------
     if args.mode == "harness":
         logger.info(
-            f"Running in harness mode with args: {args.target_function_name}, {args.root_dir}, {args.harness_path}, {args.target_func_path}"
+            f"Running in harness mode with args: {args.target_function_name}, {args.root_dir}, {args.harness_path}, {args.target_file_path}"
         )
 
         harness_dir = Path(args.harness_path)
@@ -147,7 +148,8 @@ def main():
         raise EnvironmentError("No OpenAI API key found")
 
     # Initialize Docker execution environment
-    project_container = ProjectContainer(dockerfile_path="tools.Dockerfile", host_dir=args.root_dir, container_name=f"autoup_{int(time.time())}")
+    container_name = f"autoup_{uuid.uuid4().hex[:8]}"  # 8-character random string
+    project_container = ProjectContainer(dockerfile_path="tools.Dockerfile", host_dir=args.root_dir, container_name=container_name)
     try:
         project_container.initialize()
     except Exception as e:

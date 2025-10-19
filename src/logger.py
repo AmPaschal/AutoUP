@@ -11,7 +11,7 @@ def init_logging():
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] (%(filename)s:%(lineno)d) %(message)s",
         handlers=[
-            logging.FileHandler(f"logs/app_{timestamp}.log"),
+            # logging.FileHandler(f"logs/app_{timestamp}.log"),
             logging.StreamHandler()
         ]
     )
