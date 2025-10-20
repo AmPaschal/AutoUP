@@ -99,24 +99,27 @@ class ProjectContainer:
         self.initialize_tools()
 
     def execute(self, command: str) -> dict:
-        """Execute a command inside the container."""
+        """Execute a command inside the container using bash shell."""
         if not self.container:
             raise RuntimeError("Container not initialized. Call initialize() first.")
 
         logger.debug(f"[>] Executing command: {command}")
-        exec_command = ["timeout", "10s", "bash", "-c", command]
+        exec_command = ["timeout", "30s", "bash", "-c", command]
         result = self.container.exec_run(exec_command, demux=True)
         stdout, stderr = result.output
-        stdout_decoded = stdout.decode("utf-8") if stdout else ""
-        stderr_decoded = stderr.decode("utf-8") if stderr else ""
-        logger.debug(stdout_decoded)
-        logger.debug(stderr_decoded)
+        stdout_decoded = stdout.decode("utf-8", errors="ignore") if stdout else ""
+        stderr_decoded = stderr.decode("utf-8", errors="ignore") if stderr else ""
+
+        logger.debug(f"[DEBUG] exit_code: {result.exit_code}")
+        logger.debug(f"[DEBUG] stdout:\n{stdout_decoded}")
+        logger.debug(f"[DEBUG] stderr:\n{stderr_decoded}")
         return {
             "timeout": result.exit_code == 124,
             "exit_code": result.exit_code,
             "stdout": stdout_decoded,
             "stderr": stderr_decoded
         }
+
 
     def terminate(self):
         """Stop and remove the container."""

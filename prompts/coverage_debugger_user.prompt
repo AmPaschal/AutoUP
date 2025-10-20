@@ -1,0 +1,16 @@
+Below is the details of the function with low coverage, which you should address.
+{FUNCTION_DATA}
+
+Here is the detailed coverage report for the function:
+{COVERAGE_DATA}
+
+Here is the function's source implementation:
+{FUNCTION_SOURCE}
+
+You should focus your analysis on the uncovered code block that starts from line {TARGET_BLOCK_LINE}.
+
+The project's source code is located in the directory:
+{PROJECT_DIR}
+
+The verification report directory:
+{HARNESS_DIR}/build/report

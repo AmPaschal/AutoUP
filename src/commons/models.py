@@ -5,10 +5,12 @@ import tiktoken
 import openai
 import random
 import time
-import logging
 import traceback
-from typing import Any, Callable, Type
+from typing import Any, Callable, Optional, Type
 
+from logger import setup_logger
+
+logger = setup_logger(__name__)
 class LLM(ABC):
 
     name: str
@@ -24,9 +26,9 @@ class LLM(ABC):
         self,
         system_messages: str,
         input_messages: str,
-        output_format: BaseModel,
+        output_format: Type[BaseModel],
         llm_tools: list = [],
-        call_function: Callable = None
+        call_function: Optional[Callable] = None
     ):
         pass
 
@@ -34,7 +36,7 @@ class LLM(ABC):
         """Sleeps for a while based on the |attempt_count|."""
         # Exponentially increase from 5 to 80 seconds + some random to jitter.
         delay = 5 * 2**attempt_count + random.randint(1, 5)
-        logging.warning('Retry in %d seconds...', delay)
+        logger.warning('Retry in %d seconds...', delay)
         time.sleep(delay)
 
     def _is_retryable_error(self, err: Exception,
@@ -68,12 +70,12 @@ class LLM(ABC):
             try:
                 return func()
             except Exception as err:
-                logging.warning('LLM API Error when responding (attempt %d): %s',
+                logger.warning('LLM API Error when responding (attempt %d): %s',
                                 attempt, err)
                 tb = traceback.extract_tb(err.__traceback__)
                 if (not self._is_retryable_error(err, api_errs, tb) or
                     attempt == self._max_attempts):
-                    logging.warning(
+                    logger.warning(
                         'LLM API cannot fix error when responding (attempt %d) %s: %s',
                         attempt, err, traceback.format_exc())
                     raise err
@@ -94,9 +96,9 @@ class GPT(LLM):
         self,
         system_messages: str,
         input_messages: str,
-        output_format: BaseModel,
+        output_format: Type[BaseModel],
         llm_tools: list = [],
-        call_function: Callable = None
+        call_function: Optional[Callable] = None
     ):
         # Start with the initial user input
         input_list = [{'role': 'user', 'content': input_messages}]

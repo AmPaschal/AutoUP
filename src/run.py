@@ -5,8 +5,9 @@ import os
 import time
 from pathlib import Path
 from typing import Optional
+import uuid
 from dotenv import load_dotenv
-from debugger.debugger import ProofDebugger
+from coverage_debugger.coverage_debugger import CoverageDebugger
 from makefile.gen_makefile import LLMMakefileGenerator
 from initial_harness_generator.gen_harness import InitialHarnessGenerator
 from logger import init_logging, setup_logger
@@ -38,8 +39,8 @@ def get_parser():
 
     parser.add_argument(
         "mode",
-        choices=["harness", "debugger"],
-        help="Execution mode: 'harness' to generate harness/makefile, or 'debugger' to run proof debugger."
+        choices=["harness", "debugger", "coverage"],
+        help="Execution mode: 'harness' to generate harness/makefile, 'debugger' to run proof debugger, or 'coverage' to run coverage debugger."
     )
 
     parser.add_argument(
@@ -57,7 +58,7 @@ def get_parser():
         help="Path to the harness directory."
     )
     parser.add_argument(
-        "--target_func_path",
+        "--target_file_path",
         help="Path to target function source file (required for harness mode)."
     )
 
@@ -67,7 +68,7 @@ def get_parser():
     if args.mode == "harness":
         missing = [
             arg for arg in
-            ["target_function_name", "root_dir", "target_func_path"]
+            ["target_function_name", "root_dir", "target_file_path"]
             if getattr(args, arg) is None
         ]
         if missing:
@@ -81,35 +82,14 @@ def get_parser():
 
     return args
 
-
-def main():
-    global project_container
-
-    # -----------------
-    # Parse arguments
-    # -----------------
-    args = get_parser()
-
-    # Initialize Model API key
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    if not openai_api_key:
-        raise EnvironmentError("No OpenAI API key found")
-
-    # Initialize Docker execution environment
-    project_container = ProjectContainer(
-        "tools.Dockerfile", host_dir=args.root_dir, container_name=f"autoup_{int(time.time())}")
-    try:
-        project_container.initialize()
-    except Exception as e:
-        logger.error(f"Error initializing Project container: {e}")
-        sys.exit(1)
+def process_mode(args, project_container: ProjectContainer, openai_api_key: str):
 
     # -----------------autoup_project_container
     # Harness mode
     # -----------------
     if args.mode == "harness":
         logger.info(
-            f"Running in harness mode with args: {args.target_function_name}, {args.root_dir}, {args.harness_path}, {args.target_func_path}"
+            f"Running in harness mode with args: {args.target_function_name}, {args.root_dir}, {args.harness_path}, {args.target_file_path}"
         )
 
         harness_dir = Path(args.harness_path)
@@ -120,7 +100,7 @@ def main():
             root_dir=args.root_dir,
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
-            target_file_path=args.target_func_path,
+            target_file_path=args.target_file_path,
             project_container=project_container
         )
         success = harness_generator.generate_harness()
@@ -134,24 +114,50 @@ def main():
             root_dir=args.root_dir,
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
-            target_file_path=args.target_func_path,
+            target_file_path=args.target_file_path,
             project_container=project_container
         )
         makefile_generator.generate_makefile()
 
     elif args.mode == "debugger":
-        logger.info("Running in debugger mode.")
-        # logger.info("Harness path: %s", args.harness_path)
-        # logger.info("Root directory: %s", args.root_dir)
-        # logger.info("Target function name: %s", args.target_function_name)
-        # proof_writer = ProofDebugger(
-        #     harness_path=args.harness_path,
-        #     root_dir=args.root_dir,
-        #     target_function_name=args.target_function_name,
-        #     project_container=project_container
-        # )
-        # harness_report = proof_writer.generate()
-        # logger.info("Harness report: %s\n", harness_report)
+        pass
+
+    elif args.mode == "coverage":
+        logger.info(f"Running in coverage debugger mode with arg: {args.harness_path}")
+        coverage_debugger = CoverageDebugger(
+            root_dir=args.root_dir,
+            harness_dir=args.harness_path,
+            target_func=args.target_function_name,
+            target_file_path=args.target_file_path,
+            project_container=project_container
+        )
+        coverage_debugger.debug_coverage()
+
+def main():
+
+    global project_container
+    
+    # -----------------
+    # Parse arguments
+    # -----------------
+    args = get_parser()
+
+    # Initialize Model API key
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if not openai_api_key:
+        raise EnvironmentError("No OpenAI API key found")
+
+    # Initialize Docker execution environment
+    container_name = f"autoup_{uuid.uuid4().hex[:8]}"  # 8-character random string
+    project_container = ProjectContainer(dockerfile_path="tools.Dockerfile", host_dir=args.root_dir, container_name=container_name)
+    try:
+        project_container.initialize()
+    except Exception as e:
+        logger.error(f"Error initializing Project container: {e}")
+        return
+
+    process_mode(args, project_container, openai_api_key)
+
     project_container.terminate()
 
 
@@ -159,7 +165,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
+        logger.error(f"Error occurred while running main: {e}")
         cleanup(None, None)
         raise e
-    # cleanup(None, None)
-    # main()

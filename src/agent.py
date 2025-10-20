@@ -4,11 +4,15 @@ from openai import OpenAI
 from abc import ABC, abstractmethod
 import random
 import time
-import logging
 import traceback
 from typing import Any, Callable, Type
 
 import tiktoken
+
+from commons.docker_tool import ProjectContainer
+from logger import setup_logger
+
+logger = setup_logger(__name__)
 
 class AIAgent(ABC):
     """
@@ -17,7 +21,7 @@ class AIAgent(ABC):
 
     def __init__(self, agent_name, project_container, test_mode=False, chunking_strategy=None):
         self.agent_name = agent_name
-        self.project_container = project_container
+        self.project_container: ProjectContainer = project_container
         self.store_name = f'{agent_name}-store'
         self.test_mode = test_mode
         self._max_attempts = 5
@@ -86,7 +90,7 @@ class AIAgent(ABC):
     def run_bash_command(self, cmd):
         """Run a command-line command and return the output."""
         try:
-            logging.info(f"Running command: {cmd}")
+            logger.info(f"Running command: {cmd}")
             result = self.project_container.execute(cmd)
             return self.truncate_result_custom(result, cmd, max_input_tokens=10000, model='gpt-5')
         except subprocess.CalledProcessError as e:
@@ -99,7 +103,7 @@ class AIAgent(ABC):
         Name: {function_name} 
         Args: {function_args}
         """
-        logging.info(logging_text)
+        logger.info(logging_text)
         # Parse function_args string to dict
         function_args = json.loads(function_args)
         if function_name == "run_bash_command":
@@ -111,7 +115,7 @@ class AIAgent(ABC):
         else:
             raise ValueError(f"Unknown function call: {function_name}")
         
-        logging.info(f"Function call response: {tool_response}")
+        logger.info(f"Function call response: {tool_response}")
         return str(tool_response)
 
     def get_tools(self):
