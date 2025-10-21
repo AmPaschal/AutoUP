@@ -17,10 +17,10 @@ class InitialHarnessGenerator(AIAgent):
             project_container
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
-        self.root_dir = os.path.abspath(root_dir)
-        self.harness_dir = os.path.abspath(harness_dir)
+        self.root_dir = root_dir
+        self.harness_dir = harness_dir
         self.target_func = target_func
-        self.target_file_path = os.path.abspath(target_file_path)
+        self.target_file_path = target_file_path
         self._max_attempts = 5
 
     def extract_function_code(self, file_path, function_name):

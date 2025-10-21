@@ -121,24 +121,7 @@ class CoverageDebugger(AIAgent):
         return None, None
 
     def run_make(self):
-        try:
-            result = subprocess.run(
-                "make", shell=True, capture_output=True, text=True, cwd=self.harness_dir, timeout=150
-            )
-            logging.info('Stdout:\n' + result.stdout)
-            logging.info('Stderr:\n' + result.stderr) 
-            return {"status": Status.SUCCESS, "exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
-        except Exception as e:
-            if isinstance(e, subprocess.TimeoutExpired):
-                logging.error("Make command timed out.")
-                if e.stdout:
-                    logging.info('Partial stdout:\n' + str(e.stdout))
-                if e.stderr:
-                    logging.info('Partial stderr:\n' + str(e.stderr))
-                return {"status": Status.TIMEOUT}
-            else:
-                logging.error(f"An error occurred while running make: {e}")
-                return {"status": Status.FAILURE}
+        return self.execute_command("make", workdir=self.harness_dir, timeout=600)
 
     def extract_function_cli_awk(self, file_path, line_coverage):
         """

@@ -27,11 +27,12 @@ cscope -dL -6 <symbol>        # Find assignments to symbol
 You must follow these steps strictly:
 1. Define a harness called `void harness()`.
 2. Declare all function parameters inside `proof_harness` exactly as they appear in the function signature.
-3. For any pointer to a struct (e.g., `struct my_struct *ptr`), allocate memory with `malloc(sizeof(struct my_struct))` and use `__CPROVER_assume(ptr != NULL);`.
-4. For pointers to primitive types (e.g., `uint8_t *data`), do the following:
-    - Create a size variable (e.g., `uint16_t len`) to hold the allocation size.
-    - Allocate memory using `malloc(sizeof(type) * len)` (e.g., `malloc(sizeof(uint8_t) * len)`).
-5. Finally, call the function in the harness using the declared and initialized arguments.
+3. For any input pointer argument (e.g., `uint8_t *data`, `struct my_struct *ptr`), do the following:
+    - Create a pointer size variable of type size_t (e.g., `size_t data_len`, `size_t ptr_len`) to hold the allocation size.
+    - If the pointer is a struct pointer, constrain the minimum size of the pointer size variable to the size of the struct using __CPROVER_assume. (e.g., __CPROVER_assume(ptr_len >= sizeof(struct mystruct))).
+    - Initialize the pointer by allocating memory using the size variable `uint8_t *data = malloc(data_len); struct my_struct *ptr = malloc(ptr_len);` 
+4. Finally, call the function in the harness using the declared and initialized arguments.
+5. Do NOT make any additional constraints in the harness.
 
 Here is an example of a harness file generated for the function signature:
 <example>
@@ -41,10 +42,12 @@ void _parse_received_data(context *ctx, uint8_t *adv, size_t len);
 CBMC Harness:
 [Include statements]
 void harness() {
-    context *ctx = malloc(sizeof(context));
+    size_t ctx_len;
+    __CPROVER_assume(ctx_len >= sizeof(context))
+    context *ctx = malloc(ctx_len);
 
     size_t adv_len;
-    uint8_t *adv = malloc(sizeof(uint8_t) * adv_len);
+    uint8_t *adv = malloc(adv_len);
 
     size_t len;
 
