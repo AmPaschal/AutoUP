@@ -90,7 +90,10 @@ class LLMMakefileGenerator(AIAgent):
         return makefile
 
     def run_make(self):
-        return self.execute_command("make", workdir=self.harness_dir, timeout=600)
+        make_results = self.execute_command("make", workdir=self.harness_dir, timeout=600)
+        logger.info('Stdout:\n' + make_results.get('stdout', ''))
+        logger.info('Stderr:\n' + make_results.get('stderr', ''))
+        return make_results
 
     def update_makefile(self, makefile_content):
         with open(f'{self.harness_dir}/Makefile', 'w') as file:
@@ -141,15 +144,18 @@ class LLMMakefileGenerator(AIAgent):
         logger.info(f'System Prompt:\n{system_prompt}')
 
         status = Status.ERROR
+
+        conversation = []
         
         # Finally, we iteratively call the LLM to fix any errors until it succeeds
         while user_prompt and attempts < self._max_attempts:
 
             logger.info(f'LLM Prompt:\n{user_prompt}')
-            
-            llm_response = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls)
+
+            llm_response, conversation = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls, previous_conversation=conversation)
+
             if not llm_response:
-                user_prompt += "\nThe LLM did not return a valid response. Please try again."
+                user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n"
                 continue
 
             logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
@@ -166,6 +172,10 @@ class LLMMakefileGenerator(AIAgent):
                     break
             elif status_code == Status.FAILURE:
                 logger.info("Make command failed; reprompting LLM with make results.")
+
+                # It's possible this is a new error, so we clear the conversation history
+                # In future, we may want to detect if the previous error was resolved.
+                conversation = [] 
 
                 system_prompt, user_prompt = self.prepare_prompt(llm_response.updated_makefile, make_results)
             else:
