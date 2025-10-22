@@ -70,7 +70,9 @@ class ProofDebugger(AIAgent):
             logger.info("Cluster: %s", error.cluster)
             logger.info("Error id: %s", error.error_id)
             self.__refine_harness_file(error)
-            self.__execute_make()
+            make_success = self.__execute_make()
+            if not make_success:
+                return False
             if self.__is_error_solved(error):
                 logger.info("Error resolved!")
                 return True

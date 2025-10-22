@@ -3,6 +3,7 @@ import sys
 import argparse
 import os
 import json
+import uuid
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
@@ -14,8 +15,7 @@ from logger import init_logging, setup_logger
 from commons.utils import Status
 from commons.docker_tool import ProjectContainer
 load_dotenv()
-init_logging()
-logger = setup_logger(__name__)
+
 
 project_container: Optional[ProjectContainer] = None
 
@@ -89,15 +89,17 @@ def main():
     # Parse arguments
     # -----------------
     args = get_parser()
-
+    init_logging(Path(args.target_function_name).name)
+    logger = setup_logger(__name__)
     # Initialize Model API key
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if not openai_api_key:
         raise EnvironmentError("No OpenAI API key found")
 
     # Initialize Docker execution environment
+    container_name = f"autoup_{uuid.uuid4().hex[:8]}"
     project_container = ProjectContainer(
-        "tools.Dockerfile", host_dir=args.root_dir, container_name="autoup_project_container")
+        "tools.Dockerfile", host_dir=args.root_dir, container_name=container_name)
     try:
         project_container.initialize()
     except Exception as e:

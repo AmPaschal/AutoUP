@@ -1,0 +1,531 @@
+nohup: ignoring input
+Error in gnrc_sixlowpan_iphc_recv:
+2025-10-22 09:19:14,358 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:16,163 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:16,163 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:16,163 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_95cdf1f7' from image 'autoup_image:latest'...
+2025-10-22 09:19:16,633 [INFO] (docker_tool.py:76) [+] Container 'autoup_95cdf1f7' is running.
+2025-10-22 09:19:16,693 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:16,943 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:16,944 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:16,944 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/gnrc_sixlowpan_iphc_recv
+2025-10-22 09:19:16,944 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:16,944 [INFO] (run.py:148) Target function name: gnrc_sixlowpan_iphc_recv
+2025-10-22 09:19:17,993 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:18,722 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,333 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac33f9c7081919771bc2b5ddc2273 "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,636 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec/files "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,895 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:19:19,896 [INFO] (_base_client.py:1071) Retrying request to /vector_stores/vs_68f8d9164894819191a2ce113264f5ec in 0.443615 seconds
+2025-10-22 09:19:20,485 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 404 Not Found"
+2025-10-22 09:19:31,111 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  gnrc_sixlowpan_iphc_recv
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9164894819191a2ce113264f5ec
+Cleaning up old vector store vs_68f8d9164894819191a2ce113264f5ec for testing
+Caught signal, cleaning up container...
+
+Error in _on_regack:
+2025-10-22 09:19:14,341 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:16,136 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:16,137 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:16,137 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_f58b0e64' from image 'autoup_image:latest'...
+2025-10-22 09:19:16,706 [INFO] (docker_tool.py:76) [+] Container 'autoup_f58b0e64' is running.
+2025-10-22 09:19:16,759 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:16,943 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:16,943 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:16,943 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/_on_regack
+2025-10-22 09:19:16,944 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:16,944 [INFO] (run.py:148) Target function name: _on_regack
+2025-10-22 09:19:18,782 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,478 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,991 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac33f9c7081919771bc2b5ddc2273 "HTTP/1.1 200 OK"
+2025-10-22 09:19:20,398 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec/files "HTTP/1.1 200 OK"
+2025-10-22 09:19:20,519 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 404 Not Found"
+2025-10-22 09:19:31,153 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  _on_regack
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9164894819191a2ce113264f5ec
+Cleaning up old vector store vs_68f8d9164894819191a2ce113264f5ec for testing
+Caught signal, cleaning up container...
+
+Error in clif_get_attr:
+2025-10-22 09:19:14,362 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:16,221 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:16,221 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:16,221 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_9ababe02' from image 'autoup_image:latest'...
+2025-10-22 09:19:16,671 [INFO] (docker_tool.py:76) [+] Container 'autoup_9ababe02' is running.
+2025-10-22 09:19:16,723 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:16,942 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:16,942 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:16,942 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/clif_get_attr
+2025-10-22 09:19:16,942 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:16,942 [INFO] (run.py:148) Target function name: clif_get_attr
+2025-10-22 09:19:17,969 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:18,738 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,292 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac33f9c7081919771bc2b5ddc2273 "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,651 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec/files "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,944 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:19:19,945 [INFO] (_base_client.py:1071) Retrying request to /vector_stores/vs_68f8d9164894819191a2ce113264f5ec in 0.472863 seconds
+2025-10-22 09:19:20,567 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 404 Not Found"
+2025-10-22 09:19:31,237 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  clif_get_attr
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9164894819191a2ce113264f5ec
+Cleaning up old vector store vs_68f8d9164894819191a2ce113264f5ec for testing
+Caught signal, cleaning up container...
+
+Error in gnrc_rpl_recv_DAO:
+2025-10-22 09:19:14,357 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:16,163 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:16,163 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:16,163 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_ade1860b' from image 'autoup_image:latest'...
+2025-10-22 09:19:16,552 [INFO] (docker_tool.py:76) [+] Container 'autoup_ade1860b' is running.
+2025-10-22 09:19:16,616 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:16,942 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:16,942 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:16,942 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/gnrc_rpl_recv_DAO
+2025-10-22 09:19:16,942 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:16,942 [INFO] (run.py:148) Target function name: gnrc_rpl_recv_DAO
+2025-10-22 09:19:17,973 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:18,724 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,161 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac33f9c7081919771bc2b5ddc2273 "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,404 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec/files "HTTP/1.1 200 OK"
+2025-10-22 09:19:20,027 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:19:20,027 [INFO] (_base_client.py:1071) Retrying request to /vector_stores/vs_68f8d9164894819191a2ce113264f5ec in 0.490402 seconds
+2025-10-22 09:19:20,634 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 404 Not Found"
+2025-10-22 09:19:31,316 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  gnrc_rpl_recv_DAO
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9164894819191a2ce113264f5ec
+Cleaning up old vector store vs_68f8d9164894819191a2ce113264f5ec for testing
+Caught signal, cleaning up container...
+
+Error in _receive:
+2025-10-22 09:19:14,355 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:16,201 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:16,201 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:16,201 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_1479e461' from image 'autoup_image:latest'...
+2025-10-22 09:19:16,554 [INFO] (docker_tool.py:76) [+] Container 'autoup_1479e461' is running.
+2025-10-22 09:19:16,628 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:16,942 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:16,942 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:16,942 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/_receive
+2025-10-22 09:19:16,942 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:16,942 [INFO] (run.py:148) Target function name: _receive
+2025-10-22 09:19:17,980 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:18,764 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,362 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac33f9c7081919771bc2b5ddc2273 "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,618 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec/files "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,956 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:19:19,957 [INFO] (_base_client.py:1071) Retrying request to /vector_stores/vs_68f8d9164894819191a2ce113264f5ec in 0.449805 seconds
+2025-10-22 09:19:20,559 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 404 Not Found"
+2025-10-22 09:19:31,437 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  _receive
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9164894819191a2ce113264f5ec
+Cleaning up old vector store vs_68f8d9164894819191a2ce113264f5ec for testing
+Caught signal, cleaning up container...
+
+Error in _rbuf_add:
+2025-10-22 09:19:14,364 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:16,176 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:16,177 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:16,177 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_209f8323' from image 'autoup_image:latest'...
+2025-10-22 09:19:16,485 [INFO] (docker_tool.py:76) [+] Container 'autoup_209f8323' is running.
+2025-10-22 09:19:16,559 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:16,942 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:16,942 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:16,942 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/_rbuf_add
+2025-10-22 09:19:16,942 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:16,942 [INFO] (run.py:148) Target function name: _rbuf_add
+2025-10-22 09:19:17,991 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:18,691 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,292 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac33f9c7081919771bc2b5ddc2273 "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,489 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec/files "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,779 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:19:19,780 [INFO] (_base_client.py:1071) Retrying request to /vector_stores/vs_68f8d9164894819191a2ce113264f5ec in 0.392567 seconds
+2025-10-22 09:19:20,352 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:19:20,352 [INFO] (_base_client.py:1071) Retrying request to /vector_stores/vs_68f8d9164894819191a2ce113264f5ec in 0.767422 seconds
+2025-10-22 09:19:21,277 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 404 Not Found"
+2025-10-22 09:19:31,631 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  _rbuf_add
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9164894819191a2ce113264f5ec
+Cleaning up old vector store vs_68f8d9164894819191a2ce113264f5ec for testing
+Caught signal, cleaning up container...
+
+Error in _gcoap_forward_proxy_copy_options:
+2025-10-22 09:19:14,361 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:16,183 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:16,183 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:16,183 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_95386aee' from image 'autoup_image:latest'...
+2025-10-22 09:19:16,481 [INFO] (docker_tool.py:76) [+] Container 'autoup_95386aee' is running.
+2025-10-22 09:19:16,565 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:16,944 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:16,944 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:16,945 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/_gcoap_forward_proxy_copy_options
+2025-10-22 09:19:16,945 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:16,945 [INFO] (run.py:148) Target function name: _gcoap_forward_proxy_copy_options
+2025-10-22 09:19:17,937 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:18,750 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,289 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac33f9c7081919771bc2b5ddc2273 "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,471 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec/files "HTTP/1.1 200 OK"
+2025-10-22 09:19:19,758 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:19:19,758 [INFO] (_base_client.py:1071) Retrying request to /vector_stores/vs_68f8d9164894819191a2ce113264f5ec in 0.387408 seconds
+2025-10-22 09:19:20,350 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:19:20,351 [INFO] (_base_client.py:1071) Retrying request to /vector_stores/vs_68f8d9164894819191a2ce113264f5ec in 0.891673 seconds
+2025-10-22 09:19:21,372 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9164894819191a2ce113264f5ec "HTTP/1.1 404 Not Found"
+2025-10-22 09:19:31,735 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  _gcoap_forward_proxy_copy_options
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9164894819191a2ce113264f5ec
+Cleaning up old vector store vs_68f8d9164894819191a2ce113264f5ec for testing
+Caught signal, cleaning up container...
+
+Error in _parse_options:
+2025-10-22 09:19:32,236 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:33,987 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:33,988 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:33,988 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_e327eb97' from image 'autoup_image:latest'...
+2025-10-22 09:19:34,404 [INFO] (docker_tool.py:76) [+] Container 'autoup_e327eb97' is running.
+2025-10-22 09:19:34,462 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:34,656 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:34,656 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:34,656 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/_parse_options
+2025-10-22 09:19:34,656 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:34,656 [INFO] (run.py:148) Target function name: _parse_options
+2025-10-22 09:19:35,406 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:35,874 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:37,259 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac33f9c7081919771bc2b5ddc2273 "HTTP/1.1 200 OK"
+2025-10-22 09:19:37,659 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9d9127481919db00f052124f250/files "HTTP/1.1 200 OK"
+2025-10-22 09:19:38,125 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9d9127481919db00f052124f250 "HTTP/1.1 404 Not Found"
+2025-10-22 09:19:48,388 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  _parse_options
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9d9127481919db00f052124f250
+Cleaning up old vector store vs_68f8d9d9127481919db00f052124f250 for testing
+Caught signal, cleaning up container...
+
+Error in _parse_advertise:
+2025-10-22 09:19:31,785 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:33,465 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:33,465 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:33,465 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_2bd07f52' from image 'autoup_image:latest'...
+2025-10-22 09:19:34,305 [INFO] (docker_tool.py:76) [+] Container 'autoup_2bd07f52' is running.
+2025-10-22 09:19:34,363 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:34,549 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:34,549 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:34,549 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/_parse_advertise
+2025-10-22 09:19:34,549 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:34,549 [INFO] (run.py:148) Target function name: _parse_advertise
+2025-10-22 09:19:35,921 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:37,248 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:37,866 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac33f9c7081919771bc2b5ddc2273 "HTTP/1.1 200 OK"
+2025-10-22 09:19:38,093 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9d9127481919db00f052124f250/files "HTTP/1.1 200 OK"
+2025-10-22 09:19:38,238 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9d9127481919db00f052124f250 "HTTP/1.1 404 Not Found"
+2025-10-22 09:19:48,621 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  _parse_advertise
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9d9127481919db00f052124f250
+Cleaning up old vector store vs_68f8d9d9127481919db00f052124f250 for testing
+Caught signal, cleaning up container...
+
+Error in emcute_run:
+2025-10-22 09:19:31,888 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:33,570 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:33,570 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:33,570 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_33cfa597' from image 'autoup_image:latest'...
+2025-10-22 09:19:34,184 [INFO] (docker_tool.py:76) [+] Container 'autoup_33cfa597' is running.
+2025-10-22 09:19:34,244 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:34,470 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:34,471 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:34,471 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/emcute_run
+2025-10-22 09:19:34,471 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:34,471 [INFO] (run.py:148) Target function name: emcute_run
+2025-10-22 09:19:35,315 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:36,174 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:36,872 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac33f9c7081919771bc2b5ddc2273 "HTTP/1.1 200 OK"
+2025-10-22 09:19:37,201 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9d9127481919db00f052124f250/files "HTTP/1.1 200 OK"
+2025-10-22 09:19:37,504 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9d9127481919db00f052124f250 "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:19:37,504 [INFO] (_base_client.py:1071) Retrying request to /vector_stores/vs_68f8d9d9127481919db00f052124f250 in 0.384365 seconds
+2025-10-22 09:19:38,095 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9d9127481919db00f052124f250 "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:19:38,096 [INFO] (_base_client.py:1071) Retrying request to /vector_stores/vs_68f8d9d9127481919db00f052124f250 in 0.774147 seconds
+2025-10-22 09:19:39,001 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9d9127481919db00f052124f250 "HTTP/1.1 404 Not Found"
+2025-10-22 09:19:49,294 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  emcute_run
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9d9127481919db00f052124f250
+Cleaning up old vector store vs_68f8d9d9127481919db00f052124f250 for testing
+Caught signal, cleaning up container...
+
+PUNTO A:  base64_encode_base
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9d9127481919db00f052124f250
+Cleaning up old vector store vs_68f8d9d9127481919db00f052124f250 for testing
+Deleted vector store vs_68f8d9d9127481919db00f052124f250 for -store
+Initializing vector store for -store
+
+Error in gnrc_rpl_validation_options:
+2025-10-22 09:19:48,988 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:50,508 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:50,508 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:50,508 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_d7c52cc1' from image 'autoup_image:latest'...
+2025-10-22 09:19:50,825 [INFO] (docker_tool.py:76) [+] Container 'autoup_d7c52cc1' is running.
+2025-10-22 09:19:50,945 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:52,075 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:52,075 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:52,075 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/gnrc_rpl_validation_options
+2025-10-22 09:19:52,075 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:52,075 [INFO] (run.py:148) Target function name: gnrc_rpl_validation_options
+2025-10-22 09:19:53,971 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:54,896 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:55,665 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac51dc7d88191b68a00dfc5be5232 "HTTP/1.1 200 OK"
+2025-10-22 09:19:55,794 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9ee9ec481918495132720eb2f4e/files "HTTP/1.1 404 Not Found"
+2025-10-22 09:20:06,099 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  gnrc_rpl_validation_options
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9ee9ec481918495132720eb2f4e
+Cleaning up old vector store vs_68f8d9ee9ec481918495132720eb2f4e for testing
+Caught signal, cleaning up container...
+
+Error in gnrc_rpl_srh_process:
+2025-10-22 09:19:49,887 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:51,371 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:51,372 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:51,372 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_aaa125d8' from image 'autoup_image:latest'...
+2025-10-22 09:19:51,605 [INFO] (docker_tool.py:76) [+] Container 'autoup_aaa125d8' is running.
+2025-10-22 09:19:51,709 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:52,075 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:52,075 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:52,075 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/gnrc_rpl_srh_process
+2025-10-22 09:19:52,075 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:52,075 [INFO] (run.py:148) Target function name: gnrc_rpl_srh_process
+2025-10-22 09:19:53,495 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:55,351 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:55,907 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac51dc7d88191b68a00dfc5be5232 "HTTP/1.1 200 OK"
+2025-10-22 09:19:56,045 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9ee9ec481918495132720eb2f4e/files "HTTP/1.1 404 Not Found"
+2025-10-22 09:20:06,383 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  gnrc_rpl_srh_process
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9ee9ec481918495132720eb2f4e
+Cleaning up old vector store vs_68f8d9ee9ec481918495132720eb2f4e for testing
+Caught signal, cleaning up container...
+
+Error in _preparse_advertise:
+2025-10-22 09:19:51,247 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:52,682 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:52,682 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:52,682 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_36b3c414' from image 'autoup_image:latest'...
+2025-10-22 09:19:52,883 [INFO] (docker_tool.py:76) [+] Container 'autoup_36b3c414' is running.
+2025-10-22 09:19:52,988 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:53,216 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:53,216 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:53,216 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/_preparse_advertise
+2025-10-22 09:19:53,217 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:53,217 [INFO] (run.py:148) Target function name: _preparse_advertise
+2025-10-22 09:19:54,294 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:55,669 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:57,577 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac51dc7d88191b68a00dfc5be5232 "HTTP/1.1 200 OK"
+2025-10-22 09:19:57,743 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9ee9ec481918495132720eb2f4e/files "HTTP/1.1 404 Not Found"
+2025-10-22 09:20:08,195 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  _preparse_advertise
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9ee9ec481918495132720eb2f4e
+Cleaning up old vector store vs_68f8d9ee9ec481918495132720eb2f4e for testing
+Caught signal, cleaning up container...
+
+Error in gcoap_dns_server_proxy_get:
+2025-10-22 09:19:49,219 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:19:50,713 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:19:50,713 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:19:50,713 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_d2181e75' from image 'autoup_image:latest'...
+2025-10-22 09:19:50,965 [INFO] (docker_tool.py:76) [+] Container 'autoup_d2181e75' is running.
+2025-10-22 09:19:51,031 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:19:52,074 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:19:52,074 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:19:52,075 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/gcoap_dns_server_proxy_get
+2025-10-22 09:19:52,075 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:19:52,075 [INFO] (run.py:148) Target function name: gcoap_dns_server_proxy_get
+2025-10-22 09:19:53,028 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:53,709 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:19:54,163 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac51dc7d88191b68a00dfc5be5232 "HTTP/1.1 200 OK"
+2025-10-22 09:19:54,433 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9ee9ec481918495132720eb2f4e/files "HTTP/1.1 200 OK"
+2025-10-22 09:19:55,614 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9ee9ec481918495132720eb2f4e "HTTP/1.1 200 OK"
+2025-10-22 09:19:56,730 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:19:56,731 [INFO] (_base_client.py:1071) Retrying request to /vector_stores in 0.434950 seconds
+2025-10-22 09:19:57,681 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:19:57,682 [INFO] (_base_client.py:1071) Retrying request to /vector_stores in 0.881549 seconds
+2025-10-22 09:19:59,215 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:20:00,021 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac4b018208191b6a5248199ac7ce9 "HTTP/1.1 200 OK"
+2025-10-22 09:20:00,908 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9ee022881918737cdab4415205e/files "HTTP/1.1 200 OK"
+2025-10-22 09:20:01,837 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9ee022881918737cdab4415205e "HTTP/1.1 200 OK"
+2025-10-22 09:20:02,405 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:20:02,406 [INFO] (_base_client.py:1071) Retrying request to /vector_stores in 0.433426 seconds
+2025-10-22 09:20:03,875 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:20:03,876 [INFO] (_base_client.py:1071) Retrying request to /vector_stores in 0.829439 seconds
+2025-10-22 09:20:06,536 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:20:16,826 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  gcoap_dns_server_proxy_get
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9ee9ec481918495132720eb2f4e
+Cleaning up old vector store vs_68f8d9ee9ec481918495132720eb2f4e for testing
+Deleted vector store vs_68f8d9ee9ec481918495132720eb2f4e for -store
+Found existing vector store with ID vs_68f8d9ee022881918737cdab4415205e
+Cleaning up old vector store vs_68f8d9ee022881918737cdab4415205e for testing
+Deleted vector store vs_68f8d9ee022881918737cdab4415205e for -store
+Found existing vector store with ID vs_68f8d9eb77148191a624203aacab15a5
+Cleaning up old vector store vs_68f8d9eb77148191a624203aacab15a5 for testing
+Caught signal, cleaning up container...
+
+Error in nimble_scanlist_update:
+2025-10-22 09:20:08,827 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:20:10,205 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:20:10,206 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:20:10,206 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_9e89fe39' from image 'autoup_image:latest'...
+2025-10-22 09:20:10,410 [INFO] (docker_tool.py:76) [+] Container 'autoup_9e89fe39' is running.
+2025-10-22 09:20:10,493 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:20:10,725 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:20:10,725 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:20:10,725 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/nimble_scanlist_update
+2025-10-22 09:20:10,725 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:20:10,725 [INFO] (run.py:148) Target function name: nimble_scanlist_update
+2025-10-22 09:20:11,372 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:20:12,366 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:20:13,211 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac3806ffc8191b2ea2acc5eb3270f "HTTP/1.1 200 OK"
+2025-10-22 09:20:13,339 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9eb77148191a624203aacab15a5/files "HTTP/1.1 404 Not Found"
+2025-10-22 09:20:23,703 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  nimble_scanlist_update
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9eb77148191a624203aacab15a5
+Cleaning up old vector store vs_68f8d9eb77148191a624203aacab15a5 for testing
+Caught signal, cleaning up container...
+
+Error in clif_decode_link:
+2025-10-22 09:20:06,966 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:20:08,454 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:20:08,455 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:20:08,455 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_94b21794' from image 'autoup_image:latest'...
+2025-10-22 09:20:08,662 [INFO] (docker_tool.py:76) [+] Container 'autoup_94b21794' is running.
+2025-10-22 09:20:08,758 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:20:08,951 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:20:08,951 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:20:08,951 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/clif_decode_link
+2025-10-22 09:20:08,951 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:20:08,951 [INFO] (run.py:148) Target function name: clif_decode_link
+2025-10-22 09:20:10,018 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:20:10,922 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:20:11,721 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac3806ffc8191b2ea2acc5eb3270f "HTTP/1.1 200 OK"
+2025-10-22 09:20:12,444 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9eb77148191a624203aacab15a5/files "HTTP/1.1 200 OK"
+2025-10-22 09:20:12,740 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9eb77148191a624203aacab15a5 "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:20:12,741 [INFO] (_base_client.py:1071) Retrying request to /vector_stores/vs_68f8d9eb77148191a624203aacab15a5 in 0.446371 seconds
+2025-10-22 09:20:13,347 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9eb77148191a624203aacab15a5 "HTTP/1.1 404 Not Found"
+2025-10-22 09:20:23,781 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  clif_decode_link
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9eb77148191a624203aacab15a5
+Cleaning up old vector store vs_68f8d9eb77148191a624203aacab15a5 for testing
+Caught signal, cleaning up container...
+
+Error in uri_parser_process:
+2025-10-22 09:20:06,704 [INFO] (docker_tool.py:35) [+] Building Docker image 'autoup_image:latest' from tools.Dockerfile...
+2025-10-22 09:20:08,185 [INFO] (docker_tool.py:42) [+] Image 'autoup_image:latest' built successfully.
+2025-10-22 09:20:08,185 [INFO] (docker_tool.py:60) [+] Mapping host directory /home/rcalvome/Documents/AutoUp/framework/RIOT -> container /project
+2025-10-22 09:20:08,185 [INFO] (docker_tool.py:66) [+] Creating container 'autoup_71067c35' from image 'autoup_image:latest'...
+2025-10-22 09:20:08,440 [INFO] (docker_tool.py:76) [+] Container 'autoup_71067c35' is running.
+2025-10-22 09:20:08,553 [INFO] (docker_tool.py:84) [+] Initializing cscope database...
+2025-10-22 09:20:08,781 [INFO] (docker_tool.py:89) [+] cscope database initialized.
+2025-10-22 09:20:08,781 [INFO] (run.py:145) Running in debugger mode.
+2025-10-22 09:20:08,781 [INFO] (run.py:146) Harness path: /home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/uri_parser_process
+2025-10-22 09:20:08,781 [INFO] (run.py:147) Root directory: /home/rcalvome/Documents/AutoUp/framework/RIOT
+2025-10-22 09:20:08,781 [INFO] (run.py:148) Target function name: uri_parser_process
+2025-10-22 09:20:10,158 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:20:11,064 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 200 OK"
+2025-10-22 09:20:11,864 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores?after=vs_68cac3806ffc8191b2ea2acc5eb3270f "HTTP/1.1 200 OK"
+2025-10-22 09:20:12,245 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores/vs_68f8d9eb77148191a624203aacab15a5/files "HTTP/1.1 200 OK"
+2025-10-22 09:20:13,409 [INFO] (_client.py:1025) HTTP Request: DELETE https://api.openai.com/v1/vector_stores/vs_68f8d9eb77148191a624203aacab15a5 "HTTP/1.1 200 OK"
+2025-10-22 09:20:15,238 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:20:15,238 [INFO] (_base_client.py:1071) Retrying request to /vector_stores in 0.449991 seconds
+2025-10-22 09:20:16,001 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:20:16,001 [INFO] (_base_client.py:1071) Retrying request to /vector_stores in 0.967593 seconds
+2025-10-22 09:20:18,979 [INFO] (_client.py:1025) HTTP Request: GET https://api.openai.com/v1/vector_stores "HTTP/1.1 500 Internal Server Error"
+2025-10-22 09:20:29,307 [INFO] (docker_tool.py:129) [+] Container terminated.
+
+PUNTO A:  uri_parser_process
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9eb77148191a624203aacab15a5
+Cleaning up old vector store vs_68f8d9eb77148191a624203aacab15a5 for testing
+Deleted vector store vs_68f8d9eb77148191a624203aacab15a5 for -store
+Found existing vector store with ID vs_68f8d9eb70dc8191b547dbb94ea3f117
+Cleaning up old vector store vs_68f8d9eb70dc8191b547dbb94ea3f117 for testing
+Caught signal, cleaning up container...
+
+PUNTO A:  _on_rd_init
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9eb70dc8191b547dbb94ea3f117
+Cleaning up old vector store vs_68f8d9eb70dc8191b547dbb94ea3f117 for testing
+Deleted vector store vs_68f8d9eb70dc8191b547dbb94ea3f117 for -store
+Initializing vector store for -store
+Make command completed
+Extracted 3 trace files
+Make command completed
+No error traces found
+Make command completed
+No error traces found
+
+PUNTO A:  dns_msg_parse_reply
+PUNTO B
+PUNTO C
+Found existing vector store with ID vs_68f8d9164894819191a2ce113264f5ec
+Cleaning up old vector store vs_68f8d9164894819191a2ce113264f5ec for testing
+Deleted vector store vs_68f8d9164894819191a2ce113264f5ec for -store
+Initializing vector store for -store
+Make command completed
+Extracted 7 trace files
+Make command completed
+No error traces found
+Make command completed
+No error traces found
+
+PUNTO A:  gnrc_sixlowpan_frag_sfr_send
+PUNTO B
+PUNTO C
+Initializing vector store for -store
+
+Timeout expired for _iphc_ipv6_encode
+Timeout expired for _iphc_encode
