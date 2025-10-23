@@ -24,7 +24,7 @@ project_container: Optional[ProjectContainer] = None
 
 
 def cleanup(signum, frame):
-    print("Caught signal, cleaning up container...")
+    logger.info("Caught signal, cleaning up container...")
     if project_container:
         project_container.terminate()
     sys.exit(1)
