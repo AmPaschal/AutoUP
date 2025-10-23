@@ -1,6 +1,3 @@
-<<<<<<< Updated upstream
-branch: harness-gen-testcases
-=======
 ; branch: harness-gen-testcases
 ; python src/run.py debugger \
 ; --root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
@@ -8,39 +5,26 @@ branch: harness-gen-testcases
 ; --harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_gcoap_forward_proxy_copy_options
 
 branch: coverage-resolver
->>>>>>> Stashed changes
 python src/run.py debugger \
 --root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
 --target_function_name=_gcoap_forward_proxy_copy_options \
 --harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_gcoap_forward_proxy_copy_options
 
-<<<<<<< Updated upstream
-=======
 branch: coverage-resolver
 python src/run.py debugger \
 --root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
 --target_function_name=_on_regack \
 --harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_on_regack
->>>>>>> Stashed changes
 
 branch: coverage-resolver
 python src/run.py debugger \
 --root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
-<<<<<<< Updated upstream
---target_function_name=_gcoap_forward_proxy_copy_options \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_gcoap_forward_proxy_copy_options
-=======
 --target_function_name=_parse_options \
 --harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_parse_options
->>>>>>> Stashed changes
 
 branch: coverage-resolver
 python src/run.py debugger \
 --root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
-<<<<<<< Updated upstream
---target_function_name=_iphc_encode \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_iphc_encode
-=======
 --target_function_name=_preparse_advertise \
 --harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_preparse_advertise
 
@@ -53,4 +37,3 @@ python src/run.py debugger \
 --root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
 --target_function_name=_preparse_advertise \
 --harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/base64_encode_base
->>>>>>> Stashed changes

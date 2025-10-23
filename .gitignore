@@ -7,3 +7,5 @@
 **/backups/**
 **/output-*/
 logs/
+reports/
+output.log

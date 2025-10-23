@@ -146,14 +146,19 @@ def main():
         logger.info("Harness path: %s", args.harness_path)
         logger.info("Root directory: %s", args.root_dir)
         logger.info("Target function name: %s", args.target_function_name)
-        proof_writer = ProofDebugger(
-            harness_path=args.harness_path,
-            root_dir=args.root_dir,
-            target_function_name=args.target_function_name,
-            project_container=project_container
-        )
-        harness_report = proof_writer.generate()
-        logger.info("Harness report: %s\n", harness_report)
+        try:
+            proof_writer = ProofDebugger(
+                harness_path=args.harness_path,
+                root_dir=args.root_dir,
+                target_function_name=args.target_function_name,
+                project_container=project_container
+            )
+            harness_report = proof_writer.generate()
+            proof_writer.generate_report()
+            logger.info("Harness report: %s\n", harness_report)
+        except Exception as e:
+            logger.error("Error in Proof debugger")
+            logger.error(e)
     project_container.terminate()
 
 

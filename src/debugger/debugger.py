@@ -6,6 +6,7 @@ import subprocess
 import os
 
 # Utils
+from datetime import datetime
 import json
 
 # AutoUp
@@ -42,7 +43,13 @@ class ProofDebugger(AIAgent):
         logger.info("self.target_func %s", self.target_func)
         logger.info("self.target_file_path %s", self.target_file_path)
         self.__max_attempts = 3
-
+        self.report = {
+            "harness_path": harness_path,
+            "root_dir": root_dir,
+            "target_function_name": target_function_name,
+            "errors": []
+        }
+        self.report_file = f"reports/{Path(target_function_name).name}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.json"
 
         self.__cause_of_failure = None
         self.__previous_response = None
@@ -66,9 +73,14 @@ class ProofDebugger(AIAgent):
     def generate_single_fix(self, error: CBMCError) -> bool:
         """Generate the fix of a given error"""
         for attempt in range(1, self.__max_attempts + 1):
+
             logger.info("Attempt: %i", attempt)
             logger.info("Cluster: %s", error.cluster)
             logger.info("Error id: %s", error.error_id)
+            self.report["errors"].append({
+                "error_name": error.cluster,
+                "attempt": attempt,
+            })
             self.__refine_harness_file(error)
             make_success = self.__execute_make()
             if not make_success:
@@ -79,11 +91,18 @@ class ProofDebugger(AIAgent):
         logger.info("Error not resolved...")
         return False
 
+    def generate_report(self):
+        """ Create a JSON file with the report insights of this execution"""
+        with open(self.report_file, "w", encoding="utf-8") as f:
+            f.write(json.dumps(self.report, indent=4))
+
     def __refine_harness_file(self, error):
         system_prompt = self.__get_prompt("general_system")
         user_prompt = self.__compute_user_prompt(error)
         logger.info("System prompt: %s", system_prompt)
         logger.info("User prompt: %s", user_prompt)
+        self.report["errors"][-1]["system_prompt"] = system_prompt
+        self.report["errors"][-1]["user_prompt"] = user_prompt
         response = self.llm.chat_llm(
             system_messages=system_prompt,
             input_messages=user_prompt,
@@ -96,6 +115,8 @@ class ProofDebugger(AIAgent):
             json.loads(response.output_text), indent=4))
         self.__update_harness(json.loads(
             response.output_text)['updated_harness_file_content'])
+        self.report["errors"][-1]["result"] = json.loads(
+            response.output_text)
 
     def __update_harness(self, harness_content: str):
         logger.info("Updated harness file content: \n%s", harness_content)
@@ -148,19 +169,22 @@ class ProofDebugger(AIAgent):
     def __execute_make(self) -> bool:
         logger.info("Executing 'make' into '%s'", self.harness_path)
         with subprocess.Popen(
-            ["make"],
+            ["make", "-j4"],
             cwd=self.harness_path,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         ) as process:
-            _stdout, stderr = process.communicate()
+            stdout, stderr = process.communicate()
+        if stdout:
+            logger.info(stdout)
+        if stderr:
+            logger.error(stderr)
         if process.returncode == 0:
             logger.info("Execution of 'make' completed sucessfully.")
             return True
         logger.warning(
             "Execution of 'make' completed with error code %i.", process.returncode,
         )
-        # logger.warning(stderr.decode("utf-8"))
         return False
 
     def __create_backup(self):
@@ -170,6 +194,7 @@ class ProofDebugger(AIAgent):
         with open(self.target_file_path, "r", encoding="utf-8") as src:
             with open(backup_path, "w", encoding="utf-8") as dst:
                 dst.write(src.read())
+        logger.info("Backup created sucessfully.")
 
     def __pop_error(self) -> CBMCError | None:  # TODO: Refactor Error Handling
         error_report = ErrorReport(

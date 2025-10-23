@@ -44,16 +44,10 @@ def main():
     """Entry point"""
     folders = [d for d in os.listdir(PATH) if os.path.isdir(os.path.join(PATH, d))]
     # folders = [
-    #     "/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/gnrc_rpl_recv_DAO",
-    #     # "/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/gnrc_sixlowpan_iphc_recv",
-    #     # "/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/_iphc_ipv6_encode",
-    #     # "/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/_iphc_encode",
-    #     # "/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/_parse_options",
-    #     # "/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/clif_decode_link",
+    #     "_gcoap_forward_proxy_copy_options",
     # ]
-
     with ThreadPoolExecutor(max_workers=MAX_PROCESSES) as executor:
-        futures = {executor.submit(run_sample, sample) : sample for sample in folders}
+        futures = {executor.submit(run_sample, sample): sample for sample in folders}
         for future in as_completed(futures):
             result = future.result()
             print(result)
