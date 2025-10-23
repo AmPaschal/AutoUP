@@ -10,6 +10,8 @@ from commons.models import GPT
 from makefile.output_models import CoverageDebuggerResponse
 from commons.utils import Status
 
+logger = logging.getLogger(__name__)
+
 
 class CoverageDebugger(AIAgent):
 
@@ -28,7 +30,7 @@ class CoverageDebugger(AIAgent):
     def _get_function_coverage_status(self, file_path, function_name):
         coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
         if not os.path.exists(coverage_report_path):
-            logging.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
+            logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
             return None
 
         with open(coverage_report_path, "r") as f:
@@ -40,7 +42,7 @@ class CoverageDebugger(AIAgent):
         )
 
         if not function_coverage:
-            logging.error(f"[ERROR] Function '{function_name}' not found in coverage report for file '{file_path}'.")
+            logger.error(f"[ERROR] Function '{function_name}' not found in coverage report for file '{file_path}'.")
             return None
 
         return function_coverage
@@ -62,7 +64,7 @@ class CoverageDebugger(AIAgent):
     def _get_next_uncovered_function(self, functions_lines_to_skip: dict[str, set]):
         coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
         if not os.path.exists(coverage_report_path):
-            logging.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
+            logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
             return None, None, None
 
         with open(coverage_report_path, "r") as f:
@@ -73,7 +75,7 @@ class CoverageDebugger(AIAgent):
         detailed_coverage = viewer_coverage.get("coverage", {})
 
         if not function_coverage or not detailed_coverage:
-            logging.error("[ERROR] No function coverage found in report.")
+            logger.error("[ERROR] No function coverage found in report.")
             return None, None, None
 
         harness_func = None
@@ -127,7 +129,7 @@ class CoverageDebugger(AIAgent):
         # Iterate through uncovered functions to find the next valid one
         for func_entry in uncovered:
             coverage_info = detailed_coverage.get(func_entry["file"], {}).get(func_entry["function"], {})
-            logging.info(
+            logger.info(
                 f"[INFO] Next uncovered function: {func_entry['function']} "
                 f"in {func_entry['file']} with {func_entry['missed']} missed lines."
             )
@@ -136,12 +138,15 @@ class CoverageDebugger(AIAgent):
             if start_line is not None:  
                 return func_entry, coverage_info, start_line
 
-        logging.info("[INFO] No uncovered functions remaining.")
+        logger.info("[INFO] No uncovered functions remaining.")
         return None, None, None
 
 
     def run_make(self):
-        return self.execute_command("make", workdir=self.harness_dir, timeout=600)
+        make_results = self.execute_command("make", workdir=self.harness_dir, timeout=600)
+        logger.info('Stdout:\n' + make_results.get('stdout', ''))
+        logger.info('Stderr:\n' + make_results.get('stderr', ''))
+        return make_results
 
     def extract_function_cli_awk(self, file_path, line_coverage):
         """
@@ -169,7 +174,7 @@ class CoverageDebugger(AIAgent):
             result = self.project_container.execute(cmd)
             return result['stdout']
         except subprocess.CalledProcessError as e:
-            logging.error(f"[ERROR] CLI command failed: {e}")
+            logger.error(f"[ERROR] CLI command failed: {e}")
             return "[Error Getting Source]"
 
 
@@ -199,12 +204,12 @@ class CoverageDebugger(AIAgent):
             # Backup original harness if it exists
             if os.path.exists(harness_path):
                 shutil.copy2(harness_path, backup_path)
-                logging.info(f"Original harness backed up at {backup_path}")
+                logger.info(f"Original harness backed up at {backup_path}")
 
             # Write updated harness
             with open(harness_path, "w") as f:
                 f.write(updated_harness)
-            logging.info(f"Harness updated at {harness_path}")
+            logger.info(f"Harness updated at {harness_path}")
 
         if updated_makefile:
             makefile_path = os.path.join(self.harness_dir, "Makefile")
@@ -213,25 +218,25 @@ class CoverageDebugger(AIAgent):
             # Backup original Makefile if it exists
             if os.path.exists(makefile_path):
                 shutil.copy2(makefile_path, backup_path)
-                logging.info(f"Original Makefile backed up at {backup_path}")
+                logger.info(f"Original Makefile backed up at {backup_path}")
 
             # Write updated Makefile
             with open(makefile_path, "w") as f:
                 f.write(updated_makefile)
-            logging.info(f"Makefile updated at {makefile_path}")
+            logger.info(f"Makefile updated at {makefile_path}")
 
     def reverse_proof_update(self):
         harness_path = os.path.join(self.harness_dir, f"{self.target_func}_harness.c")
         harness_backup = harness_path + ".bak"
         if os.path.exists(harness_backup):
             shutil.move(harness_backup, harness_path)
-            logging.info(f"Harness reverted to original from {harness_backup}")
+            logger.info(f"Harness reverted to original from {harness_backup}")
 
         makefile_path = os.path.join(self.harness_dir, "Makefile")
         makefile_backup = makefile_path + ".bak"
         if os.path.exists(makefile_backup):
             shutil.move(makefile_backup, makefile_path)
-            logging.info(f"Makefile reverted to original from {makefile_backup}")
+            logger.info(f"Makefile reverted to original from {makefile_backup}")
 
     def get_uncovered_code_block(self, coverage_data: dict[str, str], skipped_blocks: set[str]):
         current_start_line = None
@@ -293,12 +298,12 @@ class CoverageDebugger(AIAgent):
         # First, get the next uncovered function from the coverage report
         next_function, coverage_data, target_block_line = self._get_next_uncovered_function(functions_to_skip)
         if not next_function or not coverage_data:
-            logging.info("[INFO] No uncovered functions found.")
+            logger.info("[INFO] No uncovered functions found.")
             return 0  # All functions are covered
 
         # Create first LLM prompt
         system_prompt, default_user_prompt = self.prepare_prompt(next_function, coverage_data, target_block_line)
-        logging.info(f'System Prompt:\n{system_prompt}')
+        logger.info(f'System Prompt:\n{system_prompt}')
 
         user_prompt = default_user_prompt
 
@@ -308,32 +313,37 @@ class CoverageDebugger(AIAgent):
 
         get_next_block = False
 
+        conversation = []
+
         # Start the debugging loop
         while next_function:
 
             if get_next_block:
+                logger.info(f"[INFO] Maximum attempts reached for function '{next_function['function']}'. Moving to next function.")
                 skip_count += 1
                 next_function, coverage_data, target_block_line = self._get_next_uncovered_function(functions_to_skip)
                 if not next_function:
-                    logging.info("[INFO] No more uncovered functions found.")
+                    logger.info("[INFO] No more uncovered functions found.")
                     break
                 attempts = 0
                 # Prepare new prompt for the next function
+                # We reset the conversation history here to avoid confusion
+                conversation = []
                 system_prompt, default_user_prompt = self.prepare_prompt(next_function, coverage_data, target_block_line)
                 user_prompt = default_user_prompt
 
             attempts += 1
 
-            logging.info(f'LLM Prompt:\n{user_prompt}')
+            logger.info(f'LLM Prompt:\n{user_prompt}')
 
             # Call LLM to fix coverage gap
-            llm_response = self.llm.chat_llm(system_prompt, user_prompt, CoverageDebuggerResponse, llm_tools=self.get_tools(), call_function=self.handle_tool_calls)
+            llm_response, conversation = self.llm.chat_llm(system_prompt, user_prompt, CoverageDebuggerResponse, llm_tools=self.get_tools(), call_function=self.handle_tool_calls, previous_conversation=conversation)
 
             if not llm_response:
-                user_prompt = "The LLM did not return a valid response. Please try again.\n" + default_user_prompt
+                user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n"
                 continue
 
-            logging.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
+            logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
 
             if not llm_response.proposed_modifications:
                 logging.info(f"No proposed modifications for block {target_block_line} in function '{next_function['function']}'. Marking as skipped.")
@@ -349,7 +359,7 @@ class CoverageDebugger(AIAgent):
 
             # Reprompt in cases where make returns error
             if make_results.get("status", Status.ERROR) != Status.SUCCESS:
-                logging.error("Make command failed to run.")
+                logger.error("Make command failed to run.")
                 self.reverse_proof_update()
                 break
 
@@ -361,13 +371,12 @@ class CoverageDebugger(AIAgent):
                 user_prompt += f"Stdout:\n{make_results.get('stdout', '')}\n"
                 user_prompt += f"Stderr:\n{make_results.get('stderr', '')}\n"
                 user_prompt += "Please provide updated harness code or Makefile to fix the issue.\n"
-                user_prompt += "Current User Prompt:\n" + default_user_prompt
                 continue
 
             coverage_status = self._get_function_coverage_status(next_function["file"], next_function["function"])
 
             if not coverage_status:
-                logging.error("[ERROR] Could not retrieve function coverage status after make.")
+                logger.error("[ERROR] Could not retrieve function coverage status after make.")
                 self.reverse_proof_update()
                 break
 
@@ -383,7 +392,7 @@ class CoverageDebugger(AIAgent):
                 continue
 
             # Handle case where coverage did not improve
-            logging.info(f"[INFO] Coverage for function '{next_function['function']}' did not improve or decreased.")
+            logger.info(f"[INFO] Coverage for function '{next_function['function']}' did not improve or decreased.")
             user_prompt = "The coverage for the target function did not improve or decreased after the last changes.\n"
             user_prompt += "Here are the updated coverage details:\n"
 

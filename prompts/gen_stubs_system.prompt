@@ -1,7 +1,10 @@
 You are a Bounded Model Checking expert. 
-Your objective is to generate a compilable CBMC harness for a provided C function:
+Your objective is to generate stubs for the provided functions and integrate them in the already created CBMC harness:
+A stub is a simple function that correctly initializes a function's return value and will be used to replace an unavailable or more complicated version during verification.
 
-You will be provided with the name and implementation of the target function. 
+You will be provided with the names and signatures of the functions of interest. 
+You must follow the prescribed steps to create the given functions.
+
 Additionally, you have access to the following tools:
 
 1. Bash tool: This tool will allow you to run bash commands such as grep that can help search the repo for relevant information. 
@@ -25,32 +28,41 @@ cscope -dL -4 <text>          # Find occurrences of text
 cscope -dL -6 <symbol>        # Find assignments to symbol
 
 You must follow these steps strictly:
-1. Define a harness called `void harness()`.
-2. Declare all function parameters inside `harness` exactly as they appear in the function signature.
-3. For any input pointer argument (e.g., `uint8_t *data`, `struct my_struct *ptr`), do the following:
+1. Create an implementation of the function signature in the harness, above the provided harness function.
+2. Define a variable in the stub that has the same type as the stub's return value.
+3. If the return variable is a pointer (e.g., `uint8_t *data`, `struct my_struct *ptr`), do the following:
     - Create a pointer size variable of type size_t (e.g., `size_t data_len`, `size_t ptr_len`) to hold the allocation size.
     - If the pointer is a struct pointer, constrain the minimum size of the pointer size variable to the size of the struct using __CPROVER_assume. (e.g., __CPROVER_assume(ptr_len >= sizeof(struct mystruct))).
     - Initialize the pointer by allocating memory using the size variable `uint8_t *data = malloc(data_len); struct my_struct *ptr = malloc(ptr_len);` 
-4. Finally, call the function in the harness using the declared and initialized arguments.
-5. Do NOT make any additional constraints in the harness.
+4. Finally, return the defined or initialized variable.
+5. Add any necessary include statement so the harness compiles
+6. Do NOT make any additional constraints in the harness.
 
 Here is an example of a harness file generated for the function signature:
 <example>
 Function signature:
-void _parse_received_data(context *ctx, uint8_t *adv, size_t len);
+context *lookup_ctx(uint8_t id);
 
-CBMC Harness:
-[Include statements]
-void harness() {
+Stub:
+context *lookup_ctx(uint8_t id) {
     size_t ctx_len;
-    __CPROVER_assume(ctx_len >= sizeof(context))
-    context *ctx = malloc(ctx_len);
-
-    size_t adv_len;
-    uint8_t *adv = malloc(adv_len);
-
-    size_t len;
-
-    _parse_received_data(ctx, adv, len);
+    __CPROVER_assume(ctx_len >= sizeof(context));
+    context * ctx = malloc(ctx_len);
+    return ctx;
 }
 </example>
+<example>
+Function signature:
+uint16_t get_context_id(context *ctx);
+
+Stub:
+uint16_t get_context_id(context *ctx) {
+    uint16_t retval;
+
+    return retval;
+}
+</example>
+
+Instructions:
+1. Do NOT redefine any type already defined in the project. Always include the necessary headers.
+2. The include header paths should be relative to the paths already included in the Makefile's H_INC field.

@@ -118,21 +118,20 @@ class AIAgent(ABC):
     def execute_command(self, cmd: str, workdir: str, timeout: int) -> dict:
         try:
             result = self.project_container.execute(cmd, workdir=workdir, timeout=timeout)
-            logger.info('Stdout:\n' + result.get('stdout', ''))
-            logger.info('Stderr:\n' + result.get('stderr', ''))
+            
             if result.get('exit_code', -1) == 124:
-                logger.error("Make command timed out.")
+                logger.error(f"Command '{cmd}' timed out.")
                 result['stdout'] += "[TIMEOUT]"
                 result['status'] = Status.TIMEOUT
             elif result.get('exit_code', -1) == 0:
-                logger.info("Make command completed successfully.")
+                logger.info(f"Command '{cmd}' completed successfully.")
                 result['status'] = Status.SUCCESS
             else:
-                logger.error("Make command failed.")
+                logger.error(f"Command '{cmd}' failed.")
                 result['status'] = Status.FAILURE
             return result
         except Exception as e:
-            logger.error(f"An error occurred while running make: {e}")
+            logger.error(f"An error occurred while running command '{cmd}': {e}")
             return {"status": Status.ERROR}
 
     def get_tools(self):

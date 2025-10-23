@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from coverage_debugger.coverage_debugger import CoverageDebugger
 from makefile.gen_makefile import LLMMakefileGenerator
 from initial_harness_generator.gen_harness import InitialHarnessGenerator
+from stub_generator.gen_function_stubs import StubGenerator
 from logger import init_logging, setup_logger
 
 from commons.utils import Status
@@ -27,7 +28,6 @@ def cleanup(signum, frame):
     logger.info("Caught signal, cleaning up container...")
     if project_container:
         project_container.terminate()
-    sys.exit(1)
 
 signal.signal(signal.SIGINT, cleanup)   # Ctrl+C
 signal.signal(signal.SIGTERM, cleanup)  # `kill` command
@@ -39,7 +39,7 @@ def get_parser():
 
     parser.add_argument(
         "mode",
-        choices=["harness", "debugger", "coverage"],
+        choices=["harness", "debugger", "coverage", "function-stubs"],
         help="Execution mode: 'harness' to generate harness/makefile, 'debugger' to run proof debugger, or 'coverage' to run coverage debugger."
     )
 
@@ -107,7 +107,7 @@ def process_mode(args, project_container: ProjectContainer, openai_api_key: str)
         if not success:
             logger.error(
                 "Error: Harness generation failed. Aborting makefile generation.")
-            sys.exit(1)
+            return
 
         # Generate Makefile
         makefile_generator = LLMMakefileGenerator(
@@ -118,6 +118,25 @@ def process_mode(args, project_container: ProjectContainer, openai_api_key: str)
             project_container=project_container
         )
         makefile_generator.generate_makefile()
+
+    elif args.mode == "function-stubs":
+        logger.info(
+            f"Running in function stubs generation mode with args: {args.target_function_name}, {args.root_dir}, {args.harness_path}, {args.target_file_path}"
+        )
+
+        stub_generator = StubGenerator(
+            root_dir=args.root_dir,
+            harness_dir=args.harness_path,
+            target_func=args.target_function_name,
+            target_file_path=args.target_file_path,
+            project_container=project_container
+        )
+        success = stub_generator.generate_stubs()
+        if not success:
+            logger.error(
+                "Error: Function stubs generation failed."
+            )
+            return
 
     elif args.mode == "debugger":
         pass

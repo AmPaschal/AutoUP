@@ -106,19 +106,23 @@ class InitialHarnessGenerator(AIAgent):
 
     def generate_harness(self):
 
+        # Generate initial harnesses
+
         system_prompt, user_prompt = self.prepare_prompt()
         tools = self.get_tools()
         attempts = 0
 
         logger.info(f'System Prompt:\n{system_prompt}')
 
+        conversation = []   
+
         while user_prompt and attempts < self._max_attempts:
             logger.info(f'User Prompt:\n{user_prompt}')
 
-            llm_response = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls)
+            llm_response, conversation = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls, previous_conversation=conversation)
 
             if not llm_response:
-                user_prompt = "The LLM did not return a valid response. Please try again.\n" + user_prompt
+                user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n" 
                 attempts += 1
                 continue
 
@@ -127,5 +131,6 @@ class InitialHarnessGenerator(AIAgent):
             return self.save_harness(llm_response.harness_code)
 
         logger.error("Failed to generate harness after maximum attempts.")
+
         return None
         
