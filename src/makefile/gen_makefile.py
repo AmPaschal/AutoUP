@@ -4,7 +4,6 @@ import os
 import subprocess
 import json
 import shutil
-import logging
 import time
 from typing import Any, Callable, Type
 from dotenv import load_dotenv
@@ -13,10 +12,40 @@ from pathlib import Path
 from makefile.output_models import MakefileFields
 from commons.models import GPT
 from commons.utils import Status
+from logger import setup_logger
 
 load_dotenv()
+logger = setup_logger(__name__)
 
 class LLMMakefileGenerator(AIAgent):
+
+
+    def get_coverage_dict(self, json_path: str) -> dict:
+        with open(json_path, "r") as f:
+            data = json.load(f)
+        # Navigate to the overall_coverage section
+        return data.get("viewer-coverage", {}).get("overall_coverage", {})
+
+    def get_reachable_functions(self, json_path: str) -> dict:
+        with open(json_path, "r") as f:
+            data = json.load(f)
+        reachable = data.get("viewer-reachable", {}).get("reachable", {})
+        num_files = len(reachable)
+        num_functions = sum(len(funcs) for funcs in reachable.values())
+        return {"num_files": num_files, "num_functions": num_functions}
+
+    def print_coverage(self, proof_dir: Path):
+        print(f"Report for {proof_dir}:")
+        report_path = os.path.join(proof_dir, "build/report/json")
+        coverage_report = os.path.join(report_path, "viewer-coverage.json")
+        if os.path.exists(coverage_report):
+            coverage_dict = self.get_coverage_dict(coverage_report)
+            print(f"Coverage:\n{coverage_dict}")
+        reachability_report = os.path.join(report_path, "viewer-reachable.json")
+        if os.path.exists(reachability_report):
+            reachable_dict = self.get_reachable_functions(reachability_report)
+            print(f"Reachable functions:\n{reachable_dict}")
+
 
     def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
         super().__init__(
@@ -25,30 +54,30 @@ class LLMMakefileGenerator(AIAgent):
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
         
-        self.root_dir = os.path.abspath(root_dir)
-        self.harness_dir = os.path.abspath(harness_dir)
+        self.root_dir = root_dir
+        self.harness_dir = harness_dir
         self.target_func = target_func
-        self.target_file_path = os.path.abspath(target_file_path)
+        self.target_file_path = target_file_path
         self._max_attempts = 10
 
     def run_make(self):
         try:
             result = subprocess.run(
-                "make", shell=True, capture_output=True, text=True, cwd=self.harness_dir, timeout=150
+                "make", shell=True, capture_output=True, text=True, cwd=self.harness_dir, timeout=600
             )
-            logging.info('Stdout:\n' + result.stdout)
-            logging.info('Stderr:\n' + result.stderr) 
+            logger.info('Stdout:\n' + result.stdout)
+            logger.info('Stderr:\n' + result.stderr) 
             return {"error": Status.SUCCESS, "exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
         except Exception as e:
             if isinstance(e, subprocess.TimeoutExpired):
-                logging.error("Make command timed out.")
+                logger.error("Make command timed out.")
                 if e.stdout:
-                    logging.info('Partial stdout:\n' + str(e.stdout))
+                    logger.info('Partial stdout:\n' + str(e.stdout))
                 if e.stderr:
-                    logging.info('Partial stderr:\n' + str(e.stderr))
+                    logger.info('Partial stderr:\n' + str(e.stderr))
                 return {"error": Status.TIMEOUT}
             else:
-                logging.error(f"An error occurred while running make: {e}")
+                logger.error(f"An error occurred while running make: {e}")
                 return {"error": Status.FAILURE}
 
     def get_relative_path(self, base_path, target_path):
@@ -127,21 +156,21 @@ class LLMMakefileGenerator(AIAgent):
         system_prompt, user_prompt = self.prepare_prompt(makefile, make_results)
         tools = self.get_tools()
 
-        logging.info(f'System Prompt:\n{system_prompt}')
+        logger.info(f'System Prompt:\n{system_prompt}')
 
         status = Status.ERROR
         
         # Finally, we iteratively call the LLM to fix any errors until it succeeds
         while user_prompt and attempts < self._max_attempts:
 
-            logging.info(f'LLM Prompt:\n{user_prompt}')
+            logger.info(f'LLM Prompt:\n{user_prompt}')
             
             llm_response = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls)
             if not llm_response:
                 user_prompt += "\nThe LLM did not return a valid response. Please try again."
                 continue
 
-            logging.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
+            logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
             self.update_makefile(llm_response.updated_makefile)
             make_results = self.run_make()
             attempts += 1
@@ -150,13 +179,14 @@ class LLMMakefileGenerator(AIAgent):
 
             if error_code == Status.SUCCESS:
                 if make_results.get('exit_code', -1) == 0:
-                    logging.info("Makefile successfully generated and build succeeded.")
+                    logger.info("Makefile successfully generated and build succeeded.")
+                    self.print_coverage(Path(self.harness_dir))
                     status = Status.SUCCESS
                     break
 
                 system_prompt, user_prompt = self.prepare_prompt(llm_response.updated_makefile, make_results)
             else:
-                logging.error("Make command failed to run.")
+                logger.error("Make command failed to run.")
                 status = error_code
                 break
                 
@@ -180,7 +210,7 @@ class LLMMakefileGenerator(AIAgent):
 
     def _restore_makefile(self, backup_path):
         if not os.path.exists(backup_path):
-            logging.info(f"Backup file {backup_path} does not exist. Cannot restore harness.")
+            logger.info(f"Backup file {backup_path} does not exist. Cannot restore harness.")
             return
         
         makefile_path = os.path.join(self.harness_dir, 'Makefile')
@@ -190,10 +220,10 @@ class LLMMakefileGenerator(AIAgent):
             timestamp = int(time.time())
             generated_backup_path = os.path.join(self.harness_dir, f'Makefile.{timestamp}.backup')
             shutil.copy(makefile_path, generated_backup_path)
-            logging.info(f"Backed up generated Makefile to {generated_backup_path}")
+            logger.info(f"Backed up generated Makefile to {generated_backup_path}")
 
         shutil.copy(backup_path, makefile_path)
-        logging.info(f"Restored harness from {backup_path} to {self.harness_dir}")
+        logger.info(f"Restored harness from {backup_path} to {self.harness_dir}")
         os.remove(backup_path)
 
     def _update_files_in_vector_store(self):
@@ -202,7 +232,7 @@ class LLMMakefileGenerator(AIAgent):
 if __name__ == "__main__":
 
     if len(sys.argv) < 5:
-        logging.error("Usage: python gen_makefile.py <target function> <root dir> <harness path> <file path>")
+        logger.error("Usage: python gen_makefile.py <target function> <root dir> <harness path> <file path>")
         sys.exit(1)
 
     target_function = sys.argv[1]

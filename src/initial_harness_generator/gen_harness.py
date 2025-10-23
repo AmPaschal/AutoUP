@@ -2,13 +2,13 @@
 
 
 import json
-import logging
 import os
 from agent import AIAgent
 from commons.models import GPT
 from makefile.output_models import HarnessResponse
+from logger import setup_logger
 
-
+logger = setup_logger(__name__)
 class InitialHarnessGenerator(AIAgent):
 
     def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
@@ -100,7 +100,7 @@ class InitialHarnessGenerator(AIAgent):
         with open(harness_file_path, 'w') as f:
             f.write(harness_code)
         
-        logging.info(f'Harness saved to {harness_file_path}')
+        logger.info(f'Harness saved to {harness_file_path}')
 
         return harness_file_path
 
@@ -110,10 +110,10 @@ class InitialHarnessGenerator(AIAgent):
         tools = self.get_tools()
         attempts = 0
 
-        logging.info(f'System Prompt:\n{system_prompt}')
+        logger.info(f'System Prompt:\n{system_prompt}')
 
         while user_prompt and attempts < self._max_attempts:
-            logging.info(f'User Prompt:\n{user_prompt}')
+            logger.info(f'User Prompt:\n{user_prompt}')
 
             llm_response = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls)
 
@@ -122,10 +122,10 @@ class InitialHarnessGenerator(AIAgent):
                 attempts += 1
                 continue
 
-            logging.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
+            logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
 
             return self.save_harness(llm_response.harness_code)
 
-        logging.error("Failed to generate harness after maximum attempts.")
+        logger.error("Failed to generate harness after maximum attempts.")
         return None
         

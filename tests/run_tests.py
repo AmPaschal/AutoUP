@@ -28,6 +28,18 @@ def get_reachable_functions(json_path: str) -> dict:
     num_functions = sum(len(funcs) for funcs in reachable.values())
     return {"num_files": num_files, "num_functions": num_functions}
 
+def print_coverage(proof_dir: Path):
+    print(f"Report for {proof_dir}:")
+    report_path = os.path.join(proof_dir, "build/report/json")
+    coverage_report = os.path.join(report_path, "viewer-coverage.json")
+    if os.path.exists(coverage_report):
+        coverage_dict = get_coverage_dict(coverage_report)
+        print(f"Coverage:\n{coverage_dict}")
+    reachability_report = os.path.join(report_path, "viewer-reachable.json")
+    if os.path.exists(reachability_report):
+        reachable_dict = get_reachable_functions(reachability_report)
+        print(f"Reachable functions:\n{reachable_dict}")
+
 def run_proof_command(entry, base_dir, output_root):
     """
     Run the harness command for a single proof/source file pair.
@@ -44,7 +56,7 @@ def run_proof_command(entry, base_dir, output_root):
         "--target_function_name", function_name,
         "--root_dir", str(base_dir),
         "--harness_path", str(proof_dir),
-        "--target_func_path", str(src_file)
+        "--target_file_path", str(src_file)
     ]
 
 
@@ -66,18 +78,6 @@ def run_proof_command(entry, base_dir, output_root):
                 status = Status.FAILURE
 
     return function_name, proof_dir, status
-
-def print_coverage(proof_dir: Path):
-    print(f"Report for {proof_dir}:")
-    report_path = os.path.join(proof_dir, "build/report/json")
-    coverage_report = os.path.join(report_path, "coverage.json")
-    if os.path.exists(coverage_report):
-        coverage_dict = get_coverage_dict(coverage_report)
-        print(f"Coverage:\n{coverage_dict}")
-    reachability_report = os.path.join(report_path, "reachability.json")
-    if os.path.exists(reachability_report):
-        reachable_dict = get_reachable_functions(reachability_report)
-        print(f"Reachable functions:\n{reachable_dict}")
 
 def main():
     parser = argparse.ArgumentParser(description="Run proofs for CBMC makefiles.")

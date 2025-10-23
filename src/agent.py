@@ -8,8 +8,9 @@ import traceback
 from typing import Any, Callable, Type
 
 import tiktoken
-from logger import setup_logger
 
+from commons.docker_tool import ProjectContainer
+from logger import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -20,7 +21,7 @@ class AIAgent(ABC):
 
     def __init__(self, agent_name, project_container, test_mode=False, chunking_strategy=None):
         self.agent_name = agent_name
-        self.project_container = project_container
+        self.project_container: ProjectContainer = project_container
         self.store_name = f'{agent_name}-store'
         self.test_mode = test_mode
         self._max_attempts = 5
@@ -89,29 +90,12 @@ class AIAgent(ABC):
     def run_bash_command(self, cmd):
         """Run a command-line command and return the output."""
         try:
-            logger.info("Running command: %s", cmd)
+            logger.info(f"Running command: {cmd}")
             result = self.project_container.execute(cmd)
             return self.truncate_result_custom(result, cmd, max_input_tokens=10000, model='gpt-5')
         except subprocess.CalledProcessError as e:
-            logger.warning("Command failed with error:%s\n", e.stderr)
+            print(f"Command failed with error:\n{e.stderr}")
             return None
-
-    # def run_bash_command(self, cmd):
-    #     """Run a command-line command and return the output."""
-    #     logger.info(f"Running command: {cmd}")
-    #     try:
-    #         process = subprocess.Popen(
-    #             cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=self.root_dir
-    #         )
-    #         stdout, stderr = process.communicate()
-    #         if process.returncode == 0:
-    #             return self.truncate_result_custom(stdout, cmd, max_input_tokens=3000, model='gpt-5')
-    #         else:
-    #             logger.warning(f"Command failed with error:\n{stderr}")
-    #             return None
-    #     except Exception as e:
-    #         logger.warning(f"Command execution error: {e}")
-    #         return None
 
     def handle_tool_calls(self, function_name, function_args):
         logging_text = f"""
@@ -179,13 +163,37 @@ class AIAgent(ABC):
                 }
             }
         ]
+    
+    def _create_vector_store(self, chunking_strategy):
+        """
+        Checks if a vector store already exists
+        If it does already exist, it will clear all files inside and return the existing vector store
+        """
 
-    def get_file_search_tool(self, vector_store_id: str):
-        return [{
-                    "type": "file_search",
-                    "vector_store_ids": [vector_store_id]
-                }]
+        for store in self.client.vector_stores.list():
+            if store.name == self.store_name:
+                print(f"Found existing vector store with ID {store.id}")
+                if self.test_mode:
+                    print(f"Cleaning up old vector store {store.id} for testing")
+                    self.vector_store = store
+                    self._cleanup_vector_store()
+                else:
+                    return store
 
+        print(f"Initializing vector store for {self.store_name}")
+        vector_store = self.client.vector_stores.create(
+            name=self.store_name,
+            chunking_strategy=chunking_strategy # If chunking_strategy is None, it will use OpenAI's default chunking strategy (max_chunk_size_tokens = 800, chunk_overlap_tokens = 400)
+        )
+        
+        return vector_store
+
+    def _upload_vector_store_files(self, file_path):
+        """
+        Actually upload the relevant files to the vector store
+        This should be implemented in the subclass
+        """
+        pass
     
     def _update_files_in_vector_store(self):
         """
