@@ -29,7 +29,7 @@ class LLM(ABC):
         output_format: Type[BaseModel],
         llm_tools: list = [],
         call_function: Optional[Callable] = None
-    ):
+    ) -> Any:
         pass
 
     def _delay_for_retry(self, attempt_count: int) -> None:
@@ -98,10 +98,18 @@ class GPT(LLM):
         input_messages: str,
         output_format: Type[BaseModel],
         llm_tools: list = [],
-        call_function: Optional[Callable] = None
+        call_function: Optional[Callable] = None,
+        conversation_history: Optional[list] = None
     ):
         # Start with the initial user input
-        input_list = [{'role': 'user', 'content': input_messages}]
+        new_message = {'role': 'user', 'content': input_messages}
+
+        if conversation_history is None:
+            conversation_history = []
+
+        conversation_history.append(new_message)
+
+        input_list = list(conversation_history) 
 
         while True:
             # Call the model
@@ -147,4 +155,8 @@ class GPT(LLM):
                     "output": function_result,
                 })
 
-        return client_response.output_parsed
+        parsed_output = client_response.output_parsed
+
+        conversation_history.append({'role': 'assistant', 'content': str(parsed_output)})
+
+        return parsed_output, conversation_history

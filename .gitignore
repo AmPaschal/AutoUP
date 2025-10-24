@@ -6,4 +6,5 @@
 .venv/
 **/backups/**
 **/output-*/
+**/output-*
 logs/
