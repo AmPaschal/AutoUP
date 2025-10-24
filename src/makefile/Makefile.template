@@ -13,7 +13,7 @@ LINK = {LINK}
 H_ENTRY = {H_ENTRY}
 
 # Extra CBMC flags to be passed during CBMC analysis
-H_CBMCFLAGS = --nondet-static --unwind 1 # Rest to be filled in by LLM
+H_CBMCFLAGS = --nondet-static --unwind 2 # Rest to be filled in by LLM
 
 # Env vars, filled in by LLM
 H_DEF = 

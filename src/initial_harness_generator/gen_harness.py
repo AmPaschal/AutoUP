@@ -17,10 +17,10 @@ class InitialHarnessGenerator(AIAgent):
             project_container
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
-        self.root_dir = os.path.abspath(root_dir)
-        self.harness_dir = os.path.abspath(harness_dir)
+        self.root_dir = root_dir
+        self.harness_dir = harness_dir
         self.target_func = target_func
-        self.target_file_path = os.path.abspath(target_file_path)
+        self.target_file_path = target_file_path
         self._max_attempts = 5
 
     def extract_function_code(self, file_path, function_name):
@@ -106,19 +106,23 @@ class InitialHarnessGenerator(AIAgent):
 
     def generate_harness(self):
 
+        # Generate initial harnesses
+
         system_prompt, user_prompt = self.prepare_prompt()
         tools = self.get_tools()
         attempts = 0
 
         logger.info(f'System Prompt:\n{system_prompt}')
 
+        conversation = []   
+
         while user_prompt and attempts < self._max_attempts:
             logger.info(f'User Prompt:\n{user_prompt}')
 
-            llm_response = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls)
+            llm_response, _ = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
 
             if not llm_response:
-                user_prompt = "The LLM did not return a valid response. Please try again.\n" + user_prompt
+                user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n" 
                 attempts += 1
                 continue
 
@@ -127,5 +131,6 @@ class InitialHarnessGenerator(AIAgent):
             return self.save_harness(llm_response.harness_code)
 
         logger.error("Failed to generate harness after maximum attempts.")
+
         return None
         

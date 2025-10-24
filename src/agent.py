@@ -11,6 +11,7 @@ import tiktoken
 
 from commons.docker_tool import ProjectContainer
 from logger import setup_logger
+from commons.utils import Status
 
 logger = setup_logger(__name__)
 
@@ -19,14 +20,10 @@ class AIAgent(ABC):
     Shared features for any OpenAI agent that interacts with a vector store
     """
 
-    def __init__(self, agent_name, project_container, test_mode=False, chunking_strategy=None):
+    def __init__(self, agent_name, project_container):
         self.agent_name = agent_name
         self.project_container: ProjectContainer = project_container
-        self.store_name = f'{agent_name}-store'
-        self.test_mode = test_mode
         self._max_attempts = 5
-        self.root_dir = None
-        # self.vector_store = self._create_vector_store(chunking_strategy)
 
     def truncate_result_custom(self, result: dict, cmd: str, max_input_tokens: int, model: str) -> dict:
         """
@@ -118,6 +115,25 @@ class AIAgent(ABC):
         logger.info(f"Function call response: {tool_response}")
         return str(tool_response)
 
+    def execute_command(self, cmd: str, workdir: str, timeout: int) -> dict:
+        try:
+            result = self.project_container.execute(cmd, workdir=workdir, timeout=timeout)
+            
+            if result.get('exit_code', -1) == 124:
+                logger.error(f"Command '{cmd}' timed out.")
+                result['stdout'] += "[TIMEOUT]"
+                result['status'] = Status.TIMEOUT
+            elif result.get('exit_code', -1) == 0:
+                logger.info(f"Command '{cmd}' completed successfully.")
+                result['status'] = Status.SUCCESS
+            else:
+                logger.error(f"Command '{cmd}' failed.")
+                result['status'] = Status.FAILURE
+            return result
+        except Exception as e:
+            logger.error(f"An error occurred while running command '{cmd}': {e}")
+            return {"status": Status.ERROR}
+
     def get_tools(self):
         return [
             {
@@ -163,57 +179,3 @@ class AIAgent(ABC):
                 }
             }
         ]
-    
-    def _create_vector_store(self, chunking_strategy):
-        """
-        Checks if a vector store already exists
-        If it does already exist, it will clear all files inside and return the existing vector store
-        """
-
-        for store in self.client.vector_stores.list():
-            if store.name == self.store_name:
-                print(f"Found existing vector store with ID {store.id}")
-                if self.test_mode:
-                    print(f"Cleaning up old vector store {store.id} for testing")
-                    self.vector_store = store
-                    self._cleanup_vector_store()
-                else:
-                    return store
-
-        print(f"Initializing vector store for {self.store_name}")
-        vector_store = self.client.vector_stores.create(
-            name=self.store_name,
-            chunking_strategy=chunking_strategy # If chunking_strategy is None, it will use OpenAI's default chunking strategy (max_chunk_size_tokens = 800, chunk_overlap_tokens = 400)
-        )
-        
-        return vector_store
-
-    def _upload_vector_store_files(self, file_path):
-        """
-        Actually upload the relevant files to the vector store
-        This should be implemented in the subclass
-        """
-        pass
-    
-    def _update_files_in_vector_store(self):
-        """
-        Update any files that may have changed locally in the vector store
-        Not every agent will necessarily need to use this, so some subclasses may just leave this as an empty function
-        """
-        pass
-
-    def _cleanup_vector_store(self):
-        """
-        Deletes the vector store and all files associated with the tag name
-        Then moves the updated harness into a different file and restores the original harness file from the backup
-        """
-        if self.vector_store.id not in [store.id for store in self.client.vector_stores.list()]:
-            return
-
-        file_ids = self.client.vector_stores.files.list(self.vector_store.id)
-        for file in file_ids:
-            print(f"Deleting file {file.id} from vector store {self.vector_store.id}")
-            self.client.files.delete(file_id=file.id)
-
-        self.client.vector_stores.delete(self.vector_store.id)
-        print(f"Deleted vector store {self.vector_store.id} for {self.store_name}")

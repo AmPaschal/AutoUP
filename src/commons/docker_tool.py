@@ -1,6 +1,8 @@
+from typing import Optional
 import docker
 import os
 from docker.errors import ImageNotFound, BuildError, APIError
+from docker.models.containers import Container
 
 from logger import setup_logger
 
@@ -8,23 +10,21 @@ from logger import setup_logger
 logger = setup_logger(__name__)
 
 class ProjectContainer:
-    def __init__(self, dockerfile_path: str, host_dir: str, container_name: str, container_dir="/project",
+    def __init__(self, dockerfile_path: str, host_dir: str, container_name: str,
                  image_tag="autoup_image:latest"):
         """
         :param container_name: Name of the container
         :param host_dir: Host directory to map into container
-        :param container_dir: Directory inside container for host_dir
         :param dockerfile_path: Path to Dockerfile (required if building image)
         :param image_tag: Tag for the image
         """
         self.container_name = container_name
         self.host_dir = host_dir
-        self.container_dir = container_dir
         self.dockerfile_path = dockerfile_path
         self.image_tag = image_tag
 
         self.client = docker.from_env()
-        self.container = None
+        self.container: Optional[Container] = None
         self.image = None
 
     def build_image(self) -> str:
@@ -55,9 +55,9 @@ class ProjectContainer:
         # Prepare host mapping
         volumes = {}
         # If host_dir is specified, we assume it is valid. Should have been checked early on
-        if self.host_dir:
-            volumes = {self.host_dir: {'bind': self.container_dir, 'mode': 'rw'}}
-            logger.info(f"[+] Mapping host directory {self.host_dir} -> container {self.container_dir}")
+        if os.path.exists(self.host_dir):
+            volumes = {self.host_dir: {'bind': self.host_dir, 'mode': 'rw'}}
+            logger.info(f"[+] Mapping host directory {self.host_dir} -> container {self.host_dir}")
 
         if not self.image:
             raise RuntimeError("Image not built. Call build_image() first.")
@@ -70,7 +70,7 @@ class ProjectContainer:
             stdin_open=True,
             tty=True,
             detach=True,
-            working_dir=self.container_dir,
+            working_dir=self.host_dir,
             volumes=volumes
         )
         logger.info(f"[+] Container '{self.container_name}' is running.")
@@ -98,14 +98,14 @@ class ProjectContainer:
 
         self.initialize_tools()
 
-    def execute(self, command: str) -> dict:
+    def execute(self, command: str, workdir: Optional[str] = None, timeout: int = 30) -> dict:
         """Execute a command inside the container using bash shell."""
         if not self.container:
             raise RuntimeError("Container not initialized. Call initialize() first.")
 
         logger.debug(f"[>] Executing command: {command}")
-        exec_command = ["timeout", "30s", "bash", "-c", command]
-        result = self.container.exec_run(exec_command, demux=True)
+        exec_command = ["timeout", f"{timeout}s", "bash", "-c", command]
+        result = self.container.exec_run(exec_command, workdir=workdir, demux=True)
         stdout, stderr = result.output
         stdout_decoded = stdout.decode("utf-8", errors="ignore") if stdout else ""
         stderr_decoded = stderr.decode("utf-8", errors="ignore") if stderr else ""

@@ -20,6 +20,19 @@ logger = setup_logger(__name__)
 class LLMMakefileGenerator(AIAgent):
 
 
+    def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
+        super().__init__(
+            "MakefileGenerator",
+            project_container
+        )
+        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
+        
+        self.root_dir = root_dir
+        self.harness_dir = harness_dir
+        self.target_func = target_func
+        self.target_file_path = target_file_path
+        self._max_attempts = 10
+
     def get_coverage_dict(self, json_path: str) -> dict:
         with open(json_path, "r") as f:
             data = json.load(f)
@@ -45,40 +58,6 @@ class LLMMakefileGenerator(AIAgent):
         if os.path.exists(reachability_report):
             reachable_dict = self.get_reachable_functions(reachability_report)
             print(f"Reachable functions:\n{reachable_dict}")
-
-
-    def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
-        super().__init__(
-            "MakefileGenerator",
-            project_container
-        )
-        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
-        
-        self.root_dir = root_dir
-        self.harness_dir = harness_dir
-        self.target_func = target_func
-        self.target_file_path = target_file_path
-        self._max_attempts = 10
-
-    def run_make(self):
-        try:
-            result = subprocess.run(
-                "make", shell=True, capture_output=True, text=True, cwd=self.harness_dir, timeout=600
-            )
-            logger.info('Stdout:\n' + result.stdout)
-            logger.info('Stderr:\n' + result.stderr) 
-            return {"error": Status.SUCCESS, "exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
-        except Exception as e:
-            if isinstance(e, subprocess.TimeoutExpired):
-                logger.error("Make command timed out.")
-                if e.stdout:
-                    logger.info('Partial stdout:\n' + str(e.stdout))
-                if e.stderr:
-                    logger.info('Partial stderr:\n' + str(e.stderr))
-                return {"error": Status.TIMEOUT}
-            else:
-                logger.error(f"An error occurred while running make: {e}")
-                return {"error": Status.FAILURE}
 
     def get_relative_path(self, base_path, target_path):
         """We want to get the relative path of target, in terms of how many ../ we need to get back to base"""
@@ -109,6 +88,12 @@ class LLMMakefileGenerator(AIAgent):
         makefile = makefile.replace('{LINK}', f'$(ROOT)/{target_relative_root}')
 
         return makefile
+
+    def run_make(self):
+        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=600)
+        logger.info('Stdout:\n' + make_results.get('stdout', ''))
+        logger.info('Stderr:\n' + make_results.get('stderr', ''))
+        return make_results
 
     def update_makefile(self, makefile_content):
         with open(f'{self.harness_dir}/Makefile', 'w') as file:
@@ -159,15 +144,18 @@ class LLMMakefileGenerator(AIAgent):
         logger.info(f'System Prompt:\n{system_prompt}')
 
         status = Status.ERROR
+
+        conversation = []
         
         # Finally, we iteratively call the LLM to fix any errors until it succeeds
         while user_prompt and attempts < self._max_attempts:
 
             logger.info(f'LLM Prompt:\n{user_prompt}')
-            
-            llm_response = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls)
+
+            llm_response, _ = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
+
             if not llm_response:
-                user_prompt += "\nThe LLM did not return a valid response. Please try again."
+                user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n"
                 continue
 
             logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
@@ -175,19 +163,22 @@ class LLMMakefileGenerator(AIAgent):
             make_results = self.run_make()
             attempts += 1
 
-            error_code = make_results.get('error', Status.ERROR)
+            status_code = make_results.get('status', Status.ERROR)
 
-            if error_code == Status.SUCCESS:
-                if make_results.get('exit_code', -1) == 0:
+            if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:
                     logger.info("Makefile successfully generated and build succeeded.")
                     self.print_coverage(Path(self.harness_dir))
                     status = Status.SUCCESS
                     break
+            elif status_code == Status.FAILURE:
+                logger.info("Make command failed; reprompting LLM with make results.")
 
+                # It's possible this is a new error, so we clear the conversation history
+                # In future, we may want to detect if the previous error was resolved.
                 system_prompt, user_prompt = self.prepare_prompt(llm_response.updated_makefile, make_results)
             else:
                 logger.error("Make command failed to run.")
-                status = error_code
+                status = status_code
                 break
                 
 

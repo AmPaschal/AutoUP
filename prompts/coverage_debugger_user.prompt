@@ -12,5 +12,7 @@ You should focus your analysis on the uncovered code block that starts from line
 The project's source code is located in the directory:
 {PROJECT_DIR}
 
-The verification report directory:
-{HARNESS_DIR}/build/report
+The harness directory, which contains the harness and the Makefile, is located at:
+{HARNESS_DIR}
+
+The verification report is located at the build/report subdirectory of the harness directory.

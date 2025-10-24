@@ -40,11 +40,12 @@ def print_coverage(proof_dir: Path):
         reachable_dict = get_reachable_functions(reachability_report)
         print(f"Reachable functions:\n{reachable_dict}")
 
-def run_proof_command(entry, base_dir, output_root):
+def run_proof_command(entry, args, output_root):
     """
     Run the harness command for a single proof/source file pair.
     Returns a tuple: (source_file_stem, status, success_flag)
     """
+    base_dir = Path(args.base_dir)
     function_name = entry["function_name"]
     proof_dir = Path(entry["proof_dir"])
     src_file = Path(entry["source_file"])
@@ -52,7 +53,7 @@ def run_proof_command(entry, base_dir, output_root):
     log_file = output_root / f"{proof_dir.stem}.log"
     cmd = [
         "python", "src/run.py",
-        "harness",
+        args.mode,
         "--target_function_name", function_name,
         "--root_dir", str(base_dir),
         "--harness_path", str(proof_dir),
@@ -68,20 +69,21 @@ def run_proof_command(entry, base_dir, output_root):
         status = Status.ERROR
 
     # Check log file for success message
-    success = False
-    if log_file.exists():
-        with open(log_file, "r") as f:
-            content = f.read()
-            if "Makefile successfully generated and build succeeded." in content:
-                status = Status.SUCCESS
-            else:
-                status = Status.FAILURE
+    if args.mode == "harness":
+        if log_file.exists():
+            with open(log_file, "r") as f:
+                content = f.read()
+                if "Makefile successfully generated and build succeeded." in content:
+                    status = Status.SUCCESS
+                else:
+                    status = Status.FAILURE
 
     return function_name, proof_dir, status
 
 def main():
     parser = argparse.ArgumentParser(description="Run proofs for CBMC makefiles.")
     parser.add_argument("input_json", help="Path to JSON file containing proof directories and source files")
+    parser.add_argument("-m", "--mode", choices=["harness", "debugger", "coverage", "function-stubs"], default="harness", help="Execution mode")
     parser.add_argument("-b", "--base_dir", default="../RIOT", help="Base project directory (default: ../RIOT)")
     parser.add_argument("-o", "--output", help="Directory to store logs (default: output-${timestamp})")
     parser.add_argument("-j", "--jobs", type=int, default=10, help="Number of parallel jobs")
@@ -103,7 +105,7 @@ def main():
 
     # Run proofs in parallel
     with ProcessPoolExecutor(max_workers=args.jobs) as executor:
-        futures = {executor.submit(run_proof_command, entry, Path(args.base_dir), output_root): entry for entry in entries}
+        futures = {executor.submit(run_proof_command, entry, args, output_root): entry for entry in entries}
 
         for future in as_completed(futures):
             src_stem, proof_dir, status = future.result()
