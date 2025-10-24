@@ -99,12 +99,17 @@ class GPT(LLM):
         output_format: Type[BaseModel],
         llm_tools: list = [],
         call_function: Optional[Callable] = None,
-        previous_conversation: list = []
+        conversation_history: Optional[list] = None
     ):
         # Start with the initial user input
-        new_message = [{'role': 'user', 'content': input_messages}]
+        new_message = {'role': 'user', 'content': input_messages}
 
-        input_list = previous_conversation + new_message
+        if conversation_history is None:
+            conversation_history = []
+
+        conversation_history.append(new_message)
+
+        input_list = list(conversation_history) 
 
         while True:
             # Call the model
@@ -152,6 +157,6 @@ class GPT(LLM):
 
         parsed_output = client_response.output_parsed
 
-        input_list.append({'role': 'assistant', 'content': parsed_output})
+        conversation_history.append({'role': 'assistant', 'content': str(parsed_output)})
 
-        return parsed_output, input_list
+        return parsed_output, conversation_history

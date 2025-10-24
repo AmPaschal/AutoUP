@@ -90,7 +90,7 @@ class LLMMakefileGenerator(AIAgent):
         return makefile
 
     def run_make(self):
-        make_results = self.execute_command("make", workdir=self.harness_dir, timeout=600)
+        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=600)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results
@@ -152,7 +152,7 @@ class LLMMakefileGenerator(AIAgent):
 
             logger.info(f'LLM Prompt:\n{user_prompt}')
 
-            llm_response, conversation = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls, previous_conversation=conversation)
+            llm_response, _ = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
 
             if not llm_response:
                 user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n"
@@ -175,8 +175,6 @@ class LLMMakefileGenerator(AIAgent):
 
                 # It's possible this is a new error, so we clear the conversation history
                 # In future, we may want to detect if the previous error was resolved.
-                conversation = [] 
-
                 system_prompt, user_prompt = self.prepare_prompt(llm_response.updated_makefile, make_results)
             else:
                 logger.error("Make command failed to run.")

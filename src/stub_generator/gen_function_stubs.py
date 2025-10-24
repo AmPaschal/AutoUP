@@ -259,12 +259,12 @@ class StubGenerator(AIAgent):
             logger.info(f'User Prompt:\n{user_prompt}')
 
             # First, generate stubs using the LLM
-            llm_response, conversation = self.llm.chat_llm(system_prompt, 
+            llm_response, _ = self.llm.chat_llm(system_prompt, 
                                                            user_prompt, 
                                                            HarnessResponse, 
                                                            llm_tools=tools, 
                                                            call_function=self.handle_tool_calls, 
-                                                           previous_conversation=conversation)
+                                                           conversation_history=conversation)
 
             if not llm_response:
                 user_prompt = "The LLM did not return a valid response. Please try again and provide response in the correct format.\n" 
@@ -276,7 +276,7 @@ class StubGenerator(AIAgent):
             self.save_harness(llm_response.harness_code)
 
             # Now, try to build the harness using make
-            make_results = self.execute_command("make", workdir=self.harness_dir, timeout=600)
+            make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=600)
             
             status_code = make_results.get('status', Status.ERROR)
 

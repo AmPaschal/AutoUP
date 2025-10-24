@@ -143,7 +143,7 @@ class CoverageDebugger(AIAgent):
 
 
     def run_make(self):
-        make_results = self.execute_command("make", workdir=self.harness_dir, timeout=600)
+        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=600)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results
@@ -319,16 +319,11 @@ class CoverageDebugger(AIAgent):
         while next_function:
 
             if get_next_block:
-                logger.info(f"[INFO] Maximum attempts reached for function '{next_function['function']}'. Moving to next function.")
-                skip_count += 1
                 next_function, coverage_data, target_block_line = self._get_next_uncovered_function(functions_to_skip)
                 if not next_function:
                     logger.info("[INFO] No more uncovered functions found.")
                     break
                 attempts = 0
-                # Prepare new prompt for the next function
-                # We reset the conversation history here to avoid confusion
-                conversation = []
                 system_prompt, default_user_prompt = self.prepare_prompt(next_function, coverage_data, target_block_line)
                 user_prompt = default_user_prompt
 
@@ -337,7 +332,7 @@ class CoverageDebugger(AIAgent):
             logger.info(f'LLM Prompt:\n{user_prompt}')
 
             # Call LLM to fix coverage gap
-            llm_response, conversation = self.llm.chat_llm(system_prompt, user_prompt, CoverageDebuggerResponse, llm_tools=self.get_tools(), call_function=self.handle_tool_calls, previous_conversation=conversation)
+            llm_response, _ = self.llm.chat_llm(system_prompt, user_prompt, CoverageDebuggerResponse, llm_tools=self.get_tools(), call_function=self.handle_tool_calls, conversation_history=conversation)
 
             if not llm_response:
                 user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n"

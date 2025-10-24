@@ -119,7 +119,7 @@ class InitialHarnessGenerator(AIAgent):
         while user_prompt and attempts < self._max_attempts:
             logger.info(f'User Prompt:\n{user_prompt}')
 
-            llm_response, conversation = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls, previous_conversation=conversation)
+            llm_response, _ = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
 
             if not llm_response:
                 user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n" 
