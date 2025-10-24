@@ -36,4 +36,5 @@ branch: harness-gen-testcases
 python src/run.py debugger \
 --root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
 --target_function_name=_preparse_advertise \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/base64_encode_base
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/base64_encode_base \
+--target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/base64_encode_base/base64_encode_base_harness.c

@@ -114,13 +114,14 @@ def process_mode(args):
             harness_path=args.harness_path,
             root_dir=args.root_dir,
             target_function_name=args.target_function_name,
-            project_container=project_container
+            target_file_path=args.target_file_path,
+            project_container=project_container,
         ))
 
     for agent in agents:
         result = agent.generate()
         if not result:
-            logger.error("Agent '%s' failed. Aborting.", agent.__name__)
+            logger.error("Agent '%s' failed. Aborting.", str(agent))
             return
         logger.info("Agent '%s' succeed", agent.__name__)
 

@@ -28,7 +28,7 @@ logger = setup_logger(__name__)
 class ProofDebugger(AIAgent, Generable):
     """Agentic Proof Debugger"""
 
-    def __init__(self, harness_path, root_dir, target_function_name, project_container):
+    def __init__(self, harness_path, root_dir, target_function_name, target_file_path, project_container):
         super().__init__(
             agent_name="debugger",
             project_container=project_container,
@@ -37,8 +37,7 @@ class ProofDebugger(AIAgent, Generable):
         self.harness_path = harness_path
         self.root_dir = root_dir
         self.target_func = f"{target_function_name}_harness.c"
-        self.target_file_path = str(
-            Path(harness_path) / f"{target_function_name}_harness.c")
+        self.target_file_path=target_file_path
         logger.info("self.harness_path %s", self.harness_path)
         logger.info("self.root_dir %s", self.root_dir)
         logger.info("self.target_func %s", self.target_func)
