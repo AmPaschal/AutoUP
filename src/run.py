@@ -19,6 +19,7 @@ from debugger.debugger import ProofDebugger
 from commons.docker_tool import ProjectContainer
 from logger import init_logging, setup_logger
 from stub_generator.gen_function_stubs import StubGenerator
+from commons.models import Generable
 
 
 # Global project container
@@ -76,60 +77,52 @@ def process_mode(args):
     logger.info("Target function name: %s", args.target_function_name)
     logger.info("Target file path: %s", args.target_file_path)
 
+    agents: list[Generable] = []
     if args.mode in ["harness", "all"]:
-        harness_dir = Path(args.harness_path)
-        harness_dir.mkdir(parents=True, exist_ok=True)
-        harness_generator = InitialHarnessGenerator(
+        agents.append(InitialHarnessGenerator(
             root_dir=args.root_dir,
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
             target_file_path=args.target_file_path,
             project_container=project_container
-        )
-        success = harness_generator.generate_harness()
-        if not success:
-            logger.error(
-                "Error: Harness generation failed. Aborting makefile generation.")
-            return
-        makefile_generator = LLMMakefileGenerator(
+        ))
+        agents.append(LLMMakefileGenerator(
             root_dir=args.root_dir,
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
             target_file_path=args.target_file_path,
             project_container=project_container
-        )
-        makefile_generator.generate_makefile()
-
-    if args.mode in ["coverage", "all"]:
-        coverage_debugger = CoverageDebugger(
-            root_dir=args.root_dir,
-            harness_dir=args.harness_path,
-            target_func=args.target_function_name,
-            target_file_path=args.target_file_path,
-            project_container=project_container
-        )
-        coverage_debugger.debug_coverage()
-        
+        ))
     if args.mode in ["stubs", "all"]:
-        stub_generator = StubGenerator(
+        agents.append(StubGenerator(
             root_dir=args.root_dir,
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
             target_file_path=args.target_file_path,
             project_container=project_container
-        )
-        success = stub_generator.generate_stubs()
-
+        ))
+    if args.mode in ["coverage", "all"]:
+        agents.append(CoverageDebugger(
+            root_dir=args.root_dir,
+            harness_dir=args.harness_path,
+            target_func=args.target_function_name,
+            target_file_path=args.target_file_path,
+            project_container=project_container
+        ))
     if args.mode in ["debugger", "all"]:
-        proof_writer = ProofDebugger(
+        agents.append(ProofDebugger(
             harness_path=args.harness_path,
             root_dir=args.root_dir,
             target_function_name=args.target_function_name,
             project_container=project_container
-        )
-        harness_report = proof_writer.generate()
-        proof_writer.generate_report()
-        logger.info("Harness report: %s\n", harness_report)
+        ))
+
+    for agent in agents:
+        result = agent.generate()
+        if not result:
+            logger.error("Agent '%s' failed. Aborting.", agent.__name__)
+            return
+        logger.info("Agent '%s' succeed", agent.__name__)
 
 
 def main():

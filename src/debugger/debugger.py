@@ -11,9 +11,10 @@ import json
 
 # AutoUp
 from agent import AIAgent
-from commons.models import GPT
+from commons.models import GPT, Generable
 from debugger.output_models import ModelOutput
 from logger import setup_logger
+from commons.utils import Status
 
 
 # OLD
@@ -24,7 +25,7 @@ from debugger.advice import get_advice_for_cluster
 logger = setup_logger(__name__)
 
 
-class ProofDebugger(AIAgent):
+class ProofDebugger(AIAgent, Generable):
     """Agentic Proof Debugger"""
 
     def __init__(self, harness_path, root_dir, target_function_name, project_container):
@@ -66,8 +67,10 @@ class ProofDebugger(AIAgent):
             logger.info("Target Error: %s", error)
             result = self.generate_single_fix(error)
             if not result:
+                self.generate_report()
                 return False
             error = self.__pop_error()
+        self.generate_report()
         return True
 
     def generate_single_fix(self, error: CBMCError) -> bool:
@@ -168,24 +171,8 @@ class ProofDebugger(AIAgent):
 
     def __execute_make(self) -> bool:
         logger.info("Executing 'make' into '%s'", self.harness_path)
-        with subprocess.Popen(
-            ["make", "-j4"],
-            cwd=self.harness_path,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        ) as process:
-            stdout, stderr = process.communicate()
-        if stdout:
-            logger.info(stdout)
-        if stderr:
-            logger.error(stderr)
-        if process.returncode == 0:
-            logger.info("Execution of 'make' completed sucessfully.")
-            return True
-        logger.warning(
-            "Execution of 'make' completed with error code %i.", process.returncode,
-        )
-        return False
+        status_code = self.execute_command("make -j4", workdir=self.harness_path, timeout=600)
+        return status_code == Status.SUCCESS
 
     def __create_backup(self):
         backup_path = os.path.join(

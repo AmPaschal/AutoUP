@@ -6,14 +6,14 @@ import subprocess
 import json
 import os
 from agent import AIAgent
-from commons.models import GPT
+from commons.models import GPT, Generable
 from makefile.output_models import CoverageDebuggerResponse
 from commons.utils import Status
 
 logger = logging.getLogger(__name__)
 
 
-class CoverageDebugger(AIAgent):
+class CoverageDebugger(AIAgent, Generable):
 
     def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
         super().__init__(
@@ -286,7 +286,7 @@ class CoverageDebugger(AIAgent):
 
         return percentage_increase
 
-    def debug_coverage(self):
+    def generate(self) -> bool:
 
         functions_to_skip = {}
 
@@ -299,7 +299,8 @@ class CoverageDebugger(AIAgent):
         next_function, coverage_data, target_block_line = self._get_next_uncovered_function(functions_to_skip)
         if not next_function or not coverage_data:
             logger.info("[INFO] No uncovered functions found.")
-            return 0  # All functions are covered
+            #return 0  # All functions are covered
+            return True
 
         # Create first LLM prompt
         system_prompt, default_user_prompt = self.prepare_prompt(next_function, coverage_data, target_block_line)
