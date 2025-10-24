@@ -10,14 +10,14 @@ from dotenv import load_dotenv
 from agent import AIAgent
 from pathlib import Path
 from makefile.output_models import MakefileFields
-from commons.models import GPT
+from commons.models import GPT, Generable
 from commons.utils import Status
 from logger import setup_logger
 
 load_dotenv()
 logger = setup_logger(__name__)
 
-class LLMMakefileGenerator(AIAgent):
+class LLMMakefileGenerator(AIAgent, Generable):
 
 
     def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
@@ -121,7 +121,7 @@ class LLMMakefileGenerator(AIAgent):
 
         return system_prompt, user_prompt
 
-    def generate_makefile(self) -> Status:
+    def generate(self) -> bool:
         """
         Main function to generate the Makefile using the LLM.
         """
@@ -186,7 +186,7 @@ class LLMMakefileGenerator(AIAgent):
         if backup_path:
             self._restore_makefile(backup_path)
 
-        return status
+        return status == Status.SUCCESS
 
     def _backup_makefile(self, backup_suffix='temp'):
         """

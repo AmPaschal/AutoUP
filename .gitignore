@@ -6,5 +6,11 @@
 .venv/
 **/backups/**
 **/output-*/
+<<<<<<< HEAD
+logs/
+reports/
+output.log
+=======
 **/output-*
 logs/
+>>>>>>> 7c4c159a9438411747c4e3b22463b844bc199d04

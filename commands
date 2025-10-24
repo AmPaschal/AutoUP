@@ -1,0 +1,40 @@
+; branch: harness-gen-testcases
+; python src/run.py debugger \
+; --root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
+; --target_function_name=_gcoap_forward_proxy_copy_options \
+; --harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_gcoap_forward_proxy_copy_options
+
+branch: coverage-resolver
+python src/run.py debugger \
+--root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
+--target_function_name=_gcoap_forward_proxy_copy_options \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_gcoap_forward_proxy_copy_options
+
+branch: coverage-resolver
+python src/run.py debugger \
+--root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
+--target_function_name=_on_regack \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_on_regack
+
+branch: coverage-resolver
+python src/run.py debugger \
+--root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
+--target_function_name=_parse_options \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_parse_options
+
+branch: coverage-resolver
+python src/run.py debugger \
+--root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
+--target_function_name=_preparse_advertise \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_preparse_advertise
+
+
+--------------------------------------------------------
+branch: harness-gen-testcases
+
+
+python src/run.py debugger \
+--root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
+--target_function_name=_preparse_advertise \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/base64_encode_base \
+--target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/base64_encode_base/base64_encode_base_harness.c

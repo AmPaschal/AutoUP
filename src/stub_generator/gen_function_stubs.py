@@ -7,14 +7,14 @@ from time import time
 
 from anyio import Path
 from agent import AIAgent
-from commons.models import GPT
+from commons.models import GPT, Generable
 from makefile.output_models import HarnessResponse
 from logger import setup_logger
 from commons.utils import Status
 
 logger = setup_logger(__name__)
 
-class StubGenerator(AIAgent):
+class StubGenerator(AIAgent, Generable):
 
     def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
         super().__init__(
@@ -231,7 +231,7 @@ class StubGenerator(AIAgent):
         logger.info(f"Restored harness from {backup_path} to {harness_file_path}")
         os.remove(backup_path)
 
-    def generate_stubs(self):
+    def generate(self) -> bool:
 
         # 1. Get functions to stub
         goto_file = os.path.join(self.harness_dir, "build", f"{self.target_func}.goto")
