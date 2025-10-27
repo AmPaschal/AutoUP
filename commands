@@ -26,7 +26,8 @@ branch: coverage-resolver
 python src/run.py debugger \
 --root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
 --target_function_name=_preparse_advertise \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_preparse_advertise
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_preparse_advertise \
+--target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_preparse_advertise/_preparse_advertise_harness.c
 
 
 --------------------------------------------------------
@@ -38,3 +39,11 @@ python src/run.py debugger \
 --target_function_name=_preparse_advertise \
 --harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/base64_encode_base \
 --target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/base64_encode_base/base64_encode_base_harness.c
+
+
+python src/run.py debugger \
+--root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
+--target_function_name=gnrc_sixlowpan_iphc_recv \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/gnrc_sixlowpan_iphc_recv \
+--target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/gnrc_sixlowpan_iphc_recv/gnrc_sixlowpan_iphc_recv_harness.c \
+--log_file=logs/output.log

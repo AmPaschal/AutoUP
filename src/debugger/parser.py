@@ -518,13 +518,13 @@ def extract_errors_and_payload(harness_name, harness_path, check_for_coverage=No
     json_report_dir = os.path.join(harness_dir, Path("build", "report", "json"))
 
     # First run make
-    try:
-        run_command('make', cwd=harness_dir)
-    except Exception as e:
-        print(f"Make command failed: {e}")
-        raise SyntaxError("Make command failed, please check your harness for syntax errors")
+    # try:
+    #     run_command('make', cwd=harness_dir)
+    # except Exception as e:
+    #     print(f"Make command failed: {e}")
+    #     raise SyntaxError("Make command failed, please check your harness for syntax errors")
     
-    print ("Make command completed")
+    # print ("Make command completed")
 
     if check_for_coverage is not None:
         # This call will throw a custom error if the error is not covered by the harness
