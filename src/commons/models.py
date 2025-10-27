@@ -160,3 +160,11 @@ class GPT(LLM):
         conversation_history.append({'role': 'assistant', 'content': str(parsed_output)})
 
         return parsed_output, conversation_history
+
+
+class Generable(ABC):
+    """Generable interface """
+
+    @abstractmethod
+    def generate(self) -> bool:
+        """Entry point for all generative agents"""

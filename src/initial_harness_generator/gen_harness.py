@@ -1,15 +1,15 @@
 
 
-
+from pathlib import Path
 import json
 import os
 from agent import AIAgent
-from commons.models import GPT
+from commons.models import GPT, Generable
 from makefile.output_models import HarnessResponse
 from logger import setup_logger
 
 logger = setup_logger(__name__)
-class InitialHarnessGenerator(AIAgent):
+class InitialHarnessGenerator(AIAgent, Generable):
 
     def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
         super().__init__(
@@ -22,6 +22,9 @@ class InitialHarnessGenerator(AIAgent):
         self.target_func = target_func
         self.target_file_path = target_file_path
         self._max_attempts = 5
+        
+        harness_dir = Path(harness_dir)
+        harness_dir.mkdir(parents=True, exist_ok=True)
 
     def extract_function_code(self, file_path, function_name):
         if not os.path.exists(file_path):
@@ -104,7 +107,7 @@ class InitialHarnessGenerator(AIAgent):
 
         return harness_file_path
 
-    def generate_harness(self):
+    def generate(self) -> bool:
 
         # Generate initial harnesses
 
@@ -128,9 +131,10 @@ class InitialHarnessGenerator(AIAgent):
 
             logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
 
-            return self.save_harness(llm_response.harness_code)
+            self.save_harness(llm_response.harness_code)
+            return True
 
         logger.error("Failed to generate harness after maximum attempts.")
 
-        return None
+        return False
         
