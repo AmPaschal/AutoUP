@@ -105,20 +105,16 @@ class ProofDebugger(AIAgent, Generable):
         logger.info("User prompt: %s", user_prompt)
         self.report["errors"][-1]["system_prompt"] = system_prompt
         self.report["errors"][-1]["user_prompt"] = user_prompt
-        response = self.llm.chat_llm(
+        output, _history = self.llm.chat_llm(
             system_messages=system_prompt,
             input_messages=user_prompt,
             output_format=ModelOutput,
             llm_tools=self.get_tools(),
             call_function=self.handle_tool_calls,
-            parsed=False
         )
-        logger.info("LLM response: \n%s", json.dumps(
-            json.loads(response.output_text), indent=4))
-        self.__update_harness(json.loads(
-            response.output_text)['updated_harness_file_content'])
-        self.report["errors"][-1]["result"] = json.loads(
-            response.output_text)
+        logger.info("LLM response: \n%s", output.updated_harness_file_content)
+        self.__update_harness(output.updated_harness_file_content)
+        self.report["errors"][-1]["result"] = output.updated_harness_file_content
 
     def __update_harness(self, harness_content: str):
         logger.info("Updated harness file content: \n%s", harness_content)
@@ -170,8 +166,8 @@ class ProofDebugger(AIAgent, Generable):
 
     def __execute_make(self) -> bool:
         logger.info("Executing 'make' into '%s'", self.harness_path)
-        status_code = self.execute_command("make -j4", workdir=self.harness_path, timeout=600)
-        return status_code == Status.SUCCESS
+        result = self.execute_command("make -j4", workdir=self.harness_path, timeout=600)
+        return result["status"] == Status.SUCCESS
 
     def __create_backup(self):
         backup_path = os.path.join(

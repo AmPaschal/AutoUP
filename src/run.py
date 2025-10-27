@@ -2,7 +2,6 @@
 
 # System
 from typing import Optional
-from pathlib import Path
 import argparse
 import signal
 import uuid
