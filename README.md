@@ -47,9 +47,9 @@ python src/run.py
 | Mode | Description |
 |------|--------------|
 | `harness` | Generates harness and Makefile. |
-| `function-stubs` | Generates function stubs. |
-| `coverage` | Executes coverage debugger. |
-| `debugger` | Runs proof debugger. |
+| `function-stubs` | Generates stubs for undefined functions that return function pointers. |
+| `coverage` | Executes coverage debugger to fix coverage gaps. |
+| `debugger` | Executes proof erro debugger to generate preconditions fixing CBMC errors. |
 | `all` | Runs `harness`, `function-stubs`, `coverage`, and `debugger` sequentially. |
 
 ---
@@ -58,10 +58,23 @@ python src/run.py
 ```bash
 python src/run.py
 harness
---target_function_name my_function
---root_dir ./project 
---harness_path ./proof/harness
---target_file_path ./src/my_module.c   
+--target_function_name <function-to-generate-harness-for>
+--root_dir </path/to/to/project/containing/target/function> 
+--harness_path </path/to/the/harness/directory>
+--target_file_path </path/to/the/source/file/containing/target/function>  
 ```
+
+For example, here is the command to generate an initial proof harness and makefile for the _receive function in RIOT project.
+
+```bash
+python3 src/run.py
+harness
+--target_function_name _receive
+--root_dir /home/pamusuo/research/cbmc-research/RIOT
+--harness_path /home/pamusuo/research/cbmc-research/RIOT/cbmc/harness_gen_tests_3/_receive
+--target_file_path  /home/pamusuo/research/cbmc-research/RIOT/sys/net/gnrc/transport_layer/tcp/gnrc_tcp_eventloop.c > output-coverage-receive.txt 2>&1
+```
+
+To automatically fix coverage gaps or generate preconditions fixing errors, replace `harness` with `coverage` or `debugger` respectively.
 
 ---
