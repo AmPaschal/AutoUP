@@ -89,8 +89,9 @@ class LLMMakefileGenerator(AIAgent, Generable):
 
         return makefile
 
-    def run_make(self):
-        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=600)
+    def run_make(self, compile_only: bool = True) -> dict:
+        make_cmd = "make compile -j4" if compile_only else "make -j4"
+        make_results = self.execute_command(make_cmd, workdir=self.harness_dir, timeout=600)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results
@@ -98,6 +99,12 @@ class LLMMakefileGenerator(AIAgent, Generable):
     def update_makefile(self, makefile_content):
         with open(f'{self.harness_dir}/Makefile', 'w') as file:
             file.write(makefile_content)
+
+    def update_harness(self, harness_code):
+        harness_file_path = os.path.join(self.harness_dir, f'{self.target_func}_harness.c')
+        
+        with open(harness_file_path, 'w') as f:
+            f.write(harness_code)
 
     def prepare_prompt(self, makefile_content, make_results):
         # Create the system prompt
@@ -121,13 +128,28 @@ class LLMMakefileGenerator(AIAgent, Generable):
 
         return system_prompt, user_prompt
 
+    def create_makefile_include(self):
+        """Copy makefile.include from docker to harness parent directory"""
+        src_path = os.path.join('makefiles', 'Makefile.include')
+        dest_path = os.path.join(os.path.dirname(self.harness_dir), 'Makefile.include')
+        if os.path.exists(dest_path):
+            logger.info(f'Makefile.include already exists at {dest_path}, skipping copy.')
+            return
+        # Copy inside the container
+        copy_cmd = f"cp {src_path} {dest_path}"
+        copy_results = self.project_container.execute(copy_cmd, workdir='/')
+        if copy_results.get('exit_code', -1) != 0:
+            logger.error(f'Failed to copy Makefile.include: {copy_results.get("stderr", "")}')
+            return
+        logger.info(f'Copied Makefile.include to {dest_path}')
+
     def generate(self) -> bool:
         """
         Main function to generate the Makefile using the LLM.
         """
         
-        # For testing purposes, backup existing Makefile
-        backup_path = self._backup_makefile()
+        # Copy makefile.include from docker to harness parent directory
+        self.create_makefile_include()
 
         # First, we setup the initial Makefile
         makefile = self.setup_initial_makefile()
@@ -160,16 +182,19 @@ class LLMMakefileGenerator(AIAgent, Generable):
 
             logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
             self.update_makefile(llm_response.updated_makefile)
+            if llm_response.updated_harness:
+                self.update_harness(llm_response.updated_harness)
             make_results = self.run_make()
             attempts += 1
 
             status_code = make_results.get('status', Status.ERROR)
 
             if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:
-                    logger.info("Makefile successfully generated and build succeeded.")
-                    self.print_coverage(Path(self.harness_dir))
-                    status = Status.SUCCESS
-                    break
+                logger.info("Makefile successfully generated and compilation succeeded.")
+                self.run_make(compile_only=False)  # Now run full make to generate proofs
+                self.print_coverage(Path(self.harness_dir))
+                status = Status.SUCCESS
+                break
             elif status_code == Status.FAILURE:
                 logger.info("Make command failed; reprompting LLM with make results.")
 
@@ -180,42 +205,9 @@ class LLMMakefileGenerator(AIAgent, Generable):
                 logger.error("Make command failed to run.")
                 status = status_code
                 break
-                
-
-        # For testing purposes, we restore the original Makefile
-        if backup_path:
-            self._restore_makefile(backup_path)
+        
 
         return status == Status.SUCCESS
-
-    def _backup_makefile(self, backup_suffix='temp'):
-        """
-        Create an unmodified copy of the harness file that we can restore,
-        but only if the Makefile exists.
-        """
-        if not os.path.exists(os.path.join(self.harness_dir, 'Makefile')):
-            return None
-        backup_path = os.path.join(self.harness_dir, 'Makefile.backup')
-        shutil.copy(os.path.join(self.harness_dir, 'Makefile'), backup_path)
-        return backup_path
-
-    def _restore_makefile(self, backup_path):
-        if not os.path.exists(backup_path):
-            logger.info(f"Backup file {backup_path} does not exist. Cannot restore harness.")
-            return
-        
-        makefile_path = os.path.join(self.harness_dir, 'Makefile')
-
-        # If Makefile was generated, back it up with the timestamp
-        if os.path.exists(makefile_path):
-            timestamp = int(time.time())
-            generated_backup_path = os.path.join(self.harness_dir, f'Makefile.{timestamp}.backup')
-            shutil.copy(makefile_path, generated_backup_path)
-            logger.info(f"Backed up generated Makefile to {generated_backup_path}")
-
-        shutil.copy(backup_path, makefile_path)
-        logger.info(f"Restored harness from {backup_path} to {self.harness_dir}")
-        os.remove(backup_path)
 
     def _update_files_in_vector_store(self):
         pass
@@ -235,5 +227,5 @@ if __name__ == "__main__":
         raise EnvironmentError("No OpenAI API key found")
 
     makefile_generator = LLMMakefileGenerator(target_function, root_dir, harness_path, file_path, None)
-    makefile_generator.generate_makefile()
+    makefile_generator.generate()
 

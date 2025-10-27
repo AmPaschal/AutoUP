@@ -41,4 +41,7 @@ RUN wget \
 
 RUN pip install cbmc-viewer
 
+# Copy Makefile.include to /makefiles
+COPY Makefile.include /makefiles/Makefile.include
+
 ENV C_INCLUDE_PATH=/usr/include/x86_64-linux-gnu

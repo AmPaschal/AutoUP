@@ -63,6 +63,10 @@ def get_parser():
         help="Path to target function source file (required for harness mode).",
         required=True,
     )
+    parser.add_argument(
+        "--log_file",
+        help="Path where log file should be saved."
+    )
     return parser.parse_args()
 
 
@@ -93,7 +97,7 @@ def process_mode(args):
             target_file_path=args.target_file_path,
             project_container=project_container
         ))
-    if args.mode in ["stubs", "all"]:
+    if args.mode in ["function-stubs", "all"]:
         agents.append(StubGenerator(
             root_dir=args.root_dir,
             harness_dir=args.harness_path,
@@ -123,7 +127,7 @@ def process_mode(args):
         if not result:
             logger.error("Agent '%s' failed. Aborting.", str(agent))
             return
-        logger.info("Agent '%s' succeed", agent.__name__)
+        logger.info("Agent '%s' succeed", agent.__class__.__name__)
 
 
 def main():
@@ -135,7 +139,7 @@ def main():
 
     args = get_parser()
 
-    init_logging(Path(args.target_function_name).name)
+    init_logging(args.log_file)
     logger = setup_logger(__name__)
 
     openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -144,7 +148,7 @@ def main():
 
     container_name = f"autoup_{uuid.uuid4().hex[:8]}"
     project_container = ProjectContainer(
-        dockerfile_path="tools.Dockerfile",
+        dockerfile_path="docker/tools.Dockerfile",
         host_dir=args.root_dir,
         container_name=container_name
     )

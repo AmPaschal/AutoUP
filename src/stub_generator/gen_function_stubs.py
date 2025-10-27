@@ -116,6 +116,26 @@ class StubGenerator(AIAgent, Generable):
 
         return harness_file_path
 
+    def get_reachable_functions(self, reachable_output: str) -> set:
+        goto_reachable_lines = reachable_output.splitlines()
+
+        unique_funcs = set()    
+
+        if not goto_reachable_lines:
+            logger.error("No reachable functions found in GOTO binary.")
+            return unique_funcs
+
+        for line in goto_reachable_lines:
+            line = line.strip()
+            if "->" in line:
+                parts = [p.strip() for p in line.split("->")]
+                if len(parts) == 2:
+                    caller, callee = parts
+                    unique_funcs.add(caller)
+                    unique_funcs.add(callee)
+
+        return unique_funcs
+
     def extract_functions_without_body_and_returning_pointer(self, goto_file: str):
         """
         Extract all functions in a GOTO binary that:
@@ -174,9 +194,24 @@ class StubGenerator(AIAgent, Generable):
 
         goto_symbols_dict = goto_symbols[2]["symbolTable"]
 
-        # 4. Filter those returning a pointer
+        # 4. Get reachable functions from the GOTO binary
+        goto_reachable_result = self.execute_command(
+            f"goto-instrument --reachable-call-graph {goto_file}",
+            workdir=self.harness_dir,
+            timeout=60
+        )
+        if goto_reachable_result['exit_code'] != 0:
+            logger.error("Failed to get reachable call graph functions from GOTO binary.")
+            return []
+
+        reachable_functions = self.get_reachable_functions(goto_reachable_result['stdout'])
+
+        # 5. Filter undefined but reachable functions that return a pointer
         result = []
         for func_name in no_body_funcs:
+            if func_name not in reachable_functions:
+                # Skip functions that are not in the call graph
+                continue
             func_symbol = goto_symbols_dict.get(func_name)
             if not func_symbol:
                 logger.warning(f"Function symbol not found: {func_name}")
