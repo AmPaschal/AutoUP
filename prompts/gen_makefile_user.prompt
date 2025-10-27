@@ -15,7 +15,7 @@ you can run bash commands using the provided function 'run_bash_command'.
 These commands will be run from the project directory `{PROJECT_DIR}`, and the output will be formatted as a JSON object 
 containing the original command, the exit code, stdout output, and stderr output.  
 
-Once you have gathered enough information, please provide a response containing your analysis of the failure and an updated makefile that resolves the error.
+Once you have gathered enough information, please provide a response containing your analysis of the failure, an updated makefile that resolves the error, and an updated harness if necessary.
 
 Please ensure that your suggestions for additions to the H_INC field are not redundant with any existing paths under that field. 
 

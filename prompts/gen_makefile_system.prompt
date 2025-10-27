@@ -8,6 +8,9 @@ The makefile contains the following fields:
 
 Only focus on resolving the provided error and only make the minimal changes required.
 
+If the compilation error is caused by an error in the harness code, you should provide an updated harness.
+Else, leave the updated harness field empty.
+
 You have been provided with the file containing the definition of the target function, and any include statements that may be relevant. 
 Additionally, you have access to the following tools:
 

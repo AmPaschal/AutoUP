@@ -4,11 +4,13 @@ from typing import Optional
 class MakefileFields(BaseModel):
     analysis: str
     updated_makefile: str
+    updated_harness: Optional[str] = None
 
     def to_dict(self):
         return {
             "analysis": self.analysis,
-            "updated_makefile": self.updated_makefile
+            "updated_makefile": self.updated_makefile,
+            "updated_harness": self.updated_harness
         }
     
 class HarnessResponse(BaseModel):

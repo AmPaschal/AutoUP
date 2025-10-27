@@ -1,0 +1,215 @@
+# Number of bits to represent object
+OBJ_BITS ?= 8
+
+C_INC ?=
+
+
+C_DEF = \
+	-DWIN32 \
+	-DWINVER=0x400 \
+	-D_CONSOLE \
+	-D_CRT_SECURE_NO_WARNINGS \
+	-D_DEBUG \
+	-D_WIN32_WINNT=0x0500 \
+	-D__PRETTY_FUNCTION__=__FUNCTION__ \
+	-D__free_rtos__ \
+	-DCBMC \
+	-D'_static=' \
+	-D'_volatile=' \
+	-D'$(MAC_DRIVER)=1' \
+	-D'$(NET_DRIVER)=1' \
+	-D'$(ROUTE_DRIVER)=1' \
+
+C_CBMCFLAGS = \
+	--object-bits $(OBJ_BITS) \
+	--32 \
+
+IGNORE_OPTIONS = -c|-o|-mfp16-format|-fno-reorder-functions|-fno-printf-return-value|-fno-defer-pop|--specs|--param=min-pagesize|-mthumb|-mabi|-mtp|-mcpu|-mtune|-march 
+
+O_INC = \
+	# empty
+
+default: report
+
+# ____________________________________________________________________
+# CBMC binaries
+#
+
+CMAKE_COMMAND = cmake
+GOTO_CC = goto-cc
+GOTO_INSTRUMENT = goto-instrument
+GOTO_ANALYZER = goto-analyzer
+VIEWER = cbmc-viewer
+
+# ____________________________________________________________________
+# Variables
+#
+# Naming scheme:
+# ``````````````
+# FOO is the concatenation of the following:
+# FOO2: Set of command line
+# C_FOO: Value of $FOO common to all harnesses, set in this file
+# O_FOO: Value of $FOO specific to the OS we're running on, set in the
+#        makefile for the operating system
+# H_FOO: Value of $FOO specific to a particular harness, set in the
+#        makefile for that harness
+
+ENTRY = $(H_ENTRY)
+
+INC = \
+  $(INC2) \
+  $(C_INC) $(O_INC) $(H_INC) \
+  # empty
+
+CFLAGS = \
+  $(CFLAGS2) \
+  $(O_DEF) $(H_DEF) $(DEF) \
+  $(C_OPT) $(O_OPT) $(H_OPT) $(OPT) \
+  -m32 \
+  # empty
+
+CBMCFLAGS = \
+  --flush \
+  --verbosity 9 \
+  $(CBMCFLAGS2) \
+  $(C_CBMCFLAGS) $(O_CBMCFLAGS) $(H_CBMCFLAGS) \
+  # empty
+
+INSTFLAGS = \
+  $(INSTFLAGS2) \
+  $(C_INSTFLAGS) $(O_INSTFLAGS) $(H_INSTFLAGS) \
+  # empty
+
+# ____________________________________________________________________
+# Rules
+#
+# Rules for building the CBMC harness
+
+C_SOURCES = $(patsubst %.goto,%.c,$(LINK))
+
+# Build each goto-binary out-of-source (i.e. in a 'gotos' directory
+# underneath each proof directory, to make it safe to build all proofs
+# in parallel
+OOS_OBJS = $(patsubst %.c,build/gotos/%.goto,$(C_SOURCES))
+
+CWD=$(abspath .)
+
+generate_headers:
+	mkdir -p build/cbmc
+	mkdir -p build/gotos
+	mkdir -p build/reports
+.PHONY: generate_headers
+
+
+# Build all linked sources
+build/gotos/%.goto: %.c
+	$(GOTO_CC) -c -o build/gotos/$(shell basename $@) $(INC) $(CFLAGS) $^
+
+# Build the harness
+$(ENTRY)_harness.goto: $(ENTRY)_harness.c $(H_GENERATE_HEADER) generate_headers
+	$(GOTO_CC) -c $(EXTRA_GENERATED_COMPILER_ARGS) -o build/$@ $(INC) $(CFLAGS) $(ENTRY)_harness.c
+
+# Link harness and linked sources
+$(ENTRY)1.goto: $(ENTRY)_harness.goto $(OOS_OBJS)
+	$(GOTO_CC) -o build/$@ --function harness build/$(ENTRY)_harness.goto $(addprefix build/gotos/,$(notdir $(OOS_OBJS)))
+
+# Add CBMC stub library
+$(ENTRY)2.goto: $(ENTRY)1.goto
+	 $(GOTO_INSTRUMENT) --add-library build/$^ build/$@ \
+		> build/reports/$(ENTRY)2.txt 2>&1
+
+# Drop unused functions
+$(ENTRY)3.goto: $(ENTRY)2.goto
+	$(GOTO_INSTRUMENT) --drop-unused-functions build/$^ build/$@ \
+		> build/reports/$(ENTRY)3.txt 2>&1
+
+# Drop unused global inits
+$(ENTRY)4.goto: $(ENTRY)3.goto
+	$(GOTO_INSTRUMENT) $(INSTFLAGS) --slice-global-inits build/$^ build/$@ \
+		> build/reports/$(ENTRY)4.txt 2>&1
+# ____________________________________________________________________
+# After running goto-instrument to remove function bodies the unused
+# functions need to be dropped again.
+
+$(ENTRY)5.goto: $(ENTRY)4.goto
+	$(GOTO_INSTRUMENT) --drop-unused-functions build/$^ build/$@ \
+		> build/reports/$(ENTRY)5.txt 2>&1
+
+# Copy final cleaned goto to ENTRY.goto
+$(ENTRY).goto: $(ENTRY)5.goto
+	cp build/$^ build/$@
+
+
+# ____________________________________________________________________
+# Compile only (no verification)
+#
+# This rule builds the harness and all goto binaries, but does NOT run CBMC.
+compile: $(ENTRY).goto
+	@echo "[+] Compilation completed. Goto binary: build/$(ENTRY).goto"
+.PHONY: compile
+
+
+# ____________________________________________________________________
+# Rules
+#
+# Rules for running CBMC
+
+# Ignore the return code for CBMC, so that we can still generate the
+# report if the proof failed. If the proof failed, we separately fail
+# the entire job using the check-cbmc-result rule.
+cbmc.xml: $(ENTRY).goto
+	-cbmc $(CBMCFLAGS) $(SOLVER) --unwinding-assertions --trace --xml-ui build/$^ > build/reports/$@ 2>&1
+
+property.xml: $(ENTRY).goto
+	cbmc $(CBMCFLAGS) --unwinding-assertions --show-properties --xml-ui build/$^ > build/reports/$@ 2>&1
+
+coverage.xml: $(ENTRY).goto
+	cbmc $(CBMCFLAGS) --cover location --xml-ui build/$^ > build/reports/$@ 2>&1
+
+cbmc: cbmc.xml
+
+property: property.xml
+
+coverage: coverage.xml
+
+report: cbmc.xml property.xml coverage.xml
+	$(VIEWER) \
+	--goto build/$(ENTRY).goto \
+	--srcdir $(ROOT) \
+	--reportdir build/report \
+	--result build/reports/cbmc.xml \
+	--property build/reports/property.xml \
+	--coverage build/reports/coverage.xml
+
+# Preform pre-process on harness:
+process: $(ENTRY)_harness.c $(H_GENERATE_HEADER)
+	mkdir -p build/gotos
+	mkdir -p build/reports
+	cbmc --preprocess $(INC) $(C_DEF) $(C_INC) $(ENTRY)_harness.c > build/process.txt
+
+# This rule depends only on cbmc.xml and has no dependents, so it will
+# not block the report from being generated if it fails. This rule is
+# intended to fail if and only if the CBMC safety check that emits
+# cbmc.xml yielded a proof failure.
+check-cbmc-result: cbmc.xml
+	grep '<cprover-status>SUCCESS</cprover-status>' $^
+
+# ____________________________________________________________________
+# Rules
+#
+# Rules for cleaning up
+
+clean:
+	$(RM) -r build/
+
+veryclean: clean
+	$(RM) -r report
+
+# Clean alias
+c: clean
+
+vc: veryclean
+
+ifneq ($(strip $(EXTERNAL_SAT_SOLVER)),)
+   SOLVER = --external-sat-solver $(EXTERNAL_SAT_SOLVER)
+endif
