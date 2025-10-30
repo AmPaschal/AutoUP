@@ -44,6 +44,6 @@ python src/run.py debugger \
 python src/run.py debugger \
 --root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
 --target_function_name=gnrc_sixlowpan_iphc_recv \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/gnrc_sixlowpan_iphc_recv \
---target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/gnrc_sixlowpan_iphc_recv/gnrc_sixlowpan_iphc_recv_harness.c \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_3/gnrc_sixlowpan_iphc_recv \
+--target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_3/gnrc_sixlowpan_iphc_recv/gnrc_sixlowpan_iphc_recv_harness.c \
 --log_file=logs/output.log
