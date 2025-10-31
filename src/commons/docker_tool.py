@@ -67,6 +67,7 @@ class ProjectContainer:
         self.container = self.client.containers.run(
             self.image,
             name=self.container_name,
+            user=f"{os.getuid()}:{os.getgid()}",
             stdin_open=True,
             tty=True,
             detach=True,

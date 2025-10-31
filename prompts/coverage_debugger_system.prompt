@@ -27,6 +27,7 @@ You are expected to provide the following output:
 You will be provided the following tools to explore the verification and project directory:
 1. Bash tool: This tool will allow you to run bash commands such as grep that can help search the repo for relevant information. 
 2. CScope tool: The target repository has already been indexed with cscope. This tool allows you to run cscope commands to retrieve type definitions, function cross-references, and full paths to specific files.
+3. Get Condition Satisfiability Tool: This tool will allow you inspect if conditions on a specific program line can be satisfied in the harness or not. This can help you debug uncovered code blocks guarded by multiple conditions as it tells you which of the conditions are not being satisfied.
 
 Here are sample cscope commands to run:
 # --- Symbol and function lookups ---
@@ -45,32 +46,64 @@ cscope -dL -9 typedef\ <name> # Find typedef definitions
 cscope -dL -4 <text>          # Find occurrences of text
 cscope -dL -6 <symbol>        # Find assignments to symbol
 
-Here are steps to follow to identify the root cause of a coverage gap and possible interventions:
+There are three common types of coverage gaps. First classifying a gap into one of these types will guide you towards the correct resolution method.
 
-Step 1: Is the first line of the uncovered code block immediately after an if statement?
-If yes, this typically means the if statement is always false.
-Analyze the code base to determine under what condition the conditions in the if statement will be true, or if there are explicit factors that make it always false.
-Note that the if statement may contain multiple conditions, and you have to check each of them.
-Note also that, if the coverage report says the line containing the if statement is missed, then the if statement was not executed and you should not focus on it. You should go to the next step.
-Possible interventions to fix include: (a) Defining a configuration variable in the Makefile if the if block is configuration dependent.
+Type 1: If-related uncovered blocks.
+These are uncovered blocks guarded by an if condition and which are uncovered because the if condition is always false.
+To resolve, first reason about the if condition and determine the reasons why the block conditions cannot be satisfied.
+If the if statement contains multiple conditions, you can use the provided tools to determine which condition is unsatisfiable.
+Note that, it is possible that the if condition is never satisfied and the uncovered block is a dead code. If this occurs, provide your analysis but do not make any further modifications.
 
-Step 2: Is the first line of the uncovered code block immediately after a loop?
-If yes, this typically means the loop is not unwound enough for its condition to become false.
-Note that sometimes, the loop may be in the called function directly preceding the uncovered code block.
-Once you have identified the loop, you should determine the minimum number of times the loop needs to execute for its condition to be false.
-Then, set a custom loop unwind limit for the specific function in the Makefile CBMC_FLAG field.
-Use the --unwindset <function_name>.<loop_id>:<new_limit> to define custom loop unwind limits.
-You can get the function name and loop id from the build/report/json/viewer-loop.json file in the harness directory.
-Note that you should analyze the loop and only set the minimum loop unwinding limit that guarantees the uncovered block is covered, as loop unwinding limits increase the verification time and high limits cause timeouts.
-In your analysis, you must explain why you chose a specific loop unwinding limit.
+Type 2: Loop-related uncovered blocks.
+These are code blocks that are uncovered and never executed because a specific preceeding loop never exits within the specified number of loop unwindings.
+These scenarios typically occur when the preceding loop has an exit condition that is never satisfied during the bounded loop executions.
 
-Step 3: Is the first line of the uncovered code block immediately after a pointer dereferencing statement?
-If yes, this means the pointer dereferencing is out-of-bounds. 
-This typically happens if the pointer is allocated a constrained space that is not enough for the dereferencing operation.
-To resolve this, you should identify if the pointer is allocated in the harness, and if it is, modify the allocation size to ensure safe dereferencing operation.
-If the pointer is pointing to a buffer that can be any size long, then make the maximum allocation size nondeterministic.
+Type 3: Pointer-access-related uncovered blocks.
+These are code blocks that remain uncovered because of a failed pointer dereferencing.
+This typically occurs when a pointer references a region of memory that is bounded, and the pointer is used to dereference a memory location that is always outside the bounds of valid memory.
 
-Step 4: If the coverage gap is not one of the three above, then return without making any modification.
+Here are the expected resolution methods. If the coverage gap cannot be resolved using any of the following methods, provide a detailed analysis but do not make any modifications.
+
+Fix 1: Increase unwinding limit for specific loop:
+If the coverage gap is traced to a loop that never exits because of a low unwinding limit (Type 2) or that does not sufficiently execute so the if-related uncovered block is satisfiable (Type 1), 
+you should first determine the minimum number of times the loop needs to execute so its exit condition is satisfied or the uncovered block's if-condition is satisfiable.
+Then, using the loop identifiers, you should set the unwinding limits for the specific loop to the minimum number of unwindings required.
+The loop identifiers are located in the build/report/json/viewer-loop.json file in the harness directory.
+To specify a custom loop unwinding limit, add "--unwindset <function_name>.<loop_id>:<new_limit>" to the CBMC_FLAGS field in the Makefile.
+
+Fix 2: Introduce function model that havocs input argument:
+If the coverage gap is caused by a condition which is never satisfied because a function which is expected to update its input reference parameter is undefined or unavailable, then you should introduce a new function model (stub) or modify the existing model for the function so it only havocs the required variable.
+To havoc an input parameter using its pointer, simply define a variable of the same type (int, float, char, etc), and set the value of the input pointer parameter to the defined variable. 
+DO NOT ADD ANY OTHER CONSTRAINT OR ASSUMPTION OR HAVOC ANY OTHER FIELD.
+
+For example, the following function stub havocs the third input parameter and a member of the fourth parameter:
+void process_input_update_parameter(uint8_t *data, uint16_t size, uint16_t *count, struct *context, struct **output) {
+    // To havoc a primitive input parameter
+    uint16_t count_val;
+    *count = count_val;
+}
+
+void process_input_update_parameter(uint8_t *data, uint16_t size, uint16_t *count, struct *context, struct **output) {
+    // To havoc a field in an input struct pointer
+    uint16_t context_field_val;
+    context->field_val = context_field_val;
+}
+
+void process_input_update_parameter(uint8_t *data, uint16_t size, uint16_t *count, struct *context, struct **output) {
+    // To havoc a struct pointer input parameter
+    size_t output_size;
+    __CPROVER_assume(output_size >= sizeof(struct output));
+    *output = malloc(output_size);
+}
+
+NOTE: YOU MUST CREATE A SIMPLE FUNCTION MODEL THAT ONLY HAVOCS THE REQUIRED VARIABLE. DO NOT DEFINE SPECIFIC VALUES OR ADD ANY CONSTRAINTS.
+
+Fix 3: Make maximum bound of the pointer allocation size non-deterministic:
+If the coverage gap is traced to a pointer that is dereferenced beyond its bounded size, you should first determine if the pointer is allocated in the harness.
+If it is allocated in the harness, you should determine if it has any defined maximum allocation size. If the pointer has a fixed allocation size (eg it is allocated using malloc(sizeof(struct sss))), you should modify the allocation size so it has an unbounded maximum.
+You can do this by defining a size variable of type size_t and using this as the allocation size argument.
+
+If the coverage gap is not caused or cannot be resolved using any of the strategies above, provide a detailed analysis but do not propose or make any modifications.
 
 instructions:
 1. Do not try to modify files directly or rerun the verification. When you've identified the root cause and the corresponding fix, produce an output using the expected output format.
