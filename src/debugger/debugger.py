@@ -122,8 +122,10 @@ class ProofDebugger(AIAgent, Generable):
             f.write(harness_content)
 
     def __is_error_solved(self, error) -> bool:
-        new_error = self.__pop_error()
-        return new_error is None or new_error.cluster != error.cluster
+        error_report = ErrorReport(
+            extract_errors_and_payload(self.target_func, self.target_file_path)
+        )
+        return error.error_id not in error_report.unresolved_errs
 
     def __compute_user_prompt(self, error: CBMCError):
         if self.__previous_response is None:
