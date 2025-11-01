@@ -213,6 +213,7 @@ def analyze_error_report(errors_div, report_dir, new_precon_lines=[]):
                                 line_num -= 1
 
                     for error_line in error_block.find('ul').find_all('li', recursive=False):
+                        error_id = re.match(r'\s*\[<a href="./traces/(.+).html">trace</a>\]\s*', error_line.decode_contents()).group(1).strip()
                         error_msg = re.match(r'\s*\[trace\]\s*((?:[^\s]+\s?)+)\s*',error_line.text).group(1).strip()
                         trace_link = error_line.find("a", text='trace')
                         trace_href = os.path.join(report_dir, trace_link['href'] if trace_link else None)                    
@@ -222,18 +223,19 @@ def analyze_error_report(errors_div, report_dir, new_precon_lines=[]):
                             continue
                         
                         
-                        error_hash = sha256(f"{line_num}{func_name}{error_msg}".encode()).hexdigest(), # Create a unique ID for the error by taking a hash of the complete error info
+                        # error_hash = sha256(f"{line_num}{func_name}{error_msg}".encode()).hexdigest(), # Create a unique ID for the error by taking a hash of the complete error info
                         error_obj = {
                             "function": func_name,
                             "line": line_num,
                             "msg": error_msg,
+                            "id": error_id,
                             'trace': trace_href,
                             'file': func_file_path,
                             "is_built_in": is_built_in
                         }
 
                         cluster = get_error_cluster(error_obj['msg'])
-                        error_clusters[cluster][error_hash[0]] = error_obj
+                        error_clusters[cluster][error_id] = error_obj
                 error_report = error_report.find_next_sibling('li')
     return error_clusters, undefined_funcs
 

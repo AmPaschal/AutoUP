@@ -1,9 +1,10 @@
 """ Running Tests"""
 
 # System
-import subprocess
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import subprocess
+from datetime import datetime
+import os
 
 # Utils
 import requests
@@ -15,14 +16,18 @@ WEBHOOK_URL = "https://hooks.slack.com/triggers/T03U1G2CM0S/9425023131218/511033
 MAX_PROCESSES = 8
 
 
-def run_sample(sample):
+def run_sample(sample, timestamp: str):
     """Run single test sample"""
     folder_path = os.path.join(PATH, sample)
+    target_file_path = os.path.join(folder_path, f"{sample}_harness.c")
+
     cmd = [
         "python", "src/run.py", "debugger",
         f"--root_dir={ROOT_DIR}",
         f"--target_function_name={sample}",
-        f"--harness_path={folder_path}"
+        f"--harness_path={folder_path}",
+        f"--target_file_path={target_file_path}",
+        f"--log_file=logs/{timestamp}/{sample}.log"
     ]
     with subprocess.Popen(
         cmd,
@@ -42,12 +47,19 @@ def run_sample(sample):
 
 def main():
     """Entry point"""
-    folders = [d for d in os.listdir(PATH) if os.path.isdir(os.path.join(PATH, d))]
-    # folders = [
-    #     "_gcoap_forward_proxy_copy_options",
-    # ]
+    folders = [
+        d for d in os.listdir(PATH)
+        if os.path.isdir(os.path.join(PATH, d))
+    ]
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     with ThreadPoolExecutor(max_workers=MAX_PROCESSES) as executor:
-        futures = {executor.submit(run_sample, sample): sample for sample in folders}
+        futures = {
+            executor.submit(
+                run_sample,
+                sample,
+                timestamp,
+            ): sample for sample in folders
+        }
         for future in as_completed(futures):
             result = future.result()
             print(result)
