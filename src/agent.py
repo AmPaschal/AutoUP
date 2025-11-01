@@ -1,10 +1,8 @@
 import json
-import subprocess
-from openai import OpenAI
-from abc import ABC, abstractmethod
-import random
+import os
 import time
-import traceback
+import subprocess
+from abc import ABC
 from typing import Any, Callable, Type
 
 import tiktoken
@@ -20,8 +18,9 @@ class AIAgent(ABC):
     Shared features for any OpenAI agent that interacts with a vector store
     """
 
-    def __init__(self, agent_name, project_container: ProjectContainer, metrics_file: str = ""):
+    def __init__(self, agent_name, project_container: ProjectContainer, harness_dir=None, metrics_file: str=""):
         self.agent_name = agent_name
+        self.harness_dir = harness_dir
         self.project_container: ProjectContainer = project_container
         self._max_attempts = 5
         self.metrics_file = metrics_file
@@ -94,24 +93,84 @@ class AIAgent(ABC):
         except subprocess.CalledProcessError as e:
             print(f"Command failed with error:\n{e.stderr}")
             return None
+        
+    def handle_condition_retrieval_tool(self, function_name, line_number):
 
-    def handle_tool_calls(self, function_name, function_args):
+        tool_response = {
+            "success": False,
+            "source_location": {
+                "function": function_name,
+                "line": line_number
+            },
+            "error": "",
+            "results": ""
+        }
+
+        assert self.harness_dir is not None, "harness_dir must be set to use coverage debugger tools."
+
+        # First, check if the coverage-mcdc.json file exists
+        coverage_file_path = os.path.join(self.harness_dir, "build", "reports", "coverage-mcdc.json")
+        if not os.path.exists(coverage_file_path):
+            error_message = f"MC/DC Coverage file not found: {coverage_file_path}"
+            tool_response["error"] = error_message
+            logger.error(error_message)
+
+            return tool_response
+
+        with open(coverage_file_path, "r") as f:
+            coverage_data = json.load(f)
+
+        goals = []
+
+        for item in coverage_data:
+            if "goals" in item:
+                goals = item["goals"]
+                break
+
+        if not goals:
+            error_message = f"No condition coverage result found in MC/DC coverage data {coverage_file_path}."
+            logger.error(error_message)
+            tool_response["error"] = error_message
+            return tool_response
+        
+        function_line_goals = [
+            goal for goal in goals
+            if goal.get("description", "").startswith("condition") and 
+                goal.get("sourceLocation", {}).get("function") == function_name and 
+                goal.get("sourceLocation", {}).get("line") == str(line_number)
+        ]
+
+        if not function_line_goals:
+            error_message = f"No condition coverage goals found for line {line_number} in function '{function_name}'."
+            logger.error(error_message)
+            tool_response["error"] = error_message
+            return tool_response
+
+        tool_response["success"] = True
+        tool_response["results"] = function_line_goals
+        return tool_response
+
+    def handle_tool_calls(self, tool_name, function_args):
         logging_text = f"""
         Function call: 
-        Name: {function_name} 
+        Name: {tool_name} 
         Args: {function_args}
         """
         logger.info(logging_text)
         # Parse function_args string to dict
         function_args = json.loads(function_args)
-        if function_name == "run_bash_command":
+        if tool_name == "run_bash_command":
             cmd = function_args.get("cmd", "")
             tool_response = self.run_bash_command(cmd)
-        elif function_name == "run_cscope_command":
+        elif tool_name == "run_cscope_command":
             command = function_args.get("command", "")
             tool_response = self.run_bash_command(command)
+        elif tool_name == "get_condition_satisfiability":
+            function_name = function_args.get("function_name", "")
+            line_number = function_args.get("line_number", -1)
+            tool_response = self.handle_condition_retrieval_tool(function_name, line_number)
         else:
-            raise ValueError(f"Unknown function call: {function_name}")
+            raise ValueError(f"Unknown function call: {tool_name}")
         
         logger.info(f"Function call response: {tool_response}")
         return str(tool_response)
@@ -214,3 +273,34 @@ class AIAgent(ABC):
                 }
             }
         ]
+
+    def get_coverage_tools(self):
+        coverage_tools = [
+            {
+                "type": "function",
+                "name": "get_condition_satisfiability",
+                "description": "Retrieve the satisfiability of the conditions present at a specific line in a function.",
+                "strict": True,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "reason": {
+                            "type": "string",
+                            "description": "The reason for executing this tool"
+                        },
+                        "function_name": {
+                            "type": "string",
+                            "description": "The name of the function containing the condition"
+                        },
+                        "line_number": {
+                            "type": "integer",
+                            "description": "The line number containing the condition in the source code"
+                        }
+                    },
+                    "required": ["reason", "function_name", "line_number"],
+                    "additionalProperties": False
+                }
+            }
+        ]
+
+        return [*self.get_tools(), *coverage_tools]

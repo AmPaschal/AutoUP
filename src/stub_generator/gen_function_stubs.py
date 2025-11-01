@@ -268,6 +268,8 @@ class StubGenerator(AIAgent, Generable):
 
     def generate(self) -> bool:
 
+        self.execute_command("make compile -j4", workdir=self.harness_dir, timeout=600)
+
         # 1. Get functions to stub
         goto_file = os.path.join(self.harness_dir, "build", f"{self.target_func}.goto")
         if not os.path.exists(goto_file):

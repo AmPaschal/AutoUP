@@ -20,7 +20,8 @@ class CoverageDebugger(AIAgent, Generable):
         super().__init__(
             "CoverageDebugger",
             project_container,
-            metrics_file
+            harness_dir=harness_dir,
+            metrics_file=metrics_file
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
         self.root_dir = root_dir
@@ -145,7 +146,7 @@ class CoverageDebugger(AIAgent, Generable):
 
 
     def run_make(self):
-        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=600)
+        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=900)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results
@@ -292,6 +293,12 @@ class CoverageDebugger(AIAgent, Generable):
 
         functions_to_skip = {}
 
+        make_results = self.run_make()
+
+        if make_results.get("status", Status.ERROR) != Status.SUCCESS:
+            logger.error("Make command failed to run.")
+            return False
+
         # Get and log initial coverage
         initial_coverage = self.get_overall_coverage()
         if initial_coverage:
@@ -331,7 +338,7 @@ class CoverageDebugger(AIAgent, Generable):
 
             llm_response, chat_data = self.llm.chat_llm(
                 system_prompt, user_prompt, CoverageDebuggerResponse,
-                llm_tools=self.get_tools(),
+                llm_tools=self.get_coverage_tools(),
                 call_function=self.handle_tool_calls,
                 conversation_history=conversation
             )
@@ -367,14 +374,14 @@ class CoverageDebugger(AIAgent, Generable):
             make_results = self.run_make()
 
             # CASE 3 — Make failed entirely
-            if make_results.get("status", Status.ERROR) != Status.SUCCESS:
+            if make_results.get("status", Status.ERROR) in [Status.ERROR, Status.TIMEOUT]:
                 self.log_task_attempt(task_id, attempts, chat_data, error="make_invocation_failed")
                 logger.error("Make command failed to run.")
                 self.reverse_proof_update()
                 break
 
             # CASE 4 — Build failed (exit code != 0)
-            if make_results.get("exit_code", -1) != 0:
+            if make_results.get("status", Status.ERROR) == Status.FAILURE:
                 self.log_task_attempt(task_id, attempts, chat_data, error="build_failed")
                 self.reverse_proof_update()
                 user_prompt = (

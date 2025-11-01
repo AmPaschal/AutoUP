@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import os
 from pydantic import BaseModel
+import pydantic_core
 import tiktoken
 import openai
 import random
@@ -134,7 +135,7 @@ class GPT(LLM):
                     tools=llm_tools,
                     temperature=1.0,
                 ),
-                [openai.RateLimitError]
+                [openai.RateLimitError, pydantic_core._pydantic_core.ValidationError]
             )
 
             # Update token usage

@@ -166,13 +166,16 @@ property.xml: $(ENTRY).goto
 coverage.xml: $(ENTRY).goto
 	cbmc $(CBMCFLAGS) --cover location --xml-ui build/$^ > build/reports/$@ 2>&1
 
+coverage-mcdc.json: $(ENTRY).goto
+	cbmc $(CBMCFLAGS) --cover mcdc --json-ui build/$^ > build/reports/$@ 2>&1
+
 cbmc: cbmc.xml
 
 property: property.xml
 
 coverage: coverage.xml
 
-report: cbmc.xml property.xml coverage.xml
+report: cbmc.xml property.xml coverage.xml coverage-mcdc.json
 	$(VIEWER) \
 	--goto build/$(ENTRY).goto \
 	--srcdir $(ROOT) \
