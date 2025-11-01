@@ -7,6 +7,7 @@ import random
 import time
 import traceback
 from typing import Any, Callable, Optional, Type
+from openai.types.responses.parsed_response import ParsedResponse
 
 from logger import setup_logger
 
@@ -111,9 +112,18 @@ class GPT(LLM):
 
         input_list = list(conversation_history) 
 
+        function_calls_count = 0
+        token_usage = {
+            "input_tokens": 0,
+            "cached_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "total_tokens": 0
+        }
+
         while True:
             # Call the model
-            client_response = self.with_retry_on_error(
+            client_response: ParsedResponse = self.with_retry_on_error(
                 lambda: self.client.responses.parse(
                     model="gpt-5",
                     instructions=system_messages,
@@ -126,6 +136,14 @@ class GPT(LLM):
                 ),
                 [openai.RateLimitError]
             )
+
+            # Update token usage
+            if client_response.usage:
+                token_usage["input_tokens"] += client_response.usage.input_tokens
+                token_usage["cached_tokens"] += client_response.usage.input_tokens_details.cached_tokens
+                token_usage["output_tokens"] += client_response.usage.output_tokens
+                token_usage["reasoning_tokens"] += client_response.usage.output_tokens_details.reasoning_tokens
+                token_usage["total_tokens"] += client_response.usage.total_tokens
 
             # Add model outputs to conversation state
             # This is a workaround for the issue https://github.com/openai/openai-python/issues/2374
@@ -149,6 +167,7 @@ class GPT(LLM):
                 if call_function is None:
                     raise ValueError("call_function must be provided when tools are used.")
                 function_result = call_function(item.name, item.arguments)
+                function_calls_count += 1
                 input_list.append({
                     "type": "function_call_output",
                     "call_id": item.call_id,
@@ -159,7 +178,10 @@ class GPT(LLM):
 
         conversation_history.append({'role': 'assistant', 'content': str(parsed_output)})
 
-        return parsed_output, conversation_history
+        return parsed_output, {
+            "function_call_count": function_calls_count,
+            "token_usage": token_usage
+        }
 
 
 class Generable(ABC):
