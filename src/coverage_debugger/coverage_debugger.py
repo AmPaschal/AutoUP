@@ -241,6 +241,17 @@ class CoverageDebugger(AIAgent, Generable):
             shutil.move(makefile_backup, makefile_path)
             logger.info(f"Makefile reverted to original from {makefile_backup}")
 
+    def remove_proof_backups(self):
+        harness_backup = os.path.join(self.harness_dir, f"{self.target_func}_harness.c.bak")
+        if os.path.exists(harness_backup):
+            os.remove(harness_backup)
+            logger.info(f"Removed harness backup at {harness_backup}")
+
+        makefile_backup = os.path.join(self.harness_dir, "Makefile.bak")
+        if os.path.exists(makefile_backup):
+            os.remove(makefile_backup)
+            logger.info(f"Removed Makefile backup at {makefile_backup}")
+
     def get_uncovered_code_block(self, coverage_data: dict[str, str], skipped_blocks: set[str]):
         current_start_line = None
         last_status = None
@@ -304,6 +315,8 @@ class CoverageDebugger(AIAgent, Generable):
         if initial_coverage:
             logging.info(f"[INFO] Initial Overall Coverage: {json.dumps(initial_coverage, indent=2)}")
 
+        current_coverage = initial_coverage
+
         # First, get the next uncovered function from the coverage report
         next_function, coverage_data, target_block_line = self._get_next_uncovered_function(functions_to_skip)
         if not next_function or not coverage_data:
@@ -329,6 +342,7 @@ class CoverageDebugger(AIAgent, Generable):
                 if not next_function:
                     logger.info("[INFO] No more uncovered functions found.")
                     break
+                get_next_block = False
                 attempts = 0
                 conversation = []
                 system_prompt, user_prompt = self.prepare_prompt(next_function, coverage_data, target_block_line)
@@ -408,9 +422,29 @@ class CoverageDebugger(AIAgent, Generable):
 
             # ✅ CASE — Success: block covered!
             if coverage_status.get(target_block_line) != "missed":
+                # First, we validate the fix by checking that the overall coverage also increased
+                new_coverage = self.get_overall_coverage()
+                if new_coverage.get("hit", 0.0) <= current_coverage.get("hit", 0.0):
+                    self.log_task_attempt(task_id, attempts, chat_data, error="overall_coverage_decreased")
+                    logger.info(
+                        "[INFO] Target block covered but overall coverage decreased."
+                    )
+                    self.reverse_proof_update()
+                    user_prompt = (
+                        "The proposed modification covered the target block but decreased the overall coverage.\n"
+                        "Your changes have been reverted." 
+                        "Investigate and determine why the change led to decreased coverage.\n"
+                        "If it cannot be avoided, do not propose any modification."
+                    )
+                    continue
+
+                # Else, the fix is valid and should be accepted
                 self.log_task_attempt(task_id, attempts, chat_data, error=None)  # success — no error
                 logging.info(f"[INFO] Target block on line {target_block_line} successfully covered.")
                 get_next_block = True
+                functions_to_skip.setdefault(next_function['function'], set()).add(target_block_line)
+                current_coverage = new_coverage
+                self.remove_proof_backups()
                 self.log_task_result(task_id, True, attempts)
                 continue
 
@@ -419,6 +453,7 @@ class CoverageDebugger(AIAgent, Generable):
                 self.log_task_attempt(task_id, attempts, chat_data, error="max_attempts_reached")
                 logging.error(f"[INFO] Maximum attempts reached for '{next_function['function']}'.")
                 get_next_block = True
+                functions_to_skip.setdefault(next_function['function'], set()).add(target_block_line)
                 self.log_task_result(task_id, False, attempts)
                 continue
 

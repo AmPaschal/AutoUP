@@ -279,7 +279,7 @@ class AIAgent(ABC):
             {
                 "type": "function",
                 "name": "get_condition_satisfiability",
-                "description": "Retrieve the satisfiability of the conditions present at a specific line in a function.",
+                "description": "Retrieve the status and satisfiability of conditions present in a specific IF statement.",
                 "strict": True,
                 "parameters": {
                     "type": "object",
