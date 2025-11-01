@@ -330,6 +330,7 @@ class CoverageDebugger(AIAgent, Generable):
                     logger.info("[INFO] No more uncovered functions found.")
                     break
                 attempts = 0
+                conversation = []
                 system_prompt, default_user_prompt = self.prepare_prompt(next_function, coverage_data, target_block_line)
                 user_prompt = default_user_prompt
 
@@ -338,7 +339,7 @@ class CoverageDebugger(AIAgent, Generable):
             logger.info(f'LLM Prompt:\n{user_prompt}')
 
             # Call LLM to fix coverage gap
-            llm_response, _ = self.llm.chat_llm(system_prompt, user_prompt, CoverageDebuggerResponse, llm_tools=self.get_coverage_tools(), call_function=self.handle_tool_calls)
+            llm_response, _ = self.llm.chat_llm(system_prompt, user_prompt, CoverageDebuggerResponse, llm_tools=self.get_coverage_tools(), call_function=self.handle_tool_calls, conversation_history=conversation)
 
             if not llm_response:
                 user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n"
