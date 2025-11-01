@@ -18,7 +18,8 @@ class CoverageDebugger(AIAgent, Generable):
     def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
         super().__init__(
             "CoverageDebugger",
-            project_container
+            project_container,
+            harness_dir=harness_dir
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
         self.root_dir = root_dir
@@ -143,7 +144,7 @@ class CoverageDebugger(AIAgent, Generable):
 
 
     def run_make(self):
-        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=600)
+        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=900)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results
@@ -290,6 +291,12 @@ class CoverageDebugger(AIAgent, Generable):
 
         functions_to_skip = {}
 
+        make_results = self.run_make()
+
+        if make_results.get("status", Status.ERROR) != Status.SUCCESS:
+            logger.error("Make command failed to run.")
+            return False
+
         # Get and log initial coverage
         initial_coverage = self.get_overall_coverage()
         if initial_coverage:
@@ -310,8 +317,6 @@ class CoverageDebugger(AIAgent, Generable):
 
         attempts = 0    
 
-        skip_count = 0
-
         get_next_block = False
 
         conversation = []
@@ -325,6 +330,7 @@ class CoverageDebugger(AIAgent, Generable):
                     logger.info("[INFO] No more uncovered functions found.")
                     break
                 attempts = 0
+                conversation = []
                 system_prompt, default_user_prompt = self.prepare_prompt(next_function, coverage_data, target_block_line)
                 user_prompt = default_user_prompt
 
@@ -333,7 +339,7 @@ class CoverageDebugger(AIAgent, Generable):
             logger.info(f'LLM Prompt:\n{user_prompt}')
 
             # Call LLM to fix coverage gap
-            llm_response, _ = self.llm.chat_llm(system_prompt, user_prompt, CoverageDebuggerResponse, llm_tools=self.get_tools(), call_function=self.handle_tool_calls, conversation_history=conversation)
+            llm_response, _ = self.llm.chat_llm(system_prompt, user_prompt, CoverageDebuggerResponse, llm_tools=self.get_coverage_tools(), call_function=self.handle_tool_calls, conversation_history=conversation)
 
             if not llm_response:
                 user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n"
@@ -354,12 +360,12 @@ class CoverageDebugger(AIAgent, Generable):
             make_results = self.run_make()
 
             # Reprompt in cases where make returns error
-            if make_results.get("status", Status.ERROR) != Status.SUCCESS:
+            if make_results.get("status", Status.ERROR) in [Status.ERROR, Status.TIMEOUT]:
                 logger.error("Make command failed to run.")
                 self.reverse_proof_update()
                 break
 
-            if make_results.get("exit_code", -1) != 0:
+            if make_results.get("status", Status.ERROR) == Status.FAILURE:
                 self.reverse_proof_update()
                 user_prompt = "The provided proof harness or Makefile failed to build successfully.\n"
                 user_prompt += "Here are the results from the last make command:\n"
@@ -409,4 +415,6 @@ class CoverageDebugger(AIAgent, Generable):
                 final_coverage.get("percentage", 0.0) * 100
             )
         )
+
+        return True
 
