@@ -1,5 +1,6 @@
 
 
+from enum import Enum
 import logging
 import shutil
 import subprocess
@@ -12,6 +13,11 @@ from commons.utils import Status
 
 logger = logging.getLogger(__name__)
 
+class AgentAction(Enum):
+    RETRY_BLOCK = 0      # ask LLM again
+    SKIP_BLOCK = 1       # do not modify this block
+    NEXT_BLOCK = 2      # success → move to next uncovered block
+    TERMINATE = 3        # fatal error
 
 class CoverageDebugger(AIAgent, Generable):
 
@@ -300,6 +306,96 @@ class CoverageDebugger(AIAgent, Generable):
 
         return percentage_increase
 
+    def validate_llm_response(self, llm_response: CoverageDebuggerResponse|None, function_entry: dict, target_block_line: str, attempts: int, current_coverage: dict):
+
+        # CASE 1 — LLM returned no valid response
+        if not llm_response:
+            user_prompt = (
+                "The LLM did not return a valid response. "
+                "Please provide a response using the expected format.\n"
+            )
+            return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "no_llm_response")
+
+        logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
+
+        # CASE 2 — LLM proposed no modifications
+        if not llm_response.proposed_modifications and not llm_response.updated_harness and not llm_response.updated_makefile:
+            logging.info(
+                f"No proposed modifications provided by LLM. Marking as skipped."
+            )
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "no_modifications")
+
+        # Attempt to apply fix
+        self.update_proof(llm_response.updated_harness, llm_response.updated_makefile)
+
+        make_results = self.run_make()
+
+        # CASE 3 — Make failed entirely
+        if make_results.get("status", Status.ERROR) in [Status.ERROR, Status.TIMEOUT]:
+            logger.error("Make command failed to run.")
+            return (AgentAction.TERMINATE, None, current_coverage, "make_invocation_failed")
+
+        # CASE 4 — Build failed (exit code != 0)
+        if make_results.get("status", Status.ERROR) == Status.FAILURE:
+            logger.error("[ERROR] Build failed after applying LLM proposed modifications.")
+            user_prompt = (
+                "The provided proof harness or Makefile failed to build successfully.\n"
+                f"Exit Code: {make_results.get('exit_code', -1)}\n"
+                f"Stdout:\n{make_results.get('stdout', '')}\n"
+                f"Stderr:\n{make_results.get('stderr', '')}\n"
+                "Please provide updated harness code or Makefile to fix the issue.\n"
+            )
+            return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "build_failed")
+
+        coverage_status = self._get_function_coverage_status(function_entry["file"], function_entry["function"])
+
+        # CASE 5 — Target function unreachable now
+        if not coverage_status:
+            logger.error("[ERROR] Function coverage status not found.")
+            user_prompt = (
+                "The target function is no longer reached by the updated harness and was reverted.\n"
+                "Please fix so target function is reached.\n"
+            )
+            return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "function_unreachable")
+
+        # ✅ CASE — Success: block covered!
+        if coverage_status.get(target_block_line) != "missed":
+            # First, we validate the fix by checking that the overall coverage also increased
+            new_coverage = self.get_overall_coverage()
+            if new_coverage.get("hit", 0.0) <= current_coverage.get("hit", 0.0):
+                logger.info(
+                    "[INFO] Target block covered but overall coverage decreased."
+                )
+                user_prompt = (
+                    "The proposed modification covered the target block but decreased the overall coverage.\n"
+                    "Your changes have been reverted." 
+                    "Investigate and determine why the change led to decreased coverage.\n"
+                    "If it cannot be avoided, do not propose any modification."
+                )
+                return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "overall_coverage_decreased")
+
+            # Else, the fix is valid and should be accepted
+            logging.info(f"[INFO] Target block on line {target_block_line} successfully covered.")
+            return (AgentAction.NEXT_BLOCK, None, new_coverage, None)
+
+        # CASE 6 — Max attempts exhausted
+        if attempts >= self._max_attempts:
+            logging.error(f"[INFO] Maximum attempts reached for '{function_entry['function']}'.")
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "max_attempts_reached")
+
+        # CASE 7 — Coverage did not improve
+        logger.info(
+            f"[INFO] The target block on line {target_block_line} is still not covered. "
+            "Reverting changes."
+        )
+        user_prompt = (
+            f"The target block on line {target_block_line} is still not covered.\n"
+            "Here is the current coverage status of the function:\n"
+            f"{json.dumps(coverage_status, indent=2)}\n"
+            "Your proposed changes have been reverted. Please update harness or Makefile to cover the target block line.\n"
+        )
+        return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "block_not_covered")
+
     def generate(self) -> bool:
 
         functions_to_skip = {}
@@ -319,7 +415,7 @@ class CoverageDebugger(AIAgent, Generable):
 
         # First, get the next uncovered function from the coverage report
         next_function, coverage_data, target_block_line = self._get_next_uncovered_function(functions_to_skip)
-        if not next_function or not coverage_data:
+        if not next_function or not coverage_data or not target_block_line:
             logger.info("[INFO] No uncovered functions found.")
             #return 0  # All functions are covered
             return True
@@ -335,11 +431,11 @@ class CoverageDebugger(AIAgent, Generable):
         conversation = []
 
         # Start the debugging loop
-        while next_function:
+        while user_prompt:
 
             if get_next_block:
                 next_function, coverage_data, target_block_line = self._get_next_uncovered_function(functions_to_skip)
-                if not next_function:
+                if not next_function or not coverage_data or not target_block_line:
                     logger.info("[INFO] No more uncovered functions found.")
                     break
                 get_next_block = False
@@ -359,118 +455,26 @@ class CoverageDebugger(AIAgent, Generable):
 
             task_id = f"cov-{next_function['function']}-{target_block_line}"
 
-            # CASE 1 — LLM returned no valid response
-            if not llm_response:
-                self.log_task_attempt(task_id, attempts, chat_data, error="no_llm_response")
-                user_prompt = (
-                    "The LLM did not return a valid response. "
-                    "Please provide a response using the expected format.\n"
-                )
+            llm_result, user_prompt, current_coverage, error_tag = self.validate_llm_response(llm_response, next_function, target_block_line, attempts, current_coverage)
+            self.log_task_attempt(task_id, attempts, chat_data, error=error_tag)
+
+            if llm_result == AgentAction.RETRY_BLOCK:
+                self.reverse_proof_update()
                 continue
-
-            logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
-
-            # CASE 2 — LLM proposed no modifications
-            if not llm_response.proposed_modifications and not llm_response.updated_harness and not llm_response.updated_makefile:
-                self.log_task_attempt(task_id, attempts, chat_data, error="no_modifications")
-                logging.info(
-                    f"No proposed modifications for block {target_block_line} "
-                    f"in function '{next_function['function']}'. Marking as skipped."
-                )
+            elif llm_result == AgentAction.SKIP_BLOCK:
+                self.reverse_proof_update()
                 functions_to_skip.setdefault(next_function['function'], set()).add(target_block_line)
                 self.log_task_result(task_id, False, attempts)
                 get_next_block = True
                 continue
-
-            # Attempt to apply fix
-            self.update_proof(llm_response.updated_harness, llm_response.updated_makefile)
-
-            make_results = self.run_make()
-
-            # CASE 3 — Make failed entirely
-            if make_results.get("status", Status.ERROR) in [Status.ERROR, Status.TIMEOUT]:
-                self.log_task_attempt(task_id, attempts, chat_data, error="make_invocation_failed")
-                logger.error("Make command failed to run.")
+            elif llm_result == AgentAction.NEXT_BLOCK:
+                self.remove_proof_backups()
+                get_next_block = True
+                functions_to_skip.setdefault(next_function['function'], set()).add(target_block_line)
+                self.log_task_result(task_id, True, attempts)
+            elif llm_result == AgentAction.TERMINATE:
                 self.reverse_proof_update()
                 break
-
-            # CASE 4 — Build failed (exit code != 0)
-            if make_results.get("status", Status.ERROR) == Status.FAILURE:
-                self.log_task_attempt(task_id, attempts, chat_data, error="build_failed")
-                self.reverse_proof_update()
-                user_prompt = (
-                    "The provided proof harness or Makefile failed to build successfully.\n"
-                    f"Exit Code: {make_results.get('exit_code', -1)}\n"
-                    f"Stdout:\n{make_results.get('stdout', '')}\n"
-                    f"Stderr:\n{make_results.get('stderr', '')}\n"
-                    "Please provide updated harness code or Makefile to fix the issue.\n"
-                )
-                continue
-
-            coverage_status = self._get_function_coverage_status(next_function["file"], next_function["function"])
-
-            # CASE 5 — Target function unreachable now
-            if not coverage_status:
-                self.log_task_attempt(task_id, attempts, chat_data, error="function_unreachable")
-                logger.error("[ERROR] Function coverage status not found.")
-                self.reverse_proof_update()
-                user_prompt = (
-                    "The target function is no longer reached by the updated harness and was reverted.\n"
-                    "Please fix so target function is reached.\n"
-                )
-                continue
-
-            # ✅ CASE — Success: block covered!
-            if coverage_status.get(target_block_line) != "missed":
-                # First, we validate the fix by checking that the overall coverage also increased
-                new_coverage = self.get_overall_coverage()
-                if new_coverage.get("hit", 0.0) <= current_coverage.get("hit", 0.0):
-                    self.log_task_attempt(task_id, attempts, chat_data, error="overall_coverage_decreased")
-                    logger.info(
-                        "[INFO] Target block covered but overall coverage decreased."
-                    )
-                    self.reverse_proof_update()
-                    user_prompt = (
-                        "The proposed modification covered the target block but decreased the overall coverage.\n"
-                        "Your changes have been reverted." 
-                        "Investigate and determine why the change led to decreased coverage.\n"
-                        "If it cannot be avoided, do not propose any modification."
-                    )
-                    continue
-
-                # Else, the fix is valid and should be accepted
-                self.log_task_attempt(task_id, attempts, chat_data, error=None)  # success — no error
-                logging.info(f"[INFO] Target block on line {target_block_line} successfully covered.")
-                get_next_block = True
-                functions_to_skip.setdefault(next_function['function'], set()).add(target_block_line)
-                current_coverage = new_coverage
-                self.remove_proof_backups()
-                self.log_task_result(task_id, True, attempts)
-                continue
-
-            # CASE 6 — Max attempts exhausted
-            if attempts >= self._max_attempts:
-                self.log_task_attempt(task_id, attempts, chat_data, error="max_attempts_reached")
-                logging.error(f"[INFO] Maximum attempts reached for '{next_function['function']}'.")
-                get_next_block = True
-                functions_to_skip.setdefault(next_function['function'], set()).add(target_block_line)
-                self.log_task_result(task_id, False, attempts)
-                continue
-
-            # CASE 7 — Coverage did not improve
-            self.log_task_attempt(task_id, attempts, chat_data, error="coverage_not_improved")
-            logger.info(
-                f"[INFO] The target block on line {target_block_line} is still not covered. "
-                "Reverting changes."
-            )
-            self.reverse_proof_update()
-            user_prompt = (
-                f"The target block on line {target_block_line} is still not covered.\n"
-                "Here is the current coverage status of the function:\n"
-                f"{json.dumps(coverage_status, indent=2)}\n"
-                "Your proposed changes have been reverted. Please update harness or Makefile to cover the target block line.\n"
-            )
-            continue
 
         # Final coverage report
         final_coverage = self.get_overall_coverage()
