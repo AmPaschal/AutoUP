@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import subprocess
 from abc import ABC
 from typing import Any, Callable, Type
@@ -17,11 +18,12 @@ class AIAgent(ABC):
     Shared features for any OpenAI agent that interacts with a vector store
     """
 
-    def __init__(self, agent_name, project_container, harness_dir=None):
+    def __init__(self, agent_name, project_container: ProjectContainer, harness_dir=None, metrics_file: str=""):
         self.agent_name = agent_name
         self.harness_dir = harness_dir
         self.project_container: ProjectContainer = project_container
         self._max_attempts = 5
+        self.metrics_file = metrics_file
 
     def truncate_result_custom(self, result: dict, cmd: str, max_input_tokens: int, model: str) -> dict:
         """
@@ -173,6 +175,40 @@ class AIAgent(ABC):
         logger.info(f"Function call response: {tool_response}")
         return str(tool_response)
 
+    def log_task_attempt(self, task_id, attempt_number, llm_data, error):
+        if not self.metrics_file:
+            return
+        
+        log_entry = {
+            "type": "task_attempt",
+            "agent_name": self.agent_name,
+            "task_id": task_id,
+            "attempt_number": attempt_number,
+            "llm_data": llm_data,
+            "error": error,
+            "timestamp": time.time()
+        }
+
+        with open(self.metrics_file, 'a') as f:
+            f.write(json.dumps(log_entry) + "\n")
+
+    def log_task_result(self, task_id, success: bool, total_attempts: int):
+        if not self.metrics_file:
+            return
+        
+        log_entry = {
+            "type": "task_result",
+            "agent_name": self.agent_name,
+            "task_id": task_id,
+            "success": success,
+            "total_attempts": total_attempts,
+            "timestamp": time.time()
+        }
+
+        with open(self.metrics_file, 'a') as f:
+            f.write(json.dumps(log_entry) + "\n")
+
+
     def execute_command(self, cmd: str, workdir: str, timeout: int) -> dict:
         try:
             result = self.project_container.execute(cmd, workdir=workdir, timeout=timeout)
@@ -243,7 +279,7 @@ class AIAgent(ABC):
             {
                 "type": "function",
                 "name": "get_condition_satisfiability",
-                "description": "Retrieve the satisfiability of the conditions present at a specific line in a function.",
+                "description": "Retrieve the status and satisfiability of conditions present in a specific IF statement.",
                 "strict": True,
                 "parameters": {
                     "type": "object",

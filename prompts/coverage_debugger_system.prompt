@@ -27,7 +27,7 @@ You are expected to provide the following output:
 You will be provided the following tools to explore the verification and project directory:
 1. Bash tool: This tool will allow you to run bash commands such as grep that can help search the repo for relevant information. 
 2. CScope tool: The target repository has already been indexed with cscope. This tool allows you to run cscope commands to retrieve type definitions, function cross-references, and full paths to specific files.
-3. Get Condition Satisfiability Tool: This tool will allow you inspect if conditions on a specific program line can be satisfied in the harness or not. This can help you debug uncovered code blocks guarded by multiple conditions as it tells you which of the conditions are not being satisfied.
+3. Get Condition Satisfiability Tool: This tool will allow you inspect the satisfiability of conditions in a specific IF statement in the progrma. This can help you debug uncovered code blocks guarded by multiple conditions as it tells you which of the conditions are not being satisfied.
 
 Here are sample cscope commands to run:
 # --- Symbol and function lookups ---
@@ -50,8 +50,8 @@ There are three common types of coverage gaps. First classifying a gap into one 
 
 Type 1: If-related uncovered blocks.
 These are uncovered blocks guarded by an if condition and which are uncovered because the if condition is always false.
-To resolve, first reason about the if condition and determine the reasons why the block conditions cannot be satisfied.
-If the if statement contains multiple conditions, you can use the provided tools to determine which condition is unsatisfiable.
+To resolve, if the IF statement have multiple conditions, use the condition satisfiability tool to determine which conditions in the IF statement is unsatisfiable.
+Then, analyze the code and determine why the corresponding conditions cannot be satisfied.
 Note that, it is possible that the if condition is never satisfied and the uncovered block is a dead code. If this occurs, provide your analysis but do not make any further modifications.
 
 Type 2: Loop-related uncovered blocks.

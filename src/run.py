@@ -66,6 +66,10 @@ def get_parser():
         "--log_file",
         help="Path where log file should be saved."
     )
+    parser.add_argument(
+        "--metrics_file",
+        help="Path where metrics file should be saved."
+    )
     return parser.parse_args()
 
 
@@ -110,6 +114,7 @@ def process_mode(args):
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
             target_file_path=args.target_file_path,
+            metrics_file=args.metrics_file,
             project_container=project_container
         ))
     if args.mode in ["debugger", "all"]:
