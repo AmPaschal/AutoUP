@@ -77,7 +77,7 @@ class ErrorReport:
             'misc'
         ]
     
-    def __init__(self, errors, json_errors):
+    def __init__(self, errors, json_errors: tuple[set[str], set[str]]):
 
         # This is the clustered set of errors we will actually be updating
         self.errors_by_cluster = { cluster: set([key for key in errs.keys()]) for cluster, errs in errors.items() }
@@ -90,7 +90,8 @@ class ErrorReport:
         self.resolved_errs = set()
         self.failed_errs = set()
         
-        self.json_true_errors = json_errors
+        self.json_false_errors = json_errors[0]
+        self.json_true_errors = json_errors[1]
 
     def __len__(self):
         return len(self.error_ids)

@@ -3,7 +3,6 @@
 # System
 from typing import Optional
 import logging
-import os
 
 
 def init_logging(log_file: Optional[str]):

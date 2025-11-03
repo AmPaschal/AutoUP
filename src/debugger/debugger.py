@@ -28,10 +28,11 @@ logger = setup_logger(__name__)
 class ProofDebugger(AIAgent, Generable):
     """Agentic Proof Debugger"""
 
-    def __init__(self, harness_path, root_dir, target_function_name, target_file_path, project_container):
+    def __init__(self, harness_path, root_dir, target_function_name, target_file_path, project_container, metrics_file):
         super().__init__(
             agent_name="debugger",
             project_container=project_container,
+            metrics_file=metrics_file
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
         self.harness_path = harness_path
@@ -66,46 +67,38 @@ class ProofDebugger(AIAgent, Generable):
             logger.info("Target Error: %s", error)
             result = self.generate_single_fix(error)
             if not result:
-                self.generate_report()
                 return False
             error = self.__pop_error()
-        self.generate_report()
         return True
 
     def generate_single_fix(self, error: CBMCError) -> bool:
         """Generate the fix of a given error"""
         for attempt in range(1, self.__max_attempts + 1):
-
             logger.info("Attempt: %i", attempt)
             logger.info("Cluster: %s", error.cluster)
             logger.info("Error id: %s", error.error_id)
-            self.report["errors"].append({
-                "error_name": error.cluster,
-                "attempt": attempt,
-            })
-            self.__refine_harness_file(error)
+            history = self.__refine_harness_file(error)
             make_success = self.__execute_make()
             if not make_success:
+                self.log_task_attempt(f"cov-{error.error_id}", attempt, history, error="not_make_success")
                 return False
-            if self.__is_error_solved(error):
+            if not self.__is_error_covered(error):
+                self.log_task_attempt(f"cov-{error.error_id}", attempt, history, error="error_not_covered_success")
+            elif not self.__is_error_solved(error):
+                self.log_task_attempt(f"cov-{error.error_id}", attempt, history, error="erro_not_fixed")
+            if self.__is_error_covered(error) and self.__is_error_solved(error):
                 logger.info("Error resolved!")
+                self.log_task_attempt(f"cov-{error.error_id}", attempt, history, error=None)
                 return True
         logger.info("Error not resolved...")
         return False
-
-    def generate_report(self):
-        """ Create a JSON file with the report insights of this execution"""
-        with open(self.report_file, "w", encoding="utf-8") as f:
-            f.write(json.dumps(self.report, indent=4))
 
     def __refine_harness_file(self, error):
         system_prompt = self.__get_prompt("general_system")
         user_prompt = self.__compute_user_prompt(error)
         logger.info("System prompt: %s", system_prompt)
         logger.info("User prompt: %s", user_prompt)
-        self.report["errors"][-1]["system_prompt"] = system_prompt
-        self.report["errors"][-1]["user_prompt"] = user_prompt
-        output, _history = self.llm.chat_llm(
+        output, history = self.llm.chat_llm(
             system_messages=system_prompt,
             input_messages=user_prompt,
             output_format=ModelOutput,
@@ -114,19 +107,36 @@ class ProofDebugger(AIAgent, Generable):
         )
         logger.info("LLM response: \n%s", output.updated_harness_file_content)
         self.__update_harness(output.updated_harness_file_content)
-        self.report["errors"][-1]["result"] = output.updated_harness_file_content
+        return history
 
     def __update_harness(self, harness_content: str):
         logger.info("Updated harness file content: \n%s", harness_content)
         with open(self.target_file_path, "w+", encoding="utf-8") as f:
             f.write(harness_content)
 
+    def __is_error_covered(self, error) -> bool:
+        error_report = ErrorReport(
+            extract_errors_and_payload(self.target_func, self.target_file_path),
+            get_json_errors(self.target_file_path)
+        )
+        result = error.error_id in (error_report.json_true_errors | error_report.json_false_errors)
+        if result:
+            logger.info("Error '%s' covered", error.error_id)
+        else:
+            logger.info("Error '%s' not covered", error.error_id)
+        return result
+ 
     def __is_error_solved(self, error) -> bool:
         error_report = ErrorReport(
             extract_errors_and_payload(self.target_func, self.target_file_path),
             get_json_errors(self.target_file_path)
         )
-        return error.error_id not in error_report.json_true_errors
+        result = error.error_id in error_report.json_true_errors
+        if result:
+            logger.info("Error '%s' solved", error.error_id)
+        else:
+            logger.info("Error '%s' not solved", error.error_id)
+        return result
 
     def __compute_user_prompt(self, error: CBMCError):
         if self.__previous_response is None:
