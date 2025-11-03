@@ -433,16 +433,6 @@ class CoverageDebugger(AIAgent, Generable):
         # Start the debugging loop
         while user_prompt:
 
-            if get_next_block:
-                next_function, coverage_data, target_block_line = self._get_next_uncovered_function(functions_to_skip)
-                if not next_function or not coverage_data or not target_block_line:
-                    logger.info("[INFO] No more uncovered functions found.")
-                    break
-                get_next_block = False
-                attempts = 0
-                conversation = []
-                system_prompt, user_prompt = self.prepare_prompt(next_function, coverage_data, target_block_line)
-
             attempts += 1
             logger.info(f'LLM Prompt:\n{user_prompt}')
 
@@ -460,13 +450,11 @@ class CoverageDebugger(AIAgent, Generable):
 
             if llm_result == AgentAction.RETRY_BLOCK:
                 self.reverse_proof_update()
-                continue
             elif llm_result == AgentAction.SKIP_BLOCK:
                 self.reverse_proof_update()
                 functions_to_skip.setdefault(next_function['function'], set()).add(target_block_line)
                 self.log_task_result(task_id, False, attempts)
                 get_next_block = True
-                continue
             elif llm_result == AgentAction.NEXT_BLOCK:
                 self.remove_proof_backups()
                 get_next_block = True
@@ -475,6 +463,18 @@ class CoverageDebugger(AIAgent, Generable):
             elif llm_result == AgentAction.TERMINATE:
                 self.reverse_proof_update()
                 break
+
+            if get_next_block:
+                next_function, coverage_data, target_block_line = self._get_next_uncovered_function(functions_to_skip)
+                if not next_function or not coverage_data or not target_block_line:
+                    logger.info("[INFO] No more uncovered functions found.")
+                    break
+                get_next_block = False
+                attempts = 0
+                conversation = []
+                system_prompt, user_prompt = self.prepare_prompt(next_function, coverage_data, target_block_line)
+
+            
 
         # Final coverage report
         final_coverage = self.get_overall_coverage()
