@@ -19,7 +19,7 @@ from commons.utils import Status
 
 # OLD
 from debugger.error_report import ErrorReport, CBMCError
-from debugger.parser import extract_errors_and_payload
+from debugger.parser import extract_errors_and_payload, get_json_errors
 from debugger.advice import get_advice_for_cluster
 
 logger = setup_logger(__name__)
@@ -122,8 +122,11 @@ class ProofDebugger(AIAgent, Generable):
             f.write(harness_content)
 
     def __is_error_solved(self, error) -> bool:
-        new_error = self.__pop_error()
-        return new_error is None or new_error.cluster != error.cluster
+        error_report = ErrorReport(
+            extract_errors_and_payload(self.target_func, self.target_file_path),
+            get_json_errors(self.target_file_path)
+        )
+        return error.error_id not in error_report.json_true_errors
 
     def __compute_user_prompt(self, error: CBMCError):
         if self.__previous_response is None:
@@ -180,7 +183,8 @@ class ProofDebugger(AIAgent, Generable):
 
     def __pop_error(self) -> CBMCError | None:  # TODO: Refactor Error Handling
         error_report = ErrorReport(
-            extract_errors_and_payload(self.target_func, self.target_file_path)
+            extract_errors_and_payload(self.target_func, self.target_file_path),
+            get_json_errors(self.target_file_path)
         )
         logger.info("Unresolved Errors: %i", len(error_report.unresolved_errs))
         error = error_report.get_next_error()

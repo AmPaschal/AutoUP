@@ -77,7 +77,7 @@ class ErrorReport:
             'misc'
         ]
     
-    def __init__(self, errors):
+    def __init__(self, errors, json_errors):
 
         # This is the clustered set of errors we will actually be updating
         self.errors_by_cluster = { cluster: set([key for key in errs.keys()]) for cluster, errs in errors.items() }
@@ -89,6 +89,8 @@ class ErrorReport:
         self.unresolved_errs = set(self.errors_by_id.keys())
         self.resolved_errs = set()
         self.failed_errs = set()
+        
+        self.json_true_errors = json_errors
 
     def __len__(self):
         return len(self.error_ids)
