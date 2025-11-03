@@ -80,16 +80,22 @@ class ProofDebugger(AIAgent, Generable):
             history = self.__refine_harness_file(error)
             make_success = self.__execute_make()
             if not make_success:
-                self.log_task_attempt(f"cov-{error.error_id}", attempt, history, error="not_make_success")
+                self.log_task_attempt(error.error_id, attempt, history, error="make_failed")
+                self.log_task_result(error.error_id, False, attempt)
                 return False
-            if not self.__is_error_covered(error):
-                self.log_task_attempt(f"cov-{error.error_id}", attempt, history, error="error_not_covered_success")
-            elif not self.__is_error_solved(error):
-                self.log_task_attempt(f"cov-{error.error_id}", attempt, history, error="erro_not_fixed")
-            if self.__is_error_covered(error) and self.__is_error_solved(error):
+            error_report = ErrorReport(
+                extract_errors_and_payload(self.target_func, self.target_file_path),
+                get_json_errors(self.target_file_path)
+            )
+            if not self.__is_error_covered(error, error_report):
+                self.log_task_attempt(error.error_id, attempt, history, error="error_not_covered")
+            elif not self.__is_error_solved(error, error_report):
+                self.log_task_attempt(error.error_id, attempt, history, error="error_not_fixed")
+            if self.__is_error_covered(error, error_report) and self.__is_error_solved(error, error_report):
                 logger.info("Error resolved!")
-                self.log_task_attempt(f"cov-{error.error_id}", attempt, history, error=None)
+                self.log_task_result(error.error_id, True, attempt)
                 return True
+        self.log_task_result(error.error_id, False, self.__max_attempts + 1)
         logger.info("Error not resolved...")
         return False
 
@@ -114,11 +120,7 @@ class ProofDebugger(AIAgent, Generable):
         with open(self.target_file_path, "w+", encoding="utf-8") as f:
             f.write(harness_content)
 
-    def __is_error_covered(self, error) -> bool:
-        error_report = ErrorReport(
-            extract_errors_and_payload(self.target_func, self.target_file_path),
-            get_json_errors(self.target_file_path)
-        )
+    def __is_error_covered(self, error, error_report) -> bool:
         result = error.error_id in (error_report.json_true_errors | error_report.json_false_errors)
         if result:
             logger.info("Error '%s' covered", error.error_id)
@@ -126,11 +128,7 @@ class ProofDebugger(AIAgent, Generable):
             logger.info("Error '%s' not covered", error.error_id)
         return result
  
-    def __is_error_solved(self, error) -> bool:
-        error_report = ErrorReport(
-            extract_errors_and_payload(self.target_func, self.target_file_path),
-            get_json_errors(self.target_file_path)
-        )
+    def __is_error_solved(self, error, error_report) -> bool:
         result = error.error_id in error_report.json_true_errors
         if result:
             logger.info("Error '%s' solved", error.error_id)
