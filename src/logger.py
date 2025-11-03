@@ -11,7 +11,6 @@ def init_logging(log_file: Optional[str]):
     handlers = []
 
     if log_file:
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
         handlers.append(logging.FileHandler(log_file))
     else:
         handlers.append(logging.StreamHandler())
