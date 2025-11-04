@@ -11,10 +11,11 @@ from logger import setup_logger
 logger = setup_logger(__name__)
 class InitialHarnessGenerator(AIAgent, Generable):
 
-    def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
+    def __init__(self, root_dir, harness_dir, target_func, target_file_path, metrics_file, project_container):
         super().__init__(
             "MakefileGenerator",
-            project_container
+            project_container,
+            metrics_file
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
         self.root_dir = root_dir
@@ -113,18 +114,19 @@ class InitialHarnessGenerator(AIAgent, Generable):
 
         system_prompt, user_prompt = self.prepare_prompt()
         tools = self.get_tools()
-        attempts = 0
+        attempts = 1
 
         logger.info(f'System Prompt:\n{system_prompt}')
 
         conversation = []   
 
-        while user_prompt and attempts < self._max_attempts:
+        while user_prompt and attempts <= self._max_attempts:
             logger.info(f'User Prompt:\n{user_prompt}')
 
-            llm_response, _ = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
+            llm_response, llm_data = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
 
             if not llm_response:
+                self.log_task_attempt("harness_generation", attempts, llm_data, "invalid_response")
                 user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n" 
                 attempts += 1
                 continue
@@ -132,9 +134,12 @@ class InitialHarnessGenerator(AIAgent, Generable):
             logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
 
             self.save_harness(llm_response.harness_code)
+            self.log_task_attempt("harness_generation", attempts, llm_data, "")
+            self.log_task_result("harness_generation", True, attempts)
             return True
 
         logger.error("Failed to generate harness after maximum attempts.")
+        self.log_task_result("harness_generation", False, attempts)
 
         return False
         

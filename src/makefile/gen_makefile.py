@@ -20,10 +20,11 @@ logger = setup_logger(__name__)
 class LLMMakefileGenerator(AIAgent, Generable):
 
 
-    def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
+    def __init__(self, root_dir, harness_dir, target_func, target_file_path, metrics_file, project_container):
         super().__init__(
             "MakefileGenerator",
-            project_container
+            project_container,
+            metrics_file
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
         
@@ -158,7 +159,7 @@ class LLMMakefileGenerator(AIAgent, Generable):
         # Next, we build and see if it succeeds
         make_results = self.run_make()
 
-        attempts = 0
+        attempts = 1
 
         system_prompt, user_prompt = self.prepare_prompt(makefile, make_results)
         tools = self.get_tools()
@@ -170,14 +171,15 @@ class LLMMakefileGenerator(AIAgent, Generable):
         conversation = []
         
         # Finally, we iteratively call the LLM to fix any errors until it succeeds
-        while user_prompt and attempts < self._max_attempts:
+        while user_prompt and attempts <= self._max_attempts:
 
             logger.info(f'LLM Prompt:\n{user_prompt}')
 
-            llm_response, _ = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
+            llm_response, llm_data = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
 
             if not llm_response:
                 user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n"
+                self.log_task_attempt("makefile_generation", attempts, llm_data, "invalid_response")
                 continue
 
             logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
@@ -185,7 +187,7 @@ class LLMMakefileGenerator(AIAgent, Generable):
             if llm_response.updated_harness:
                 self.update_harness(llm_response.updated_harness)
             make_results = self.run_make()
-            attempts += 1
+            
 
             status_code = make_results.get('status', Status.ERROR)
 
@@ -193,6 +195,7 @@ class LLMMakefileGenerator(AIAgent, Generable):
                 logger.info("Makefile successfully generated and compilation succeeded.")
                 self.run_make(compile_only=False)  # Now run full make to generate proofs
                 self.print_coverage(Path(self.harness_dir))
+                self.log_task_attempt("makefile_generation", attempts, llm_data, "")
                 status = Status.SUCCESS
                 break
             elif status_code == Status.FAILURE:
@@ -201,11 +204,16 @@ class LLMMakefileGenerator(AIAgent, Generable):
                 # It's possible this is a new error, so we clear the conversation history
                 # In future, we may want to detect if the previous error was resolved.
                 system_prompt, user_prompt = self.prepare_prompt(llm_response.updated_makefile, make_results)
+                self.log_task_attempt("makefile_generation", attempts, llm_data, "compilation_error")
             else:
                 logger.error("Make command failed to run.")
+                self.log_task_attempt("makefile_generation", attempts, llm_data, "make_error")
                 status = status_code
                 break
-        
+
+            attempts += 1
+
+        self.log_task_result("makefile_generation", status == Status.SUCCESS, attempts)
 
         return status == Status.SUCCESS
 

@@ -9,7 +9,10 @@ Hence, when determining causes of coverage gaps, you need to think symbolically 
 Also note that coverage gaps occur when a harness is too constrained or loops are not sufficiently unrolled.
 Hence, it is unexpected that you can fix coverage gaps by providing additional constraints or variable initializations.
 You should also disregard any other harness flaws you find that is unrelated to the specific task.
-Also use the steps below to guide your reasoning.
+Finally, also note that only functions contained in the linked source files, as defined by the LINK field in Makefile, are considered during verification.
+If a function is called but its implementation is not linked, CBMC introduces a default function model for the function that returns a non-deterministic output.
+However, you can replace this default model using an explicit model in the harness, as required by Fix 2.
+
 
 You will be provided with the following input:
 1. Details of the specific function to focus on.
@@ -107,3 +110,4 @@ If the coverage gap is not caused or cannot be resolved using any of the strateg
 
 instructions:
 1. Do not try to modify files directly or rerun the verification. When you've identified the root cause and the corresponding fix, produce an output using the expected output format.
+2. Do not try to increase coverage by adding new function calls in the harness function. If there is no way to cover the expected code from the harness and the target function called within it, do not return any proposed modification.

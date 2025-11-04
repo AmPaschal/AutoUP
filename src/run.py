@@ -91,6 +91,7 @@ def process_mode(args):
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
             target_file_path=args.target_file_path,
+            metrics_file=args.metrics_file,
             project_container=project_container
         ))
         agents.append(LLMMakefileGenerator(
@@ -98,6 +99,7 @@ def process_mode(args):
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
             target_file_path=args.target_file_path,
+            metrics_file=args.metrics_file,
             project_container=project_container
         ))
     if args.mode in ["function-stubs", "all"]:
