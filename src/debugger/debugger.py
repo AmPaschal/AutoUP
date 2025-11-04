@@ -44,16 +44,6 @@ class ProofDebugger(AIAgent, Generable):
         logger.info("self.target_func %s", self.target_func)
         logger.info("self.target_file_path %s", self.target_file_path)
         self.__max_attempts = 3
-        self.report = {
-            "harness_path": harness_path,
-            "root_dir": root_dir,
-            "target_function_name": target_function_name,
-            "errors": []
-        }
-        self.report_file = f"reports/{Path(target_function_name).name}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.json"
-
-        self.__cause_of_failure = None
-        self.__previous_response = None
 
     def generate(self) -> bool:
         """Iterates over errors"""
@@ -73,35 +63,40 @@ class ProofDebugger(AIAgent, Generable):
 
     def generate_single_fix(self, error: CBMCError) -> bool:
         """Generate the fix of a given error"""
+        cause_of_failure = None
         for attempt in range(1, self.__max_attempts + 1):
             logger.info("Attempt: %i", attempt)
             logger.info("Cluster: %s", error.cluster)
             logger.info("Error id: %s", error.error_id)
-            history = self.__refine_harness_file(error)
+            history = self.__refine_harness_file(error, cause_of_failure)
             make_success = self.__execute_make()
             if not make_success:
                 self.log_task_attempt(error.error_id, attempt, history, error="make_failed")
-                self.log_task_result(error.error_id, False, attempt)
-                return False
+                cause_of_failure = {"reason": "make_failed"}
+                continue
             error_report = ErrorReport(
                 extract_errors_and_payload(self.target_func, self.target_file_path),
                 get_json_errors(self.target_file_path)
             )
             if not self.__is_error_covered(error, error_report):
                 self.log_task_attempt(error.error_id, attempt, history, error="error_not_covered")
-            elif not self.__is_error_solved(error, error_report):
+                cause_of_failure = {"reason": "error_not_covered"}
+                continue
+            if not self.__is_error_solved(error, error_report):
                 self.log_task_attempt(error.error_id, attempt, history, error="error_not_fixed")
+                cause_of_failure = {"reason": "error_not_fixed"}
+                continue
             if self.__is_error_covered(error, error_report) and self.__is_error_solved(error, error_report):
                 logger.info("Error resolved!")
                 self.log_task_result(error.error_id, True, attempt)
                 return True
-        self.log_task_result(error.error_id, False, self.__max_attempts + 1)
+        self.log_task_result(error.error_id, False, self.__max_attempts)
         logger.info("Error not resolved...")
         return False
 
-    def __refine_harness_file(self, error):
+    def __refine_harness_file(self, error, cause_of_failure):
         system_prompt = self.__get_prompt("general_system")
-        user_prompt = self.__compute_user_prompt(error)
+        user_prompt = self.__compute_user_prompt(error, cause_of_failure)
         logger.info("System prompt: %s", system_prompt)
         logger.info("User prompt: %s", user_prompt)
         output, history = self.llm.chat_llm(
@@ -136,8 +131,8 @@ class ProofDebugger(AIAgent, Generable):
             logger.info("Error '%s' not solved", error.error_id)
         return result
 
-    def __compute_user_prompt(self, error: CBMCError):
-        if self.__previous_response is None:
+    def __compute_user_prompt(self, error: CBMCError, cause_of_failure):
+        if cause_of_failure is None:
             advice = self.__get_advice(error.cluster)
             user_prompt = self.__get_prompt("no_previous_user")
             user_prompt = user_prompt.replace("{message}", error.msg)
@@ -149,31 +144,21 @@ class ProofDebugger(AIAgent, Generable):
                 [f'{i + 1}. {step}' for i, step in enumerate(advice)]))
             user_prompt = user_prompt.replace("{harness}", self.target_func)
             return user_prompt
-        if self.__cause_of_failure is None:
-            user_prompt = self.__get_prompt("general_error_user")
-            user_prompt = user_prompt.replace(
-                "{errors}", json.dumps(error.vars, indent=4))
+        if cause_of_failure["reason"] == "make_failed":
+            user_prompt = self.__get_prompt("make_failed_user")
             return user_prompt
-        if self.__cause_of_failure["reason"] == "harness_update_error":
-            user_prompt = self.__get_prompt("harness_update_error_user")
-            user_prompt = user_prompt.replace(
-                "{function}", self.__cause_of_failure["error"].func)
-            user_prompt = user_prompt.replace(
-                "{previous_line}", self.__cause_of_failure["error"].prev_line)
+        if cause_of_failure["reason"] == "error_not_covered":
+            user_prompt = self.__get_prompt("error_not_covered_user")
             return user_prompt
-        if self.__cause_of_failure["reason"] == "syntax_error":
-            user_prompt = self.__get_prompt("syntax_error_user")
-            return user_prompt
-        if self.__cause_of_failure["reason"] == "coverage_error":
-            user_prompt = self.__get_prompt("coverage_error_user")
-            return user_prompt
-        if self.__cause_of_failure["reason"] == "precondition_error":
-            user_prompt = self.__get_prompt("precondition_error_user")
+        if cause_of_failure["reason"] == "error_not_fixed":
+            user_prompt = self.__get_prompt("error_not_fixed_user")
             user_prompt = user_prompt.replace(
-                "{new_errors}", self.__cause_of_failure["error"].new_errors)
+                "{errors}", json.dumps(error.vars, indent=4),
+            )
             return user_prompt
         raise ValueError(
-            f"Unknown cause_of_failure reason: {self.__cause_of_failure['reason']}")
+            f"Unknown cause_of_failure reason: {cause_of_failure['reason']}",
+        )
 
     def __execute_make(self) -> bool:
         logger.info("Executing 'make' into '%s'", self.harness_path)
