@@ -1,12 +1,18 @@
 The previously suggested precondition caused a compilation error, the make command failed.
 
-Review each of your previously suggested preconditions and check if the following requirements are met:
+This is the output of the failing make command
+
+{make_output}
+
+Using the make output command and reviewing each of your previously suggested preconditions, check if the following requirements are met:
 1. The precondition only uses valid C syntax
 2. The precondition only uses variables in scope of your chosen function (local or global variables).
 3. For each variable used in the pre-conditions, was it defined before the line where the precondition was inserted?
-4. Check if all the required headers are correctly imported at the beginning of the file
+4. Check if all the required headers are correctly imported at the beginning of the file (Using #include)
 
 Based on these steps, determine why your previous preconditions caused a syntax error in the harness.
 If you believe the precondition is still logically valid, provide a revised version that fixes the compilation error.
 
 Otherwise, repeat your analysis and provide improved harness file.
+
+Provide your response in the specified schema format.

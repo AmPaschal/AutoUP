@@ -99,7 +99,7 @@ class ErrorReport:
     def __contains__(self, error_id):
         return error_id in self.errors_by_id
 
-    def get_next_error(self):
+    def get_next_error(self, errors_to_skip: set):
         """
         Finds the next unresolved error, based on CLUSTER_ORDER
         It may seem inefficient to re-read through all of the errors, but there is always a chance new errors can be added
@@ -108,6 +108,9 @@ class ErrorReport:
         for cluster in ErrorReport.CLUSTER_ORDER:
             if cluster in self.errors_by_cluster and len(self.errors_by_cluster[cluster]) > 0:
                 for error_id in  self.errors_by_cluster[cluster]:
+                    print("errors_to_skip: ", errors_to_skip)
+                    if error_id in errors_to_skip:
+                        continue
                     if error_id in self.unresolved_errs:
                         self.get_err(error_id).processed = True
                         return cluster, error_id, self.get_err(error_id)

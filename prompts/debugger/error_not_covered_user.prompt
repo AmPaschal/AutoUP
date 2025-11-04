@@ -4,3 +4,5 @@ First, check for any conditional statements in the target function that could pr
 Then, determine why your previous precondition may have prevented coverage of the failing line.
 
 Finally, create a new harness file that still resolves the error without reducing line coverage in the target function.
+
+Provide your response in the specified schema format.

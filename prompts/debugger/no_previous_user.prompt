@@ -1,15 +1,13 @@
 The most recent execution of the harness resulted in the following error:
 {message}
-{stack}
 
 The value of each variable passed into the target function before the error occurred, grouped by the scope they were initalized in, is provided below:
 {variables}
 
-Complete the following steps to determine an appropriate precondition that will resolve the error.
+Complete the following steps to determine an appropriate set of preconditions that will resolve the error.
 First, find the current definition of the "harness" function in the following path: {harness_file_path}
-Then, note which variables have existing preconditions, along with the line numbers for each preconditon.
-Next, find the definition of the function where the error occurred in the following path: {target_file_path}
-Finally, list out the variable values for each modeled variable when error occured.
+Then, note which variables have existing preconditions.
+Finally, find the definition of the function where the error occurred in the following path: {target_file_path}
 
 Then, provide a general analysis of the error and the variables involved.
 
@@ -18,12 +16,13 @@ Finally, use this information to answer the following questions and determine th
 
 Based on this analysis, determine the smallest possible set of preconditions that can be added to the harness to resolve the error.
 
-Then, translate these preconditions to a valid line of code based on the following criteria:
-1. Your precondition is formatted as __CPROVER_assume(<precondition>).
-2. Your precondition ONLY uses variables that are defined in the harness.
-3. Your chosen line number in the function is placed directly after the lines where all variables in the precondition are initialized.
-4. Your chosen line number is inserted is within the line numbers of the harness function, and is placed before the call to {harness}.
+Then, translate these preconditions to valid lines of code based on the following criteria:
+1. Your preconditions are formatted as __CPROVER_assume(<precondition>).
+2. Your preconditions ONLY use variables that are defined in the harness.
+3. Your chosen place to insert the preconditions in the function is directly after the lines where all variables in the precondition are initialized.
+4. Your chosen place to insert the preconditions is within the line numbers of the harness function, and is placed before the call to {harness}.
 5. It does not repeat any logic found in existing __CPROVER_assume statements in the harness.
+6. All the possible structs used in the new preconditions are successfully included at the beginning of the harness file using #include instrumentation
 
 Finally, provide an updated harness file content to override the previous target file
 
