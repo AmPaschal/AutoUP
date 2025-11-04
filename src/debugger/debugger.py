@@ -38,7 +38,8 @@ class ProofDebugger(AIAgent, Generable):
         self.harness_path = harness_path
         self.root_dir = root_dir
         self.target_func = f"{target_function_name}_harness.c"
-        self.target_file_path=target_file_path
+        self.harness_file_path = os.path.join(harness_path, self.target_func)
+        self.target_file_path = target_file_path
         logger.info("self.harness_path %s", self.harness_path)
         logger.info("self.root_dir %s", self.root_dir)
         logger.info("self.target_func %s", self.target_func)
@@ -57,7 +58,8 @@ class ProofDebugger(AIAgent, Generable):
             logger.info("Target Error: %s", error)
             result = self.generate_single_fix(error)
             if not result:
-                return False
+                #TODO: ADD SKIP ERRORS
+                continue
             error = self.__pop_error()
         return True
 
@@ -75,8 +77,8 @@ class ProofDebugger(AIAgent, Generable):
                 cause_of_failure = {"reason": "make_failed"}
                 continue
             error_report = ErrorReport(
-                extract_errors_and_payload(self.target_func, self.target_file_path),
-                get_json_errors(self.target_file_path)
+                extract_errors_and_payload(self.target_func, self.harness_file_path),
+                get_json_errors(self.harness_file_path)
             )
             if not self.__is_error_covered(error, error_report):
                 self.log_task_attempt(error.error_id, attempt, history, error="error_not_covered")
@@ -88,6 +90,7 @@ class ProofDebugger(AIAgent, Generable):
                 continue
             if self.__is_error_covered(error, error_report) and self.__is_error_solved(error, error_report):
                 logger.info("Error resolved!")
+                self.log_task_attempt(error.error_id, attempt, history, error=None)
                 self.log_task_result(error.error_id, True, attempt)
                 return True
         self.log_task_result(error.error_id, False, self.__max_attempts)
@@ -111,8 +114,7 @@ class ProofDebugger(AIAgent, Generable):
         return history
 
     def __update_harness(self, harness_content: str):
-        logger.info("Updated harness file content: \n%s", harness_content)
-        with open(self.target_file_path, "w+", encoding="utf-8") as f:
+        with open(self.harness_file_path, "w+", encoding="utf-8") as f:
             f.write(harness_content)
 
     def __is_error_covered(self, error, error_report) -> bool:
@@ -133,9 +135,12 @@ class ProofDebugger(AIAgent, Generable):
 
     def __compute_user_prompt(self, error: CBMCError, cause_of_failure):
         if cause_of_failure is None:
+            logger.info("cause_of_failure is None")
             advice = self.__get_advice(error.cluster)
             user_prompt = self.__get_prompt("no_previous_user")
             user_prompt = user_prompt.replace("{message}", error.msg)
+            user_prompt = user_prompt.replace("{target_file_path}", self.target_file_path)
+            user_prompt = user_prompt.replace("{harness_file_path}", self.harness_file_path) 
             user_prompt = user_prompt.replace("{stack}", '\n'.join(
                 [f'in {func}, Line: {line}' for func, line in error.stack]))
             user_prompt = user_prompt.replace(
@@ -145,12 +150,15 @@ class ProofDebugger(AIAgent, Generable):
             user_prompt = user_prompt.replace("{harness}", self.target_func)
             return user_prompt
         if cause_of_failure["reason"] == "make_failed":
+            logger.info("Reason: make_failed")
             user_prompt = self.__get_prompt("make_failed_user")
             return user_prompt
         if cause_of_failure["reason"] == "error_not_covered":
+            logger.info("Reason: error_not_covered")
             user_prompt = self.__get_prompt("error_not_covered_user")
             return user_prompt
         if cause_of_failure["reason"] == "error_not_fixed":
+            logger.info("Reason: error_not_fixed")
             user_prompt = self.__get_prompt("error_not_fixed_user")
             user_prompt = user_prompt.replace(
                 "{errors}", json.dumps(error.vars, indent=4),
@@ -169,15 +177,15 @@ class ProofDebugger(AIAgent, Generable):
         backup_path = os.path.join(
             self.harness_path, f"{self.target_func}.backup",
         )
-        with open(self.target_file_path, "r", encoding="utf-8") as src:
+        with open(self.harness_file_path, "r", encoding="utf-8") as src:
             with open(backup_path, "w", encoding="utf-8") as dst:
                 dst.write(src.read())
         logger.info("Backup created sucessfully.")
 
     def __pop_error(self) -> CBMCError | None:  # TODO: Refactor Error Handling
         error_report = ErrorReport(
-            extract_errors_and_payload(self.target_func, self.target_file_path),
-            get_json_errors(self.target_file_path)
+            extract_errors_and_payload(self.target_func, self.harness_file_path),
+            get_json_errors(self.harness_file_path)
         )
         logger.info("Unresolved Errors: %i", len(error_report.unresolved_errs))
         error = error_report.get_next_error()

@@ -402,7 +402,9 @@ def extract_func_definitions(html_files, report_dir, undefined_funcs):
                 if '#define' in full_def:
                     macros.append(re.match(r'\s*\d+\s*(#define .*)', full_def).group(1))
                 elif 'extern' in full_def:
-                    global_vars.append(re.match(r'\d+\s+extern\s+(.*);', full_def).group(1))
+                    match = re.match(r'\d+\s+extern\s+(.*);', full_def)
+                    if match:
+                        global_vars.append(match.group(1))
                 else:
                     raise Exception(f"Unexpected global variable definition: {full_def}")
         try:
