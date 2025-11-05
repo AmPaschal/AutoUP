@@ -117,8 +117,15 @@ class AIAgent(ABC):
 
             return tool_response
 
-        with open(coverage_file_path, "r") as f:
-            coverage_data = json.load(f)
+        try:
+            with open(coverage_file_path, "r") as f:
+                coverage_data = json.load(f)
+
+        except Exception as e:
+            error_message = f"Error reading MC/DC Coverage file: {e}"
+            tool_response["error"] = error_message
+            logger.error(error_message)
+            return tool_response
 
         goals = []
 

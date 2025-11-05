@@ -1,6 +1,8 @@
 """ Manage Run File"""
 
 # System
+from collections import defaultdict
+import json
 from typing import Optional
 import argparse
 import signal
@@ -17,6 +19,7 @@ from initial_harness_generator.gen_harness import InitialHarnessGenerator
 from debugger.debugger import ProofDebugger
 from commons.docker_tool import ProjectContainer
 from logger import init_logging, setup_logger
+from commons.metric_summary import process_metrics
 from stub_generator.gen_function_stubs import StubGenerator
 from commons.models import Generable
 
@@ -91,6 +94,7 @@ def process_mode(args):
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
             target_file_path=args.target_file_path,
+            metrics_file=args.metrics_file,
             project_container=project_container
         ))
         agents.append(LLMMakefileGenerator(
@@ -98,6 +102,7 @@ def process_mode(args):
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
             target_file_path=args.target_file_path,
+            metrics_file=args.metrics_file,
             project_container=project_container
         ))
     if args.mode in ["function-stubs", "all"]:
@@ -106,6 +111,7 @@ def process_mode(args):
             harness_dir=args.harness_path,
             target_func=args.target_function_name,
             target_file_path=args.target_file_path,
+            metrics_file=args.metrics_file,
             project_container=project_container
         ))
     if args.mode in ["coverage", "all"]:
@@ -117,7 +123,7 @@ def process_mode(args):
             metrics_file=args.metrics_file,
             project_container=project_container
         ))
-    if args.mode in ["debugger", "all"]:
+    if args.mode in ["debugger"]:
         agents.append(ProofDebugger(
             harness_path=args.harness_path,
             root_dir=args.root_dir,
@@ -134,6 +140,34 @@ def process_mode(args):
             return
         logger.info("Agent '%s' succeed", agent.__class__.__name__)
 
+def summarize_metrics_per_agent(metrics_file: str, logger):
+    """ Summarize metrics from the given file and print to logger """
+    from commons.metric_summary import summarize_metrics_file
+
+    with open(metrics_file, "r") as file:
+        metrics_data = file.readlines()
+
+    metrics = [json.loads(line) for line in metrics_data if line.strip()]
+
+    logger.info("===== Overall Metrics Summary =====")
+    overall_summary = process_metrics(metrics)
+    logger.info(json.dumps(overall_summary, indent=4))
+    logger.info("\n\n")
+
+    # ---- Group by agent_name ----
+    metrics_by_agent = defaultdict(list)
+    for entry in metrics:
+        metrics_by_agent[entry.get("agent_name")].append(entry)
+
+    logger.info("===== Metrics Summary per Agent =====")
+
+    # ---- Summarize per agent ----
+    for agent, agent_metrics in metrics_by_agent.items():
+        agent_summary = process_metrics(agent_metrics)
+
+        logger.info(f"Agent '{agent}':")
+        logger.info(json.dumps(agent_summary, indent=4))
+        logger.info("\n\n")
 
 def main():
     """Entry point"""
@@ -162,7 +196,15 @@ def main():
     except Exception as e:
         logger.error(f"Error initializing Project container: {e}")
         return
+    
     process_mode(args)
+
+    if args.metrics_file:
+        # Summarize metrics and print results to log
+        try:
+            summarize_metrics_per_agent(args.metrics_file, logger)
+        except Exception as e:
+            logger.error(f"Error summarizing metrics: {e}")
 
 
 def cleanup(signum, _frame):

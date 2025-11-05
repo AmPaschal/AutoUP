@@ -1,12 +1,18 @@
+from collections import defaultdict
 import enum
-import logging
+import glob
 import os
+import logging
 import subprocess
 import json
 import argparse
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
+
+from src.commons.metric_summary import process_metrics
+
+logger = logging.getLogger(__name__)
 
 class Status(enum.Enum):
     SUCCESS = "SUCCESS"
@@ -40,6 +46,55 @@ def print_coverage(proof_dir: Path):
         reachable_dict = get_reachable_functions(reachability_report)
         print(f"Reachable functions:\n{reachable_dict}")
 
+def summarize_metrics_per_agent(metrics_dir: str):
+    """Summarize metrics from all metrics-*.jsonl files in a directory and print to logger"""
+
+    # ---- Gather all metrics files in the directory ----
+    pattern = os.path.join(metrics_dir, "metrics-*.jsonl")
+    metric_files = glob.glob(pattern)
+
+    if not metric_files:
+        logger.warning(f"No metrics files found in directory: {metrics_dir}")
+        return
+
+    metrics = []
+
+    # ---- Load and combine metrics from each file ----
+    for metrics_file in metric_files:
+        try:
+            with open(metrics_file, "r") as file:
+                metrics_data = file.readlines()
+
+            file_metrics = [json.loads(line) for line in metrics_data if line.strip()]
+            metrics.extend(file_metrics)
+
+        except Exception as e:
+            logger.error(f"Failed to read metrics file {metrics_file}: {e}")
+
+    if not metrics:
+        logger.warning(f"No metrics data found in files under: {metrics_dir}")
+        return
+
+    # ---- Overall summary ----
+    logger.info("===== Overall Metrics Summary =====")
+    overall_summary = process_metrics(metrics)
+    logger.info(json.dumps(overall_summary, indent=4))
+    logger.info("\n\n")
+
+    # ---- Group by agent ----
+    metrics_by_agent = defaultdict(list)
+    for entry in metrics:
+        metrics_by_agent[entry.get("agent_name")].append(entry)
+
+    logger.info("===== Metrics Summary per Agent =====")
+
+    for agent, agent_metrics in metrics_by_agent.items():
+        agent_summary = process_metrics(agent_metrics)
+
+        logger.info(f"Agent '{agent}':")
+        logger.info(json.dumps(agent_summary, indent=4))
+        logger.info("\n\n")
+
 def run_proof_command(entry, args, output_root):
     """
     Run the harness command for a single proof/source file pair.
@@ -50,20 +105,22 @@ def run_proof_command(entry, args, output_root):
     proof_dir = Path(entry["proof_dir"])
     src_file = Path(entry["source_file"])
 
-    log_file = output_root / f"{proof_dir.stem}.log"
+    log_file = output_root / f"{function_name}.log"
+    metrics_file = output_root / f"metrics-{function_name}.jsonl"
     cmd = [
         "python", "src/run.py",
         args.mode,
         "--target_function_name", function_name,
         "--root_dir", str(base_dir),
         "--harness_path", str(proof_dir),
-        "--target_file_path", str(src_file)
+        "--target_file_path", str(src_file),
+        "--metrics_file", str(metrics_file)
     ]
 
 
     try:
         with open(log_file, "w") as f:
-            process = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT)
+            process = subprocess.run(cmd, stdout=f, stderr=f)
         status = Status.SUCCESS if process.returncode == 0 else Status.FAILURE
     except Exception as e:
         status = Status.ERROR
@@ -83,7 +140,7 @@ def run_proof_command(entry, args, output_root):
 def main():
     parser = argparse.ArgumentParser(description="Run proofs for CBMC makefiles.")
     parser.add_argument("input_json", help="Path to JSON file containing proof directories and source files")
-    parser.add_argument("-m", "--mode", choices=["harness", "debugger", "coverage", "function-stubs"], default="harness", help="Execution mode")
+    parser.add_argument("-m", "--mode", choices=["harness", "debugger", "coverage", "function-stubs", "all"], default="harness", help="Execution mode")
     parser.add_argument("-b", "--base_dir", default="../RIOT", help="Base project directory (default: ../RIOT)")
     parser.add_argument("-o", "--output", help="Directory to store logs (default: output-${timestamp})")
     parser.add_argument("-j", "--jobs", type=int, default=10, help="Number of parallel jobs")
@@ -121,6 +178,9 @@ def main():
     for src_stem, proof_dir, status in results:
         print(f"{src_stem}: Status={status} (Proof Dir: {proof_dir})")
     print(f"\nOverall: {succeeded}/{total} succeeded")
+
+    # Print logged metrics
+    summarize_metrics_per_agent(str(output_root))
 
 if __name__ == "__main__":
     main()
