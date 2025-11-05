@@ -448,9 +448,10 @@ class CoverageDebugger(AIAgent, Generable):
             llm_result, user_prompt, current_coverage, error_tag = self.validate_llm_response(llm_response, next_function, target_block_line, attempts, current_coverage)
             self.log_task_attempt(task_id, attempts, chat_data, error=error_tag)
 
-            if llm_result == AgentAction.RETRY_BLOCK:
+            if llm_result == AgentAction.RETRY_BLOCK and attempts < self._max_attempts: 
+                # If an error occurred in the last attempt, the previous function returns a retry_block action instead of skip_block
                 self.reverse_proof_update()
-            elif llm_result == AgentAction.SKIP_BLOCK:
+            elif llm_result == AgentAction.SKIP_BLOCK or attempts >= self._max_attempts:
                 self.reverse_proof_update()
                 functions_to_skip.setdefault(next_function['function'], set()).add(target_block_line)
                 self.log_task_result(task_id, False, attempts)
@@ -462,6 +463,7 @@ class CoverageDebugger(AIAgent, Generable):
                 self.log_task_result(task_id, True, attempts)
             elif llm_result == AgentAction.TERMINATE:
                 self.reverse_proof_update()
+                self.log_task_result(task_id, False, attempts)
                 break
 
             if get_next_block:

@@ -167,7 +167,10 @@ coverage.xml: $(ENTRY).goto
 	cbmc $(CBMCFLAGS) --cover location --xml-ui build/$^ > build/reports/$@ 2>&1
 
 coverage-mcdc.json: $(ENTRY).goto
-	cbmc $(CBMCFLAGS) --cover mcdc --json-ui build/$^ > build/reports/$@ 2>&1
+	@(timeout 20m cbmc $(CBMCFLAGS) --cover mcdc --json-ui build/$(ENTRY).goto \
+	    > build/reports/$@ 2>&1 &) \
+	&& echo "Started MCDC run in background"
+	@touch $@
 
 cbmc: cbmc.xml
 
