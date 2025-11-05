@@ -24,7 +24,7 @@ class LLMMakefileGenerator(AIAgent, Generable):
         super().__init__(
             "MakefileGenerator",
             project_container,
-            metrics_file
+            metrics_file=metrics_file
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
         
@@ -234,6 +234,6 @@ if __name__ == "__main__":
     if not openai_api_key:
         raise EnvironmentError("No OpenAI API key found")
 
-    makefile_generator = LLMMakefileGenerator(target_function, root_dir, harness_path, file_path, None)
+    makefile_generator = LLMMakefileGenerator(target_function, root_dir, harness_path, file_path, None, None)
     makefile_generator.generate()
 

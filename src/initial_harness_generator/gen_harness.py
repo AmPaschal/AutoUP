@@ -13,9 +13,9 @@ class InitialHarnessGenerator(AIAgent, Generable):
 
     def __init__(self, root_dir, harness_dir, target_func, target_file_path, metrics_file, project_container):
         super().__init__(
-            "MakefileGenerator",
+            "InitialHarnessGenerator",
             project_container,
-            metrics_file
+            metrics_file=metrics_file
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
         self.root_dir = root_dir

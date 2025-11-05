@@ -16,10 +16,11 @@ logger = setup_logger(__name__)
 
 class StubGenerator(AIAgent, Generable):
 
-    def __init__(self, root_dir, harness_dir, target_func, target_file_path, project_container):
+    def __init__(self, root_dir, harness_dir, target_func, target_file_path, metrics_file, project_container):
         super().__init__(
             "MakefileGenerator",
-            project_container
+            project_container=project_container,
+            metrics_file=metrics_file
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
         self.root_dir = root_dir
@@ -266,9 +267,16 @@ class StubGenerator(AIAgent, Generable):
         logger.info(f"Restored harness from {backup_path} to {harness_file_path}")
         os.remove(backup_path)
 
+    def run_make(self, compile_only: bool = True) -> dict:
+        make_cmd = "make compile -j4" if compile_only else "make -j4"
+        make_results = self.execute_command(make_cmd, workdir=self.harness_dir, timeout=600)
+        logger.info('Stdout:\n' + make_results.get('stdout', ''))
+        logger.info('Stderr:\n' + make_results.get('stderr', ''))
+        return make_results
+
     def generate(self) -> bool:
 
-        self.execute_command("make compile -j4", workdir=self.harness_dir, timeout=600)
+        self.run_make(compile_only=True)
 
         # 1. Get functions to stub
         goto_file = os.path.join(self.harness_dir, "build", f"{self.target_func}.goto")
@@ -313,7 +321,7 @@ class StubGenerator(AIAgent, Generable):
             self.save_harness(llm_response.harness_code)
 
             # Now, try to build the harness using make
-            make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=600)
+            make_results = self.run_make(compile_only=False)
             
             status_code = make_results.get('status', Status.ERROR)
 
