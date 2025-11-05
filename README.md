@@ -41,6 +41,8 @@ python src/run.py
 --root_dir <project_root>
 --harness_path <harness_dir>
 --target_file_path <target_source>
+--log_file <log_file_name>
+--metrics_file <metrics_file_name>
 ```
 
 ### Modes
@@ -57,7 +59,7 @@ python src/run.py
 ## 📘 Example
 ```bash
 python src/run.py
-harness
+<mode>
 --target_function_name <function-to-generate-harness-for>
 --root_dir </path/to/to/project/containing/target/function> 
 --harness_path </path/to/the/harness/directory>
@@ -72,9 +74,12 @@ harness
 --target_function_name _receive
 --root_dir /home/pamusuo/research/cbmc-research/RIOT
 --harness_path /home/pamusuo/research/cbmc-research/RIOT/cbmc/harness_gen_tests_3/_receive
---target_file_path  /home/pamusuo/research/cbmc-research/RIOT/sys/net/gnrc/transport_layer/tcp/gnrc_tcp_eventloop.c > output-coverage-receive.txt 2>&1
+--target_file_path  /home/pamusuo/research/cbmc-research/RIOT/sys/net/gnrc/transport_layer/tcp/gnrc_tcp_eventloop.c
+--log_file logfile.txt
+--metrics_file metrics.jsonl > output-coverage-receive.txt 2>&1
 ```
 
 To automatically fix coverage gaps or generate preconditions fixing errors, replace `harness` with `coverage` or `debugger` respectively.
+To run all the agents sequentially, use the `all` mode.
 
 ---
