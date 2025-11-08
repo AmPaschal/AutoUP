@@ -22,6 +22,9 @@ cd AutoUP
 
 # Install dependencies
 pip install -r requirements.txt
+
+# If you are not already in the docker group
+sudo usermod -aG docker $USER 
 ```
 
 ---
