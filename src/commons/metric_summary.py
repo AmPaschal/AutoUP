@@ -59,6 +59,7 @@ def process_metrics(metrics: list[dict]) -> dict:
 
     response = {
         'num_tasks': num_tasks,
+        'num_resolved': num_success,
         'resolution_rate': resolution_rate,
         'attempts_per_success_attempt': attempts_per_success,
         'attempt_error_causes': attempt_error_causes, # ['cause 1: count', 'cause 2: count', ...]
