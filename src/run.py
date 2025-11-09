@@ -130,6 +130,7 @@ def process_mode(args):
             target_function_name=args.target_function_name,
             target_file_path=args.target_file_path,
             project_container=project_container,
+            metrics_file=args.metrics_file,
         ))
 
     for agent in agents:

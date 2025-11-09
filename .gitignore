@@ -9,4 +9,5 @@
 **/output-*
 logs/
 reports/
+metrics/
 output.log

@@ -28,31 +28,23 @@ logger = setup_logger(__name__)
 class ProofDebugger(AIAgent, Generable):
     """Agentic Proof Debugger"""
 
-    def __init__(self, harness_path, root_dir, target_function_name, target_file_path, project_container):
+    def __init__(self, harness_path, root_dir, target_function_name, target_file_path, project_container, metrics_file):
         super().__init__(
             agent_name="debugger",
             project_container=project_container,
+            metrics_file=metrics_file
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
         self.harness_path = harness_path
         self.root_dir = root_dir
         self.target_func = f"{target_function_name}_harness.c"
-        self.target_file_path=target_file_path
+        self.harness_file_path = os.path.join(harness_path, self.target_func)
+        self.target_file_path = target_file_path
         logger.info("self.harness_path %s", self.harness_path)
         logger.info("self.root_dir %s", self.root_dir)
         logger.info("self.target_func %s", self.target_func)
         logger.info("self.target_file_path %s", self.target_file_path)
         self.__max_attempts = 3
-        self.report = {
-            "harness_path": harness_path,
-            "root_dir": root_dir,
-            "target_function_name": target_function_name,
-            "errors": []
-        }
-        self.report_file = f"reports/{Path(target_function_name).name}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.json"
-
-        self.__cause_of_failure = None
-        self.__previous_response = None
 
     def generate(self) -> bool:
         """Iterates over errors"""
@@ -61,133 +53,148 @@ class ProofDebugger(AIAgent, Generable):
             logger.error("Initial proof does not build successfully.")
             return False
         self.__create_backup()
-        error = self.__pop_error()
+        error_report = ErrorReport(
+            extract_errors_and_payload(self.target_func, self.harness_file_path),
+            get_json_errors(self.harness_file_path)
+        )
+        errors_to_skip = set()
+        error = self.__pop_error(error_report, errors_to_skip)
         while error is not None:
             logger.info("Target Error: %s", error)
             result = self.generate_single_fix(error)
             if not result:
-                self.generate_report()
-                return False
-            error = self.__pop_error()
-        self.generate_report()
+                errors_to_skip.add(error.error_id)
+            error_report = ErrorReport(
+                extract_errors_and_payload(self.target_func, self.harness_file_path),
+                get_json_errors(self.harness_file_path)
+            )
+            error = self.__pop_error(error_report, errors_to_skip)
         return True
 
     def generate_single_fix(self, error: CBMCError) -> bool:
         """Generate the fix of a given error"""
+        cause_of_failure = None
+        conversation_history = []
         for attempt in range(1, self.__max_attempts + 1):
-
             logger.info("Attempt: %i", attempt)
             logger.info("Cluster: %s", error.cluster)
             logger.info("Error id: %s", error.error_id)
-            self.report["errors"].append({
-                "error_name": error.cluster,
-                "attempt": attempt,
-            })
-            self.__refine_harness_file(error)
-            make_success = self.__execute_make()
-            if not make_success:
-                return False
-            if self.__is_error_solved(error):
+            history = self.__refine_harness_file(error, cause_of_failure, conversation_history)
+            make_result = self.__execute_make()
+            error_report = ErrorReport(
+                extract_errors_and_payload(self.target_func, self.harness_file_path),
+                get_json_errors(self.harness_file_path)
+            )
+            if make_result["status"] != Status.SUCCESS:
+                self.log_task_attempt(error.error_id, attempt, history, error="make_failed")
+                cause_of_failure = {"reason": "make_failed", "make_output": make_result["stderr"]}
+                continue
+            if not self.__is_error_covered(error, error_report):
+                self.log_task_attempt(error.error_id, attempt, history, error="error_not_covered")
+                cause_of_failure = {"reason": "error_not_covered"}
+                continue
+            if not self.__is_error_solved(error, error_report):
+                self.log_task_attempt(error.error_id, attempt, history, error="error_not_fixed")
+                cause_of_failure = {"reason": "error_not_fixed"}
+                continue
+            if self.__is_error_covered(error, error_report) and self.__is_error_solved(error, error_report):
                 logger.info("Error resolved!")
+                self.log_task_attempt(error.error_id, attempt, history, error=None)
+                self.log_task_result(error.error_id, True, attempt)
                 return True
+        self.log_task_result(error.error_id, False, self.__max_attempts)
         logger.info("Error not resolved...")
         return False
 
-    def generate_report(self):
-        """ Create a JSON file with the report insights of this execution"""
-        with open(self.report_file, "w", encoding="utf-8") as f:
-            f.write(json.dumps(self.report, indent=4))
-
-    def __refine_harness_file(self, error):
+    def __refine_harness_file(self, error, cause_of_failure, conversation_history):
         system_prompt = self.__get_prompt("general_system")
-        user_prompt = self.__compute_user_prompt(error)
+        user_prompt = self.__compute_user_prompt(error, cause_of_failure)
         logger.info("System prompt: %s", system_prompt)
         logger.info("User prompt: %s", user_prompt)
-        self.report["errors"][-1]["system_prompt"] = system_prompt
-        self.report["errors"][-1]["user_prompt"] = user_prompt
-        output, _history = self.llm.chat_llm(
+        output, history = self.llm.chat_llm(
             system_messages=system_prompt,
             input_messages=user_prompt,
             output_format=ModelOutput,
             llm_tools=self.get_tools(),
             call_function=self.handle_tool_calls,
+            conversation_history=conversation_history,
         )
         logger.info("LLM response: \n%s", output.updated_harness_file_content)
         self.__update_harness(output.updated_harness_file_content)
-        self.report["errors"][-1]["result"] = output.updated_harness_file_content
+        return history
 
     def __update_harness(self, harness_content: str):
-        logger.info("Updated harness file content: \n%s", harness_content)
-        with open(self.target_file_path, "w+", encoding="utf-8") as f:
+        with open(self.harness_file_path, "w+", encoding="utf-8") as f:
             f.write(harness_content)
 
-    def __is_error_solved(self, error) -> bool:
-        error_report = ErrorReport(
-            extract_errors_and_payload(self.target_func, self.target_file_path),
-            get_json_errors(self.target_file_path)
-        )
-        return error.error_id not in error_report.json_true_errors
+    def __is_error_covered(self, error, error_report) -> bool:
+        result = error.error_id in (error_report.json_true_errors | error_report.json_false_errors)
+        if result:
+            logger.info("Error '%s' covered", error.error_id)
+        else:
+            logger.info("Error '%s' not covered", error.error_id)
+        return result
+ 
+    def __is_error_solved(self, error, error_report) -> bool:
+        result = error.error_id in error_report.json_true_errors
+        if result:
+            logger.info("Error '%s' solved", error.error_id)
+        else:
+            logger.info("Error '%s' not solved", error.error_id)
+        return result
 
-    def __compute_user_prompt(self, error: CBMCError):
-        if self.__previous_response is None:
+    def __compute_user_prompt(self, error: CBMCError, cause_of_failure):
+        logger.info("Computing user prompt using 'cause_of_failure' %s", cause_of_failure)
+        if cause_of_failure is None:
+            logger.info("cause_of_failure is None")
             advice = self.__get_advice(error.cluster)
             user_prompt = self.__get_prompt("no_previous_user")
             user_prompt = user_prompt.replace("{message}", error.msg)
-            user_prompt = user_prompt.replace("{stack}", '\n'.join(
-                [f'in {func}, Line: {line}' for func, line in error.stack]))
+            user_prompt = user_prompt.replace("{target_file_path}", self.target_file_path)
+            user_prompt = user_prompt.replace("{harness_file_path}", self.harness_file_path) 
             user_prompt = user_prompt.replace(
                 "{variables}", json.dumps(error.vars, indent=4))
             user_prompt = user_prompt.replace("{advice}", '\n'.join(
                 [f'{i + 1}. {step}' for i, step in enumerate(advice)]))
             user_prompt = user_prompt.replace("{harness}", self.target_func)
             return user_prompt
-        if self.__cause_of_failure is None:
-            user_prompt = self.__get_prompt("general_error_user")
-            user_prompt = user_prompt.replace(
-                "{errors}", json.dumps(error.vars, indent=4))
+        if cause_of_failure["reason"] == "make_failed":
+            logger.info("Reason: make_failed")
+            user_prompt = self.__get_prompt("make_failed_user")
+            user_prompt = user_prompt.replace("{make_output}", cause_of_failure["make_output"])
             return user_prompt
-        if self.__cause_of_failure["reason"] == "harness_update_error":
-            user_prompt = self.__get_prompt("harness_update_error_user")
-            user_prompt = user_prompt.replace(
-                "{function}", self.__cause_of_failure["error"].func)
-            user_prompt = user_prompt.replace(
-                "{previous_line}", self.__cause_of_failure["error"].prev_line)
+        if cause_of_failure["reason"] == "error_not_covered":
+            logger.info("Reason: error_not_covered")
+            user_prompt = self.__get_prompt("error_not_covered_user")
             return user_prompt
-        if self.__cause_of_failure["reason"] == "syntax_error":
-            user_prompt = self.__get_prompt("syntax_error_user")
-            return user_prompt
-        if self.__cause_of_failure["reason"] == "coverage_error":
-            user_prompt = self.__get_prompt("coverage_error_user")
-            return user_prompt
-        if self.__cause_of_failure["reason"] == "precondition_error":
-            user_prompt = self.__get_prompt("precondition_error_user")
+        if cause_of_failure["reason"] == "error_not_fixed":
+            logger.info("Reason: error_not_fixed")
+            user_prompt = self.__get_prompt("error_not_fixed_user")
             user_prompt = user_prompt.replace(
-                "{new_errors}", self.__cause_of_failure["error"].new_errors)
+                "{variables}", json.dumps(error.vars, indent=4)
+            )
             return user_prompt
         raise ValueError(
-            f"Unknown cause_of_failure reason: {self.__cause_of_failure['reason']}")
+            f"Unknown cause_of_failure reason: {cause_of_failure['reason']}",
+        )
 
-    def __execute_make(self) -> bool:
+    def __execute_make(self) -> dict:
         logger.info("Executing 'make' into '%s'", self.harness_path)
         result = self.execute_command("make -j4", workdir=self.harness_path, timeout=600)
-        return result["status"] == Status.SUCCESS
+        return result
 
     def __create_backup(self):
         backup_path = os.path.join(
             self.harness_path, f"{self.target_func}.backup",
         )
-        with open(self.target_file_path, "r", encoding="utf-8") as src:
+        with open(self.harness_file_path, "r", encoding="utf-8") as src:
             with open(backup_path, "w", encoding="utf-8") as dst:
                 dst.write(src.read())
         logger.info("Backup created sucessfully.")
 
-    def __pop_error(self) -> CBMCError | None:  # TODO: Refactor Error Handling
-        error_report = ErrorReport(
-            extract_errors_and_payload(self.target_func, self.target_file_path),
-            get_json_errors(self.target_file_path)
-        )
+    def __pop_error(self, error_report: ErrorReport, errors_to_skip: set) -> CBMCError | None:  # TODO: Refactor Error Handling
         logger.info("Unresolved Errors: %i", len(error_report.unresolved_errs))
-        error = error_report.get_next_error()
+        error = error_report.get_next_error(errors_to_skip)
         if error[2] is None:
             return None
         error[2].cluster = "" if error[0] is None else error[0]
