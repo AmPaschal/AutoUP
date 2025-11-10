@@ -47,3 +47,13 @@ python src/run.py debugger \
 --harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_3/gnrc_sixlowpan_iphc_recv \
 --target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_3/gnrc_sixlowpan_iphc_recv/gnrc_sixlowpan_iphc_recv_harness.c \
 --log_file=logs/output.log
+
+
+
+python3 src/run.py debugger \
+--root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
+--target_function_name=_parse_options \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_3/_parse_options \
+--target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/sys/net/gnrc/routing/rpl/gnrc_rpl_control_messages.c \
+--log_file=output-debugger-gcoap-forward-proxy-7.txt \
+--metrics_file=output-debugger-gcoap-forward-proxy-7.jsonl

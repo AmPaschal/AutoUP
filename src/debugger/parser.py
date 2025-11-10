@@ -352,7 +352,9 @@ def analyze_traces(extracted_errors, json_path, new_precon_lines=[]):
             while True:
                 func_call = caller.find("div", class_="function-call").find("div", class_="header")
                 if error['is_built_in'] and error['file'] is None: # If it's a built-in func get coverage of the place where it was called
-                    error['file'] = re.match(r'(?:\.+/)?((?:.*)\.c)', func_call.find("a")['href']).group(1)
+                    m = re.match(r'(?:\.+/)?((?:.*)\.c)', func_call.find("a")['href'])
+                    if m:
+                        error['file'] = m.group(1)
                 caller_func_name, file_name, line_num = re.match(r'Step \d+: Function (.*), File (.*), Line (\d+)', func_call.text).groups()
                 line_num = int(line_num)
                 if caller_func_name == 'None':
