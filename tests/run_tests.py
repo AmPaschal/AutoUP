@@ -12,6 +12,10 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from src.commons.metric_summary import process_metrics
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] (%(filename)s:%(lineno)d) %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 class Status(enum.Enum):
@@ -56,6 +60,8 @@ def summarize_metrics_per_agent(metrics_dir: str):
     if not metric_files:
         logger.warning(f"No metrics files found in directory: {metrics_dir}")
         return
+    
+    logger.info(f"Found {len(metric_files)} metrics files in directory: {metrics_dir}")
 
     metrics = []
 
