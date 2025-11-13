@@ -124,19 +124,26 @@ class GPT(LLM):
 
         while True:
             # Call the model
-            client_response: ParsedResponse = self.with_retry_on_error(
-                lambda: self.client.responses.parse(
-                    model="gpt-5",
-                    instructions=system_messages,
-                    input=input_list,
-                    text_format=output_format,
-                    tool_choice="auto",
-                    reasoning={"effort": "low"},
-                    tools=llm_tools,
-                    temperature=1.0,
-                ),
-                [openai.RateLimitError, pydantic_core._pydantic_core.ValidationError]
-            )
+            try:
+                client_response: ParsedResponse = self.with_retry_on_error(
+                    lambda: self.client.responses.parse(
+                        model="gpt-5",
+                        instructions=system_messages,
+                        input=input_list,
+                        text_format=output_format,
+                        tool_choice="auto",
+                        reasoning={"effort": "low"},
+                        tools=llm_tools,
+                        temperature=1.0,
+                    ),
+                    [openai.RateLimitError, pydantic_core._pydantic_core.ValidationError]
+                )
+            except openai.BadRequestError as bad_req_err:
+                logger.error(f"Bad request error from LLM: {bad_req_err}")
+                return None, {}
+            except Exception as e:
+                logger.error(f"Unexpected error from LLM: {e}")
+                return None, {}
 
             # Update token usage
             if client_response.usage:

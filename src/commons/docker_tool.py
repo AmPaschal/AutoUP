@@ -1,13 +1,50 @@
 from typing import Optional
+from filelock import FileLock, Timeout
 import docker
 import os
-from docker.errors import ImageNotFound, BuildError, APIError
+from docker.errors import DockerException, BuildError, APIError
 from docker.models.containers import Container
 
 from logger import setup_logger
 
 
 logger = setup_logger(__name__)
+
+# =====================================================
+# 🧱 Message Constants
+# =====================================================
+
+MSG_OK = "[OK] Connected to Docker daemon. Version: {version}"
+
+MSG_PERMISSION_DENIED = (
+    "[ERROR] Permission denied when accessing the Docker socket.\n"
+    "Your user likely isn't part of the 'docker' group."
+)
+MSG_SOCKET_NOT_FOUND = (
+    "[ERROR] Docker socket not found. The Docker daemon may not be running."
+)
+MSG_CONNECTION_REFUSED = (
+    "[ERROR] Cannot connect to the Docker daemon. It may not be running."
+)
+MSG_DOCKER_NOT_FOUND = (
+    "[ERROR] Docker is not installed or not found in your PATH."
+)
+MSG_SDK_NOT_INSTALLED = (
+    "[ERROR] The Docker SDK for Python is not installed."
+)
+MSG_UNKNOWN_ERROR = "[ERROR] Unexpected error while checking Docker:\n{error}"
+
+# ---- Suggested fixes ----
+FIX_PERMISSION = "sudo usermod -aG docker $USER"
+FIX_START_DAEMON = "sudo systemctl start docker"
+FIX_INSTALL_DOCKER = "https://docs.docker.com/get-docker/"
+FIX_INSTALL_SDK = "pip install docker"
+
+# ---- Message templates ----
+SUGGEST_GROUP = f"Add your user to the 'docker' group and re-login:\n {FIX_PERMISSION}"
+SUGGEST_START = f"Start the Docker service using:\n {FIX_START_DAEMON}"
+SUGGEST_INSTALL = f"Install Docker from:\n {FIX_INSTALL_DOCKER}"
+SUGGEST_SDK = f"Install the Python Docker SDK using:\n {FIX_INSTALL_SDK}"
 
 class ProjectContainer:
     def __init__(self, dockerfile_path: str, host_dir: str, container_name: str,
@@ -26,6 +63,35 @@ class ProjectContainer:
         self.client = docker.from_env()
         self.container: Optional[Container] = None
         self.image = None
+
+    def suggest_fix(self, error, suggestion=None):
+        logger.error(error)
+        if suggestion:
+            logger.error(f"    {suggestion}\n")
+
+    def check_docker(self):
+        """Check Docker daemon connectivity and permissions."""
+        try:
+            self.client.ping()
+            version_info = self.client.version()
+            logger.info(MSG_OK.format(version=version_info.get("Version", "unknown")))
+            return True
+        except DockerException as e:
+            error_msg = str(e).lower()
+            if "docker" in error_msg and "not found" in error_msg:
+                self.suggest_fix(MSG_DOCKER_NOT_FOUND, SUGGEST_INSTALL)
+            elif "permission denied" in error_msg or "permissionerror" in error_msg:
+                self.suggest_fix(MSG_PERMISSION_DENIED, SUGGEST_GROUP)
+            elif "connection refused" in error_msg or "cannot connect" in error_msg:
+                self.suggest_fix(MSG_CONNECTION_REFUSED, SUGGEST_START)
+            elif "file not found" in error_msg or "no such file" in error_msg:
+                self.suggest_fix(MSG_SOCKET_NOT_FOUND, SUGGEST_START)
+            else:
+                self.suggest_fix(MSG_UNKNOWN_ERROR.format(error=str(e)), None)
+            return False
+        except Exception as e:
+            self.suggest_fix(MSG_UNKNOWN_ERROR.format(error=str(e)), None)
+            return False
 
     def build_image(self) -> str:
         """Build a Docker image from Dockerfile."""
@@ -78,21 +144,34 @@ class ProjectContainer:
 
     def initialize_tools(self):
         """Initialize tools inside the container, if necessary."""
-        
-        # First, initialize cscope database if cscope is installed
+
+        # --- Step 1: Check if cscope is available ---
         cscope_check = self.execute("which cscope")
-        if cscope_check['exit_code'] == 0 and cscope_check['stdout'].strip():
-            logger.info("[+] Initializing cscope database...")
-            cscope_init = self.execute("cscope -Rbqk")
-            if cscope_init['exit_code'] != 0:
-                logger.warning("[!] cscope initialization failed.")
-            else:
-                logger.info("[+] cscope database initialized.")
-        else:
+        if cscope_check["exit_code"] != 0 or not cscope_check["stdout"].strip():
             logger.info("[*] cscope not found in container; skipping cscope initialization.")
+            return
+
+        # --- Step 2: Try to acquire a file-based lock before initializing cscope ---
+        lock_path = os.path.join(self.host_dir, ".cscope.lock")
+        lock = FileLock(lock_path, timeout=0)  # non-blocking: skip if busy
+
+        try:
+            with lock:
+                logger.info("[+] Acquired cscope lock; initializing database...")
+                cscope_init = self.execute("cscope -Rbqk")
+                if cscope_init["exit_code"] == 0:
+                    logger.info("[+] cscope database initialized successfully.")
+                else:
+                    logger.warning("[!] cscope initialization failed.")
+        except Timeout:
+            logger.info("[*] Another process is building the cscope database; skipping.")
 
     def initialize(self):
         """Initialize container, building image if necessary."""
+
+        if not self.check_docker():
+            raise RuntimeError("Docker daemon is not accessible. Cannot initialize container.")
+
         self.image = self.build_image()
 
         self.start_container()

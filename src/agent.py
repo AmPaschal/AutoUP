@@ -45,12 +45,7 @@ class AIAgent(ABC):
         encoding = tiktoken.get_encoding("cl100k_base")
         
         stdout_tokens = encoding.encode(result["stdout"])
-        stderr_tokens = encoding.encode(result["stderr"])
-
-        total_tokens = len(stdout_tokens) + len(stderr_tokens)
-
-        if total_tokens > 130000:
-            max_input_tokens = 180000      
+        stderr_tokens = encoding.encode(result["stderr"])  
         
         trunc_msg = "[Truncated to fit context window]"
         trunc_msg_tokens = encoding.encode(trunc_msg)
@@ -179,7 +174,7 @@ class AIAgent(ABC):
         else:
             raise ValueError(f"Unknown function call: {tool_name}")
         
-        logger.info(f"Function call response: {tool_response}")
+        logger.info(f"Function call response:\n {tool_response}")
         return str(tool_response)
 
     def log_task_attempt(self, task_id, attempt_number, llm_data, error):

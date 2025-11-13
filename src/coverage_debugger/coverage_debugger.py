@@ -100,7 +100,7 @@ class CoverageDebugger(AIAgent, Generable):
                 total = stats.get("total", 0)
                 missed = max(total - hit, 0)
 
-                if total == 0 or pct >= 1.0:
+                if hit == 0 or pct >= 1.0:
                     continue  # fully covered or invalid
 
                 entry = {
@@ -310,11 +310,9 @@ class CoverageDebugger(AIAgent, Generable):
 
         # CASE 1 — LLM returned no valid response
         if not llm_response:
-            user_prompt = (
-                "The LLM did not return a valid response. "
-                "Please provide a response using the expected format.\n"
-            )
-            return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "no_llm_response")
+            # An error occurred. We will skip this block 
+            logger.error("[ERROR] No valid response from LLM.")
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "no_llm_response")
 
         logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
 
@@ -331,9 +329,13 @@ class CoverageDebugger(AIAgent, Generable):
         make_results = self.run_make()
 
         # CASE 3 — Make failed entirely
-        if make_results.get("status", Status.ERROR) in [Status.ERROR, Status.TIMEOUT]:
+        if make_results.get("status", Status.ERROR) in [Status.ERROR]:
             logger.error("Make command failed to run.")
-            return (AgentAction.TERMINATE, None, current_coverage, "make_invocation_failed")
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "make_invocation_failed")
+
+        if make_results.get("status", Status.ERROR) == Status.TIMEOUT:
+            logger.error("Make command timed out.")
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "make_timeout")
 
         # CASE 4 — Build failed (exit code != 0)
         if make_results.get("status", Status.ERROR) == Status.FAILURE:
@@ -436,6 +438,9 @@ class CoverageDebugger(AIAgent, Generable):
             attempts += 1
             logger.info(f'LLM Prompt:\n{user_prompt}')
 
+            task_id = f"cov-{next_function['function']}-{target_block_line}"
+            logger.info(f"[INFO] Processing task '{task_id}', attempt {attempts}.")
+
             llm_response, chat_data = self.llm.chat_llm(
                 system_prompt, user_prompt, CoverageDebuggerResponse,
                 llm_tools=self.get_coverage_tools(),
@@ -443,9 +448,12 @@ class CoverageDebugger(AIAgent, Generable):
                 conversation_history=conversation
             )
 
-            task_id = f"cov-{next_function['function']}-{target_block_line}"
-
-            llm_result, user_prompt, current_coverage, error_tag = self.validate_llm_response(llm_response, next_function, target_block_line, attempts, current_coverage)
+            llm_result, user_prompt, current_coverage, error_tag = self.validate_llm_response(
+                                                                        llm_response, 
+                                                                        next_function, 
+                                                                        target_block_line, 
+                                                                        attempts, 
+                                                                        current_coverage)
             self.log_task_attempt(task_id, attempts, chat_data, error=error_tag)
 
             if llm_result == AgentAction.RETRY_BLOCK and attempts < self._max_attempts: 
@@ -467,6 +475,10 @@ class CoverageDebugger(AIAgent, Generable):
                 break
 
             if get_next_block:
+                # First, let's log the overall coverage
+                overall_coverage = self.get_overall_coverage()
+                if overall_coverage:
+                    logger.info(f"[INFO] Overall Coverage: {json.dumps(overall_coverage, indent=2)}")
                 next_function, coverage_data, target_block_line = self._get_next_uncovered_function(functions_to_skip)
                 if not next_function or not coverage_data or not target_block_line:
                     logger.info("[INFO] No more uncovered functions found.")
