@@ -142,8 +142,6 @@ def process_mode(args):
 
 def summarize_metrics_per_agent(metrics_file: str, logger):
     """ Summarize metrics from the given file and print to logger """
-    from commons.metric_summary import summarize_metrics_file
-
     with open(metrics_file, "r") as file:
         metrics_data = file.readlines()
 

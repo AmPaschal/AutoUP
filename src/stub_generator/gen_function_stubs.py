@@ -18,7 +18,7 @@ class StubGenerator(AIAgent, Generable):
 
     def __init__(self, root_dir, harness_dir, target_func, target_file_path, metrics_file, project_container):
         super().__init__(
-            "MakefileGenerator",
+            "StubGenerator",
             project_container=project_container,
             metrics_file=metrics_file
         )
@@ -282,12 +282,14 @@ class StubGenerator(AIAgent, Generable):
         goto_file = os.path.join(self.harness_dir, "build", f"{self.target_func}.goto")
         if not os.path.exists(goto_file):
             logger.error(f"GOTO file not found: {goto_file}")
+            self.log_agent_result({"stubs_generated": None})
             return False
         
         functions_to_stub = self.extract_functions_without_body_and_returning_pointer(goto_file)
 
         if not functions_to_stub:
             logger.info("No functions found!")
+            self.log_agent_result({"stubs_generated": 0})
             return True
 
         system_prompt, user_prompt = self.prepare_initial_prompt(functions_to_stub)
@@ -300,6 +302,7 @@ class StubGenerator(AIAgent, Generable):
 
         conversation = []
 
+        stubs_generated = len(functions_to_stub)
         while user_prompt and attempts < self._max_attempts:
             logger.info(f'User Prompt:\n{user_prompt}')
 
@@ -331,7 +334,7 @@ class StubGenerator(AIAgent, Generable):
                 if backup_path:
                     # Remove backup as harness is successfully generated
                     os.remove(backup_path)
-                
+                self.log_agent_result({"stubs_generated": stubs_generated})
                 return True
             elif status_code == Status.FAILURE:
                 logger.info("Make command failed; reprompting LLM with make results.")
@@ -358,7 +361,7 @@ class StubGenerator(AIAgent, Generable):
         if backup_path:
             # Restore original harness
             self.restore_backup(backup_path)
-
+        self.log_agent_result({"stubs_generated": None})
         return False
         
         

@@ -56,6 +56,11 @@ class ProofDebugger(AIAgent, Generable):
         make_success = self.__execute_make()
         if not make_success:
             logger.error("Initial proof does not build successfully.")
+            self.log_agent_result({
+                "initial_errors": None,
+                "errors_solved": None,
+                "final_errors": None,
+            })
             return False
         self.__create_backup()
         error_report = ErrorReport(
@@ -63,17 +68,27 @@ class ProofDebugger(AIAgent, Generable):
             get_json_errors(self.harness_file_path)
         )
         errors_to_skip = set()
+        initial_errors = len(error_report.unresolved_errs)
+        errors_solved = 0
         error = self.__pop_error(error_report, errors_to_skip)
         while error is not None:
             logger.info("Target Error: %s", error)
             result = self.generate_single_fix(error)
             if not result:
                 errors_to_skip.add(error.error_id)
+            else:
+                errors_solved += 1
             error_report = ErrorReport(
                 extract_errors_and_payload(self.target_func, self.harness_file_path),
                 get_json_errors(self.harness_file_path)
             )
             error = self.__pop_error(error_report, errors_to_skip)
+        final_errors = len(error_report.unresolved_errs)
+        self.log_agent_result({
+            "initial_errors": initial_errors,
+            "errors_solved": errors_solved,
+            "final_errors": final_errors,
+        })
         return True
 
     def generate_single_fix(self, error: CBMCError) -> bool:

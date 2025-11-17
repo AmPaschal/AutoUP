@@ -198,9 +198,9 @@ def main():
     build_cscope_database()
     folders = [
         d for d in os.listdir(PATH)
-        if os.path.isdir(os.path.join(PATH, d))
+        if os.path.isdir(os.path.join(PATH, d)) and "_receive" in d
     ]
-    folders = random.sample(folders, 5)
+    #folders = random.sample(folders, 5)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     with ThreadPoolExecutor(max_workers=MAX_PROCESSES) as executor:
         futures = {
