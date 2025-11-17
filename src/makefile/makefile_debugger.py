@@ -17,7 +17,7 @@ from logger import setup_logger
 load_dotenv()
 logger = setup_logger(__name__)
 
-class LLMMakefileGenerator(AIAgent, Generable):
+class MakefileDebugger(AIAgent, Generable):
 
 
     def __init__(self, args, project_container):
@@ -157,7 +157,7 @@ class LLMMakefileGenerator(AIAgent, Generable):
 if __name__ == "__main__":
 
     if len(sys.argv) < 5:
-        logger.error("Usage: python gen_makefile.py <target function> <root dir> <harness path> <file path>")
+        logger.error("Usage: python makefile_debugger.py <target function> <root dir> <harness path> <file path>")
         sys.exit(1)
 
     target_function = sys.argv[1]
@@ -176,6 +176,6 @@ if __name__ == "__main__":
         "metrics_file": None
     })()
 
-    makefile_generator = LLMMakefileGenerator(args, None)
+    makefile_generator = MakefileDebugger(args, None)
     makefile_generator.generate()
 

@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 # AutoUP
 from coverage_debugger.coverage_debugger import CoverageDebugger
-from makefile.gen_makefile import LLMMakefileGenerator
+from src.makefile.makefile_debugger import MakefileDebugger
 from initial_harness_generator.gen_harness import InitialHarnessGenerator
 from debugger.debugger import ProofDebugger
 from commons.docker_tool import ProjectContainer
@@ -93,7 +93,7 @@ def process_mode(args):
             args=args,
             project_container=project_container
         ))
-        agents.append(LLMMakefileGenerator(
+        agents.append(MakefileDebugger(
             args=args,
             project_container=project_container
         ))
