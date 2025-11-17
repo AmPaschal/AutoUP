@@ -1,59 +1,7 @@
-; branch: harness-gen-testcases
-; python src/run.py debugger \
-; --root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
-; --target_function_name=_gcoap_forward_proxy_copy_options \
-; --harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_gcoap_forward_proxy_copy_options
-
-branch: coverage-resolver
-python src/run.py debugger \
---root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
---target_function_name=_gcoap_forward_proxy_copy_options \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_gcoap_forward_proxy_copy_options
-
-branch: coverage-resolver
-python src/run.py debugger \
---root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
---target_function_name=_on_regack \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_on_regack
-
-branch: coverage-resolver
-python src/run.py debugger \
---root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
---target_function_name=_parse_options \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_parse_options
-
-branch: coverage-resolver
-python src/run.py debugger \
---root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
---target_function_name=_preparse_advertise \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_preparse_advertise \
---target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests/_preparse_advertise/_preparse_advertise_harness.c
-
-
---------------------------------------------------------
-branch: harness-gen-testcases
-
-
-python src/run.py debugger \
---root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
---target_function_name=_preparse_advertise \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/base64_encode_base \
---target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_2/base64_encode_base/base64_encode_base_harness.c
-
-
-python src/run.py debugger \
---root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
---target_function_name=gnrc_sixlowpan_iphc_recv \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_3/gnrc_sixlowpan_iphc_recv \
---target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_3/gnrc_sixlowpan_iphc_recv/gnrc_sixlowpan_iphc_recv_harness.c \
---log_file=logs/output.log
-
-
-
 python3 src/run.py debugger \
 --root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
---target_function_name=_parse_options \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_3/_parse_options \
---target_file_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/sys/net/gnrc/routing/rpl/gnrc_rpl_control_messages.c \
---log_file=output-debugger-gcoap-forward-proxy-7.txt \
---metrics_file=output-debugger-gcoap-forward-proxy-7.jsonl
+--target_function_name=_receive \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_4/_receive \
+--target_file_path=sys/net/gnrc/network_layer/ipv6/gnrc_ipv6.c \
+--log_file=logs/2025-11-13_19-34/_receive.log \
+--metrics_file=metrics/2025-11-13_19-34/_receive.jsonl
