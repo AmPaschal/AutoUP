@@ -10,6 +10,7 @@ import tiktoken
 from commons.docker_tool import ProjectContainer
 from logger import setup_logger
 from commons.utils import Status
+from commons.models import GPT
 
 logger = setup_logger(__name__)
 
@@ -18,12 +19,21 @@ class AIAgent(ABC):
     Shared features for any OpenAI agent that interacts with a vector store
     """
 
-    def __init__(self, agent_name, project_container: ProjectContainer, harness_dir, metrics_file: str=""):
+    def __init__(self, agent_name, args, project_container: ProjectContainer):
         self.agent_name = agent_name
-        self.harness_dir = harness_dir
-        self.project_container: ProjectContainer = project_container
-        self._max_attempts = 5
-        self.metrics_file = metrics_file
+        self.root_dir=args.root_dir
+        self.harness_dir=args.harness_path
+        self.target_function=args.target_function_name
+        self.target_file_path=args.target_file_path
+        self.metrics_file=args.metrics_file
+        self.project_container=project_container
+
+
+        self.harness_file_name = f"{args.target_function}_harness.c"
+        self.harness_file_path = os.path.join(self.harness_dir, self.harness_file_name)
+        self.makefile_path = os.path.join(self.harness_dir, 'Makefile')
+        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
+        
 
     def truncate_result_custom(self, result: dict, cmd: str, max_input_tokens: int, model: str) -> dict:
         """
@@ -209,6 +219,21 @@ class AIAgent(ABC):
 
         with open(self.metrics_file, 'a') as f:
             f.write(json.dumps(log_entry) + "\n")
+
+
+    def update_makefile(self, makefile_content):
+        with open(self.makefile_path, 'w') as file:
+            file.write(makefile_content)
+
+    def update_harness(self, harness_code):
+        
+        with open(self.harness_file_path, 'w') as f:
+            f.write(harness_code)
+
+    def get_makefile(self):
+        with open(self.makefile_path, 'r') as file:
+            makefile_content = file.read()
+        return makefile_content
 
 
     def execute_command(self, cmd: str, workdir: str, timeout: int) -> dict:

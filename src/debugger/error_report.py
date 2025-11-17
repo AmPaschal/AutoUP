@@ -93,9 +93,6 @@ class ErrorReport:
         self.unresolved_errs = set(self.errors_by_id.keys())
         self.resolved_errs = set()
         self.failed_errs = set()
-
-    def __len__(self):
-        return len(self.error_ids)
     
     def __contains__(self, error_id):
         return error_id in self.errors_by_id
@@ -142,67 +139,6 @@ class ErrorReport:
             # If error was not resolved, update the variable values
             self.get_err(target_error_id).update(new_errors.get_err(target_error_id))
             return False
-
-    def update_all_errs(self, target_err_id, new_errors):
-        """
-        Updates this report by moving all resolved errors to the resolved set
-        Updates the variable values of unresolved errors with the values from the latest run
-        Checks for new errors and adds them to the instance
-        Returns a list of errors that were resolved for logging purposes
-        """
-
-        target_err = self.get_err(target_err_id)
-
-        resolved_errors = set.union(self.unresolved_errs,self.failed_errs) - new_errors.unresolved_errs
-
-        for resolved_error in resolved_errors:
-            if resolved_error in self.unresolved_errs:
-                self.unresolved_errs.remove(resolved_error)
-                self.resolved_errs.add(resolved_error)
-            elif resolved_error in self.failed_errs:
-                self.failed_errs.remove(resolved_error)
-                self.resolved_errs.add(resolved_error)
-
-            if resolved_error != target_err_id:
-                target_err.indirectly_resolved.append(str(self.get_err(resolved_error)))
-                self.get_err(resolved_error).resolved_by = str(target_err)
-
-        # Go through all errors in the new report and update variables for existing errors
-        # As well as adding/reporting any new errors
-        new_errs = False
-
-        for cluster in new_errors.errors_by_cluster:
-            if cluster not in self.errors_by_cluster:
-                if not new_errs:
-                    print("WARNING: new errors introduced by precondition:\n")
-                    new_errs = True
-
-                self.errors_by_cluster[cluster] = set()
-                for err_id in new_errors.errors_by_cluster[cluster]:
-                    self.errors_by_cluster[cluster].add(err_id)
-                    self.errors_by_id[err_id] = new_errors.get_err(err_id)
-                    self.unresolved_errs.add(err_id)
-                    print(f"  {new_errors.get_err(err_id)}")
-                
-            else:
-                for err_id in new_errors.errors_by_cluster[cluster]:
-                    if err_id not in self.errors_by_cluster[cluster]:
-                        if not new_errs:
-                            print("WARNING: new errors introduced by precondition:\n")
-                            new_errs = True
-                        
-                        self.errors_by_cluster[cluster].add(err_id)
-                        self.errors_by_id[err_id] = new_errors.get_err(err_id)
-                        self.unresolved_errs.add(err_id)
-                        print(f"  {new_errors.get_err(err_id)}")
-
-                    else:
-                        self.get_err(err_id).update(new_errors.get_err(err_id))
-
-    def update_failed_err(self, target_err_id):
-
-        self.failed_errs.add(target_err_id)
-        self.unresolved_errs.discard(target_err_id)
 
     def generate_results_report(self):
         """

@@ -177,10 +177,19 @@ def analyze_error_report(errors_div, report_dir, new_precon_lines=[]):
             # Get the li holding line info
             error_report = li.find('li')
             while error_report is not None:
-                func_name = re.search(r'Function ([a-zA-Z0-9_]+)', error_report.text).group(1)
-
+                func_name_found = re.search(r'Function ([a-zA-Z0-9_]+)', error_report.text)
+                
+                if func_name_found:
+                    func_name = func_name_found.group(1)
+                else:
+                    raise ValueError("Couldn't find function name in error report")
+                
                 if not is_built_in:
-                    func_file_path = re.match(r'(?:\.+/)?((?:.*)\.(c|h))\.html', error_report.find("a")['href']).group(1) # Strip out the ./ and .html from this path
+                    func_file_path_found = re.match(r'(?:\.+/)?((?:.*)\.(c|h))\.html', error_report.find("a")['href']) # Strip out the ./ and .html from this path
+                    if func_file_path_found:
+                        func_file_path = func_file_path_found.group(1)
+                    else:
+                        raise ValueError("Couldn't find function file path in error report")
                 else:
                     func_file_path = None
 
@@ -194,7 +203,12 @@ def analyze_error_report(errors_div, report_dir, new_precon_lines=[]):
                     else:
                         is_null_pointer_deref = False
 
-                    line_num = int(re.search(r'\s*Line (\d+)',error_block.text).group(1))
+                    line_num_found = re.search(r'\s*Line (\d+)',error_block.text)
+                                         
+                    if line_num_found:
+                        line_num = int(line_num_found.group(1))
+                    else:
+                        raise ValueError("Couldn't find line number in error report")
 
                     
                     if func_file_path != None and re.match(r'.*_harness.c', func_file_path):

@@ -90,48 +90,29 @@ def process_mode(args):
     agents: list[Generable] = []
     if args.mode in ["harness", "all"]:
         agents.append(InitialHarnessGenerator(
-            root_dir=args.root_dir,
-            harness_dir=args.harness_path,
-            target_func=args.target_function_name,
-            target_file_path=args.target_file_path,
-            metrics_file=args.metrics_file,
+            args=args,
             project_container=project_container
         ))
         agents.append(LLMMakefileGenerator(
-            root_dir=args.root_dir,
-            harness_dir=args.harness_path,
-            target_func=args.target_function_name,
-            target_file_path=args.target_file_path,
-            metrics_file=args.metrics_file,
+            args=args,
             project_container=project_container
         ))
     if args.mode in ["function-stubs", "all"]:
         agents.append(StubGenerator(
-            root_dir=args.root_dir,
-            harness_dir=args.harness_path,
-            target_func=args.target_function_name,
-            target_file_path=args.target_file_path,
-            metrics_file=args.metrics_file,
+            args=args,
             project_container=project_container
         ))
     if args.mode in ["coverage", "all"]:
         agents.append(CoverageDebugger(
-            root_dir=args.root_dir,
-            harness_dir=args.harness_path,
-            target_func=args.target_function_name,
-            target_file_path=args.target_file_path,
-            metrics_file=args.metrics_file,
+            args=args,
             project_container=project_container
         ))
-    if args.mode in ["debugger"]:
+    if args.mode in ["debugger", "all"]:
         agents.append(ProofDebugger(
-            harness_path=args.harness_path,
-            root_dir=args.root_dir,
-            target_function_name=args.target_function_name,
-            target_file_path=args.target_file_path,
-            project_container=project_container,
-            metrics_file=args.metrics_file,
+            args=args,
+            project_container=project_container
         ))
+        
 
     for agent in agents:
         result = agent.generate()

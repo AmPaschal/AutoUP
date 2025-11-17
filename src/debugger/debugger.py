@@ -28,28 +28,17 @@ logger = setup_logger(__name__)
 class ProofDebugger(AIAgent, Generable):
     """Agentic Proof Debugger"""
 
-    def __init__(self, harness_path, root_dir, target_function_name, target_file_path, project_container, metrics_file):
+    def __init__(self, args, project_container):
         super().__init__(
             agent_name="debugger",
+            args=args,
             project_container=project_container,
-            harness_dir=harness_path,   
-            metrics_file=metrics_file
         )
-        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
-        self.harness_path = harness_path
-        self.root_dir = root_dir
-        self.target_func = f"{target_function_name}_harness.c"
-        self.harness_file_path = os.path.join(harness_path, self.target_func)
-        self.target_file_path = target_file_path
         self.programmatic_handler = DerefereneErrorHandler(
             root_dir=self.root_dir,
-            harness_path=self.harness_path,
+            harness_path=self.harness_dir,
             harness_file_path=self.harness_file_path
         )
-        logger.info("self.harness_path %s", self.harness_path)
-        logger.info("self.root_dir %s", self.root_dir)
-        logger.info("self.target_func %s", self.target_func)
-        logger.info("self.target_file_path %s", self.target_file_path)
         self.__max_attempts = 3
 
 
@@ -63,7 +52,7 @@ class ProofDebugger(AIAgent, Generable):
         if current_coverage:
             logger.info(f"[INFO] Initial Overall Coverage: {json.dumps(current_coverage, indent=2)}")
 
-        error_clusters = extract_errors_and_payload(self.target_func, self.harness_file_path)
+        error_clusters = extract_errors_and_payload(self.harness_file_name, self.harness_file_path)
         error_report = ErrorReport(
             error_clusters
         )
@@ -85,7 +74,7 @@ class ProofDebugger(AIAgent, Generable):
                     self.__restore_backup()
             errors_to_skip.add(error.error_id)
             self.__discard_backup()
-            error_clusters = extract_errors_and_payload(self.target_func, self.harness_file_path)
+            error_clusters = extract_errors_and_payload(self.harness_file_name, self.harness_file_path)
             error_report = ErrorReport(
                 error_clusters
             )
@@ -95,7 +84,7 @@ class ProofDebugger(AIAgent, Generable):
         return True
 
     def get_overall_coverage(self):
-        coverage_report_path = os.path.join(self.harness_path, "build/report/json/viewer-coverage.json")
+        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
         if not os.path.exists(coverage_report_path):
             logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
             return {}
@@ -223,7 +212,7 @@ class ProofDebugger(AIAgent, Generable):
         return result
  
     def __is_error_solved(self, error) -> bool:
-        current_errors = get_json_errors(self.harness_path)
+        current_errors = get_json_errors(self.harness_dir)
         result = error.error_id not in current_errors
         if result:
             logger.info("Error '%s' solved", error.error_id)
@@ -245,7 +234,7 @@ class ProofDebugger(AIAgent, Generable):
                     "{variables}", json.dumps(error.vars, indent=4))
             user_prompt = user_prompt.replace("{advice}", '\n'.join(
                 [f'{i + 1}. {step}' for i, step in enumerate(advice)]))
-            user_prompt = user_prompt.replace("{harness}", self.target_func)
+            user_prompt = user_prompt.replace("{harness}", self.harness_file_name)
             return user_prompt
         if cause_of_failure["reason"] == "make_failed":
             logger.info("Reason: make_failed")
@@ -280,27 +269,27 @@ class ProofDebugger(AIAgent, Generable):
         )
 
     def run_make(self):
-        make_results = self.execute_command("make -j4", workdir=self.harness_path, timeout=900)
+        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=900)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results
 
     def __create_backup(self):
         harness_backup_path = os.path.join(
-            self.harness_path, f"{self.target_func}.backup",
+            self.harness_dir, f"{self.harness_file_name}.backup",
         )
         with open(self.harness_file_path, "r", encoding="utf-8") as src:
             with open(harness_backup_path, "w", encoding="utf-8") as dst:
                 dst.write(src.read())
         build_backup_path = os.path.join(
-            self.harness_path, "build_backup",
+            self.harness_dir, "build_backup",
         )
         if os.path.exists(build_backup_path):
             subprocess.run(
                 ["rm", "-rf", build_backup_path],
                 check=True,
             )
-        build_path = os.path.join(self.harness_path, "build")
+        build_path = os.path.join(self.harness_dir, "build")
         if os.path.exists(build_path):
             subprocess.run(
                 ["cp", "-r", build_path, build_backup_path],
@@ -310,15 +299,15 @@ class ProofDebugger(AIAgent, Generable):
 
     def __restore_backup(self):
         harness_backup_path = os.path.join(
-            self.harness_path, f"{self.target_func}.backup",
+            self.harness_dir, f"{self.harness_file_name}.backup",
         )
         with open(harness_backup_path, "r", encoding="utf-8") as src:
             with open(self.harness_file_path, "w", encoding="utf-8") as dst:
                 dst.write(src.read())
         build_backup_path = os.path.join(
-            self.harness_path, "build_backup",
+            self.harness_dir, "build_backup",
         )
-        build_path = os.path.join(self.harness_path, "build")
+        build_path = os.path.join(self.harness_dir, "build")
         if os.path.exists(build_path):
             subprocess.run(
                 ["rm", "-rf", build_path],
@@ -333,12 +322,12 @@ class ProofDebugger(AIAgent, Generable):
 
     def __discard_backup(self):
         harness_backup_path = os.path.join(
-            self.harness_path, f"{self.target_func}.backup",
+            self.harness_dir, f"{self.harness_file_name}.backup",
         )
         if os.path.exists(harness_backup_path):
             os.remove(harness_backup_path)
         build_backup_path = os.path.join(
-            self.harness_path, "build_backup",
+            self.harness_dir, "build_backup",
         )
         if os.path.exists(build_backup_path):
             subprocess.run(
@@ -362,4 +351,4 @@ class ProofDebugger(AIAgent, Generable):
             return "".join(line for line in f if not line.lstrip().startswith("#"))
 
     def __get_advice(self, cluster: str):
-        return get_advice_for_cluster(cluster, self.target_func)
+        return get_advice_for_cluster(cluster, self.harness_file_name)

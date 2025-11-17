@@ -11,22 +11,13 @@ from logger import setup_logger
 logger = setup_logger(__name__)
 class InitialHarnessGenerator(AIAgent, Generable):
 
-    def __init__(self, root_dir, harness_dir, target_func, target_file_path, metrics_file, project_container):
+    def __init__(self, args, project_container):
         super().__init__(
             "InitialHarnessGenerator",
-            project_container,
-            harness_dir=harness_dir, 
-            metrics_file=metrics_file
+            args,
+            project_container
         )
-        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
-        self.root_dir = root_dir
-        self.harness_dir = harness_dir
-        self.target_func = target_func
-        self.target_file_path = target_file_path
         self._max_attempts = 5
-        
-        harness_dir = Path(harness_dir)
-        harness_dir.mkdir(parents=True, exist_ok=True)
 
     def extract_function_code(self, file_path, function_name):
         if not os.path.exists(file_path):
@@ -87,57 +78,103 @@ class InitialHarnessGenerator(AIAgent, Generable):
         with open("prompts/harness_generator_user.prompt", "r") as f:
             user_prompt = f.read()
 
-        user_prompt = user_prompt.replace("{FUNCTION_NAME}", self.target_func)
+        user_prompt = user_prompt.replace("{FUNCTION_NAME}", self.target_function)
         user_prompt = user_prompt.replace("{PROJECT_DIR}", self.root_dir)
         user_prompt = user_prompt.replace("{FUNCTION_SOURCE_FILE}", self.target_file_path)
-        function_source = self.extract_function_code(self.target_file_path, self.target_func)
+        function_source = self.extract_function_code(self.target_file_path, self.target_function)
         if function_source:
             user_prompt = user_prompt.replace("{FUNCTION_SOURCE}", function_source)
         else:
-            raise ValueError(f"Function {self.target_func} not found in {self.target_file_path}")
-
+            raise ValueError(f"Function {self.target_function} not found in {self.target_file_path}")
         return system_prompt, user_prompt
-    
-    def save_harness(self, harness_code):
-        os.makedirs(self.harness_dir, exist_ok=True)
-        harness_file_path = os.path.join(self.harness_dir, f'{self.target_func}_harness.c')
-        
-        with open(harness_file_path, 'w') as f:
-            f.write(harness_code)
-        
-        logger.info(f'Harness saved to {harness_file_path}')
 
-        return harness_file_path
+    def get_relative_path(self, base_path, target_path):
+        """We want to get the relative path of target, in terms of how many ../ we need to get back to base"""
+        base_path = Path(base_path).resolve()
+        target_path = Path(target_path).resolve()
+        return target_path.relative_to(base_path)
+    
+    def get_backward_path(self, base_path, target_path):
+        """We want to get the relative path of target, in terms of how many ../ we need to get back to base"""
+        relative_path = self.get_relative_path(base_path, target_path)
+
+        up_levels = len(relative_path.parts)
+
+        go_back = '/'.join([".."] * up_levels)
+
+        return go_back
+
+    def create_makefile_include(self):
+        """Copy makefile.include from docker to harness parent directory"""
+        src_path = os.path.join('makefiles', 'Makefile.include')
+        dest_path = os.path.join(os.path.dirname(self.harness_dir), 'Makefile.include')
+        if os.path.exists(dest_path):
+            logger.info(f'Makefile.include already exists at {dest_path}, skipping copy.')
+            return
+        # Copy inside the container
+        copy_cmd = f"cp {src_path} {dest_path}"
+        copy_results = self.project_container.execute(copy_cmd, workdir='/')
+        if copy_results.get('exit_code', -1) != 0:
+            logger.error(f'Failed to copy Makefile.include: {copy_results.get("stderr", "")}')
+            return
+        logger.info(f'Copied Makefile.include to {dest_path}')
+
+    def setup_initial_makefile(self):
+
+        harness_relative_root = self.get_backward_path(self.root_dir, self.harness_dir)
+        target_relative_root = self.get_relative_path(self.root_dir, self.target_file_path)
+
+        with open('src/makefile/Makefile.template', 'r') as file:
+            makefile = file.read()
+
+        makefile = makefile.replace('{ROOT}', str(harness_relative_root))
+        makefile = makefile.replace('{H_ENTRY}', self.target_function)
+        makefile = makefile.replace('{LINK}', f'$(ROOT)/{target_relative_root}')
+
+        return makefile
 
     def generate(self) -> bool:
 
-        # Generate initial harnesses
+        # First generate initial harnesses
+        os.makedirs(self.harness_dir, exist_ok=True)
 
         system_prompt, user_prompt = self.prepare_prompt()
         tools = self.get_tools()
-        attempts = 1
+        attempts = 0
 
         logger.info(f'System Prompt:\n{system_prompt}')
 
         conversation = []   
+        harness_generated = False
 
         while user_prompt and attempts <= self._max_attempts:
 
+            attempts += 1
             llm_response, llm_data = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
 
             if not llm_response:
                 self.log_task_attempt("harness_generation", attempts, llm_data, "invalid_response")
                 user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n" 
-                attempts += 1
-                continue
+            else:
+                self.log_task_attempt("harness_generation", attempts, llm_data, "")
+                self.update_harness(llm_response.harness_code)
+                harness_generated = True
+                break
+        
+        self.log_task_result("harness_generation", harness_generated, attempts)
 
-            self.save_harness(llm_response.harness_code)
-            self.log_task_attempt("harness_generation", attempts, llm_data, "")
-            self.log_task_result("harness_generation", True, attempts)
-            return True
+        if not harness_generated:
+            logger.error("Failed to generate initial harness within max attempts.")
+            return False
 
-        logger.error("Failed to generate harness after maximum attempts.")
-        self.log_task_result("harness_generation", False, attempts)
+        # Then generate initial Makefile
 
-        return False
+        # Copy makefile.include from docker to harness parent directory
+        self.create_makefile_include()
+
+        # We setup the initial Makefile
+        makefile = self.setup_initial_makefile()
+        self.update_makefile(makefile)        
+
+        return True
         

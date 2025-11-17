@@ -21,19 +21,12 @@ class AgentAction(Enum):
 
 class CoverageDebugger(AIAgent, Generable):
 
-    def __init__(self, root_dir, harness_dir, target_func, 
-                 target_file_path, metrics_file, project_container):
+    def __init__(self, args, project_container):
         super().__init__(
             "CoverageDebugger",
+            args,
             project_container,
-            harness_dir=harness_dir,
-            metrics_file=metrics_file
         )
-        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
-        self.root_dir = root_dir
-        self.harness_dir = harness_dir
-        self.target_func = target_func
-        self.target_file_path = target_file_path
         self._max_attempts = 3
 
     
@@ -100,7 +93,7 @@ class CoverageDebugger(AIAgent, Generable):
                 elif (
                     target_func_entry is None
                     and self.target_file_path.endswith(file_path or "")
-                    and func_name == self.target_func
+                    and func_name == self.target_function
                 ):
                     target_func_entry = entry
                 else:
@@ -189,7 +182,7 @@ class CoverageDebugger(AIAgent, Generable):
 
     def update_proof(self, updated_harness, updated_makefile):
         if updated_harness:
-            harness_path = os.path.join(self.harness_dir, f"{self.target_func}_harness.c")
+            harness_path = os.path.join(self.harness_dir, f"{self.target_function}_harness.c")
             backup_path = harness_path + ".bak"
 
             # Backup original harness if it exists
@@ -217,7 +210,7 @@ class CoverageDebugger(AIAgent, Generable):
             logger.info(f"Makefile updated at {makefile_path}")
 
     def reverse_proof_update(self):
-        harness_path = os.path.join(self.harness_dir, f"{self.target_func}_harness.c")
+        harness_path = os.path.join(self.harness_dir, f"{self.target_function}_harness.c")
         harness_backup = harness_path + ".bak"
         if os.path.exists(harness_backup):
             shutil.move(harness_backup, harness_path)
@@ -230,7 +223,7 @@ class CoverageDebugger(AIAgent, Generable):
             logger.info(f"Makefile reverted to original from {makefile_backup}")
 
     def remove_proof_backups(self):
-        harness_backup = os.path.join(self.harness_dir, f"{self.target_func}_harness.c.bak")
+        harness_backup = os.path.join(self.harness_dir, f"{self.target_function}_harness.c.bak")
         if os.path.exists(harness_backup):
             os.remove(harness_backup)
             logger.info(f"Removed harness backup at {harness_backup}")
