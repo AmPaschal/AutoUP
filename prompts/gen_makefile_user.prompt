@@ -1,6 +1,9 @@
 Below is the current Makefile used for compiling a CBMC proof harness for the target function '{TARGET_FUNC}': 
 {MAKEFILE_CONTENT}
 
+Here is the current harness that leads to the error:
+{HARNESS_CONTENT}
+
 When running the `make` command in the directory `{MAKEFILE_DIR}`, the following error occured.
 {MAKE_ERROR}
 
@@ -8,6 +11,7 @@ If the error is the result of a failed include statement, then you should attemp
 
 If the error is the result of a syntax or syntax-related error, it is likely due to an environment variable that needs to be set under H_DEF. 
 Use command line tools to determine the cause of the syntax error, and find any locations where an environment variable may cause that syntax error.
+Otherwise, if the error is due to a clear error in the harness, return a modified harness that fixes just that error.
 
 Please provide any necessary additions to the H_INC, H_CBMCFLAGS, H_DEF, and LINK fields to ensure successful compilation of the harness. 
 If you would like to get more information about the codebase to help you fill in these fields, 

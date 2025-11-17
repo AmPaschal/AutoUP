@@ -79,11 +79,13 @@ class MakefileDebugger(AIAgent, Generable):
             user_prompt = file.read()
 
         makefile_content = self.get_makefile()
+        harness_content = self.get_harness()
 
         user_prompt = user_prompt.replace('{TARGET_FUNC}', self.target_function)
         user_prompt = user_prompt.replace('{MAKEFILE_DIR}', self.harness_dir)
         user_prompt = user_prompt.replace('{PROJECT_DIR}', self.root_dir)
         user_prompt = user_prompt.replace('{MAKEFILE_CONTENT}', makefile_content)
+        user_prompt = user_prompt.replace('{HARNESS_CONTENT}', harness_content)
         user_prompt = user_prompt.replace('{MAKE_ERROR}', make_results.get('stderr', ''))   
 
         return system_prompt, user_prompt
@@ -94,7 +96,7 @@ class MakefileDebugger(AIAgent, Generable):
         """
 
         # Next, we build and see if it succeeds
-        make_results = self.run_make()
+        make_results = self.run_make(compile_only=True)
 
         attempts = 1
 
@@ -117,37 +119,33 @@ class MakefileDebugger(AIAgent, Generable):
                 self.log_task_attempt("makefile_generation", attempts, llm_data, "invalid_response")
                 continue
 
-            self.update_makefile(llm_response.updated_makefile)
+            if llm_response.updated_makefile:
+                self.update_makefile(llm_response.updated_makefile)
             if llm_response.updated_harness:
                 self.update_harness(llm_response.updated_harness)
-            make_results = self.run_make()
+            make_results = self.run_make(compile_only=True)
             
 
             status_code = make_results.get('status', Status.ERROR)
 
             if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:
                 logger.info("Makefile successfully generated and compilation succeeded.")
-                self.run_make(compile_only=False)  # Now run full make to generate proofs
-                self.print_coverage(Path(self.harness_dir))
-                self.log_task_attempt("makefile_generation", attempts, llm_data, "")
+                self.log_task_attempt("makefile_debugger", attempts, llm_data, "")
                 status = Status.SUCCESS
                 break
             elif status_code == Status.FAILURE:
                 logger.info("Make command failed; reprompting LLM with make results.")
-
-                # It's possible this is a new error, so we clear the conversation history
-                # In future, we may want to detect if the previous error was resolved.
                 system_prompt, user_prompt = self.prepare_prompt(make_results)
-                self.log_task_attempt("makefile_generation", attempts, llm_data, "compilation_error")
+                self.log_task_attempt("makefile_debugger", attempts, llm_data, "compilation_error")
             else:
                 logger.error("Make command failed to run.")
-                self.log_task_attempt("makefile_generation", attempts, llm_data, "make_error")
+                self.log_task_attempt("makefile_debugger", attempts, llm_data, "make_error")
                 status = status_code
                 break
 
             attempts += 1
 
-        self.log_task_result("makefile_generation", status == Status.SUCCESS, attempts)
+        self.log_task_result("makefile_debugger", status == Status.SUCCESS, attempts)
 
         return status == Status.SUCCESS
 

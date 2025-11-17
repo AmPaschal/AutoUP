@@ -234,6 +234,11 @@ class AIAgent(ABC):
         with open(self.makefile_path, 'r') as file:
             makefile_content = file.read()
         return makefile_content
+    
+    def get_harness(self):
+        with open(self.harness_file_path, 'r') as file:
+            harness_content = file.read()
+        return harness_content
 
 
     def execute_command(self, cmd: str, workdir: str, timeout: int) -> dict:
