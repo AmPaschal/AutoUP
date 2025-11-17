@@ -20,6 +20,7 @@ class StubGenerator(AIAgent, Generable):
         super().__init__(
             "MakefileGenerator",
             project_container=project_container,
+            harness_dir=harness_dir, 
             metrics_file=metrics_file
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)

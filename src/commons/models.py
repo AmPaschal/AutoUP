@@ -106,6 +106,8 @@ class GPT(LLM):
         # Start with the initial user input
         new_message = {'role': 'user', 'content': input_messages}
 
+        logger.info(f"LLM Prompt:\n{input_messages}")
+
         if conversation_history is None:
             conversation_history = []
 
@@ -182,7 +184,9 @@ class GPT(LLM):
                     "output": function_result,
                 })
 
-        parsed_output = client_response.output_parsed
+        parsed_output: BaseModel|None = client_response.output_parsed
+        parsed_output_dict = parsed_output.model_dump_json(indent=2) if parsed_output else {}
+        logger.info(f"LLM Response:\n{parsed_output_dict}")
 
         conversation_history.append({'role': 'assistant', 'content': str(parsed_output)})
 

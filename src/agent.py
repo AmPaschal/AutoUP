@@ -18,7 +18,7 @@ class AIAgent(ABC):
     Shared features for any OpenAI agent that interacts with a vector store
     """
 
-    def __init__(self, agent_name, project_container: ProjectContainer, harness_dir=None, metrics_file: str=""):
+    def __init__(self, agent_name, project_container: ProjectContainer, harness_dir, metrics_file: str=""):
         self.agent_name = agent_name
         self.harness_dir = harness_dir
         self.project_container: ProjectContainer = project_container
@@ -306,3 +306,23 @@ class AIAgent(ABC):
         ]
 
         return [*self.get_tools(), *coverage_tools]
+
+    def _get_function_coverage_status(self, file_path, function_name):
+        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
+        if not os.path.exists(coverage_report_path):
+            logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
+            return None
+
+        with open(coverage_report_path, "r") as f:
+            coverage_data = json.load(f)
+
+        viewer_coverage = coverage_data.get("viewer-coverage", {})
+        function_coverage = (
+            viewer_coverage.get("coverage", {}).get(file_path, {}).get(function_name, {})
+        )
+
+        if not function_coverage:
+            logger.error(f"[ERROR] Function '{function_name}' not found in coverage report for file '{file_path}'.")
+            return None
+
+        return function_coverage

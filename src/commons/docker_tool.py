@@ -60,7 +60,7 @@ class ProjectContainer:
         self.dockerfile_path = dockerfile_path
         self.image_tag = image_tag
 
-        self.client = docker.from_env()
+        
         self.container: Optional[Container] = None
         self.image = None
 
@@ -72,6 +72,7 @@ class ProjectContainer:
     def check_docker(self):
         """Check Docker daemon connectivity and permissions."""
         try:
+            self.client = docker.from_env()
             self.client.ping()
             version_info = self.client.version()
             logger.info(MSG_OK.format(version=version_info.get("Version", "unknown")))

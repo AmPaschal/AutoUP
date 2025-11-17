@@ -1,0 +1,9 @@
+The updated harness reduced the overall verification coverage.
+
+The coverage report is located in the build/report/json/viewer-coverage.json file.
+
+Review the changes you proposed and if you added additional constraints that could have prevented previously covered lines from getting covered.
+
+If it is not possible to address this error without reducing the overall coverage, provide clear explanations why and return an empty updated_harness field.
+
+Provide your response in the specified schema format.

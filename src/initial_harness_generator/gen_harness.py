@@ -15,6 +15,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
         super().__init__(
             "InitialHarnessGenerator",
             project_container,
+            harness_dir=harness_dir, 
             metrics_file=metrics_file
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
@@ -121,7 +122,6 @@ class InitialHarnessGenerator(AIAgent, Generable):
         conversation = []   
 
         while user_prompt and attempts <= self._max_attempts:
-            logger.info(f'User Prompt:\n{user_prompt}')
 
             llm_response, llm_data = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
 
@@ -130,8 +130,6 @@ class InitialHarnessGenerator(AIAgent, Generable):
                 user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n" 
                 attempts += 1
                 continue
-
-            logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
 
             self.save_harness(llm_response.harness_code)
             self.log_task_attempt("harness_generation", attempts, llm_data, "")

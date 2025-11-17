@@ -36,25 +36,7 @@ class CoverageDebugger(AIAgent, Generable):
         self.target_file_path = target_file_path
         self._max_attempts = 3
 
-    def _get_function_coverage_status(self, file_path, function_name):
-        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
-        if not os.path.exists(coverage_report_path):
-            logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
-            return None
-
-        with open(coverage_report_path, "r") as f:
-            coverage_data = json.load(f)
-
-        viewer_coverage = coverage_data.get("viewer-coverage", {})
-        function_coverage = (
-            viewer_coverage.get("coverage", {}).get(file_path, {}).get(function_name, {})
-        )
-
-        if not function_coverage:
-            logger.error(f"[ERROR] Function '{function_name}' not found in coverage report for file '{file_path}'.")
-            return None
-
-        return function_coverage
+    
 
     def get_overall_coverage(self):
         coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
@@ -314,8 +296,6 @@ class CoverageDebugger(AIAgent, Generable):
             logger.error("[ERROR] No valid response from LLM.")
             return (AgentAction.SKIP_BLOCK, None, current_coverage, "no_llm_response")
 
-        logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
-
         # CASE 2 — LLM proposed no modifications
         if not llm_response.proposed_modifications and not llm_response.updated_harness and not llm_response.updated_makefile:
             logging.info(
@@ -436,8 +416,7 @@ class CoverageDebugger(AIAgent, Generable):
         while user_prompt:
 
             attempts += 1
-            logger.info(f'LLM Prompt:\n{user_prompt}')
-
+            
             task_id = f"cov-{next_function['function']}-{target_block_line}"
             logger.info(f"[INFO] Processing task '{task_id}', attempt {attempts}.")
 

@@ -2,13 +2,13 @@ class CBMCError:
     
     def __init__(self, error_obj):
 
-        self.line = error_obj['line']
-        self.msg = error_obj['msg']
-        self.func = error_obj['function']
-        self.file = error_obj['file']
-        self.stack = error_obj['stack']
-        self.vars = error_obj['harness_vars']
-        self.is_built_in = error_obj['is_built_in']
+        self.line = error_obj.get('line', '')
+        self.msg = error_obj.get('msg', '')
+        self.func = error_obj.get('function', '')
+        self.file = error_obj.get('file', None)
+        self.stack = error_obj.get('stack', None)
+        self.vars = error_obj.get('harness_vars', None)
+        self.is_built_in = error_obj.get('is_built_in', '')
         
         self.cluster = ""
         self.error_id = ""
@@ -68,16 +68,15 @@ class ErrorReport:
 
     CLUSTER_ORDER = [
             'deref_null',
+            'deref_arr_oob',
+            'deref_obj_oob',
             'memcpy_src',
             'memcpy_dest',
             'memcpy_overlap',
-            'arithmetic_overflow',
-            'deref_arr_oob',
-            'deref_obj_oob',
             'misc'
         ]
     
-    def __init__(self, errors, json_errors: tuple[set[str], set[str]]):
+    def __init__(self, errors):
 
         # This is the clustered set of errors we will actually be updating
         self.errors_by_cluster = { cluster: set([key for key in errs.keys()]) for cluster, errs in errors.items() }
@@ -85,13 +84,15 @@ class ErrorReport:
         # This is meant to be a static dictionary mapping the actual instances of the error class
         self.errors_by_id = {key: CBMCError(err_obj) for cluster in errors.values() for key, err_obj in cluster.items()}
 
+        self.errors_by_line = {}
+
+        for err in self.errors_by_id.values():
+            self.errors_by_line.setdefault(f"{err.func}:{err.line}", []).append(err)
+
         # This is a dynamic set to track error hashes that have not yet been resolved
         self.unresolved_errs = set(self.errors_by_id.keys())
         self.resolved_errs = set()
         self.failed_errs = set()
-        
-        self.json_false_errors = json_errors[0]
-        self.json_true_errors = json_errors[1]
 
     def __len__(self):
         return len(self.error_ids)

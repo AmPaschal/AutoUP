@@ -79,4 +79,4 @@ class ModelOutput(BaseModel):
     # func_models: list[FunctionModel]
     analysis: str
     fix_recomendation: str
-    updated_harness_file_content: str
+    updated_harness: str

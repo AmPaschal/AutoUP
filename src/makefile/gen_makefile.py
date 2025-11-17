@@ -24,6 +24,7 @@ class LLMMakefileGenerator(AIAgent, Generable):
         super().__init__(
             "MakefileGenerator",
             project_container,
+            harness_dir=harness_dir, 
             metrics_file=metrics_file
         )
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
@@ -173,8 +174,6 @@ class LLMMakefileGenerator(AIAgent, Generable):
         # Finally, we iteratively call the LLM to fix any errors until it succeeds
         while user_prompt and attempts <= self._max_attempts:
 
-            logger.info(f'LLM Prompt:\n{user_prompt}')
-
             llm_response, llm_data = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
 
             if not llm_response:
@@ -182,7 +181,6 @@ class LLMMakefileGenerator(AIAgent, Generable):
                 self.log_task_attempt("makefile_generation", attempts, llm_data, "invalid_response")
                 continue
 
-            logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
             self.update_makefile(llm_response.updated_makefile)
             if llm_response.updated_harness:
                 self.update_harness(llm_response.updated_harness)
