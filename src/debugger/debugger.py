@@ -15,7 +15,7 @@ from commons.models import GPT, Generable
 from debugger.output_models import ModelOutput
 from logger import setup_logger
 from commons.utils import Status
-
+from debugger.dereference_handler import DerefereneErrorHandler
 
 # OLD
 from debugger.error_report import ErrorReport, CBMCError
@@ -40,6 +40,11 @@ class ProofDebugger(AIAgent, Generable):
         self.target_func = f"{target_function_name}_harness.c"
         self.harness_file_path = os.path.join(harness_path, self.target_func)
         self.target_file_path = target_file_path
+        self.programmatic_handler = DerefereneErrorHandler(
+            root_dir=self.root_dir,
+            harness_path=self.harness_path,
+            harness_file_path=self.harness_file_path
+        )
         logger.info("self.harness_path %s", self.harness_path)
         logger.info("self.root_dir %s", self.root_dir)
         logger.info("self.target_func %s", self.target_func)
@@ -79,7 +84,12 @@ class ProofDebugger(AIAgent, Generable):
             logger.info("Attempt: %i", attempt)
             logger.info("Cluster: %s", error.cluster)
             logger.info("Error id: %s", error.error_id)
-            history = self.__refine_harness_file(error, cause_of_failure, conversation_history)
+            history = self.__refine_harness_file(
+                error,
+                cause_of_failure,
+                conversation_history,
+                attempt == 1,  # Programmatic analysis if first attempt, LLM analysis otherwise
+            )
             make_result = self.__execute_make()
             error_report = ErrorReport(
                 extract_errors_and_payload(self.target_func, self.harness_file_path),
@@ -106,7 +116,20 @@ class ProofDebugger(AIAgent, Generable):
         logger.info("Error not resolved...")
         return False
 
-    def __refine_harness_file(self, error, cause_of_failure, conversation_history):
+    def __refine_harness_file(
+        self,
+        error,
+        cause_of_failure,
+        conversation_history,
+        programmatic_analysis=False,
+    ):
+        logger.info("programmatic_analysis: %s", programmatic_analysis)
+        if error.cluster == "deref_null" and programmatic_analysis:
+            result = self.programmatic_handler.analyze(error)
+            logger.info("Programmatic handler response: %s", result)
+            if result is not None:
+                self.__update_harness(result)
+                return []
         system_prompt = self.__get_prompt("general_system")
         user_prompt = self.__compute_user_prompt(error, cause_of_failure)
         logger.info("System prompt: %s", system_prompt)
@@ -134,7 +157,7 @@ class ProofDebugger(AIAgent, Generable):
         else:
             logger.info("Error '%s' not covered", error.error_id)
         return result
- 
+
     def __is_error_solved(self, error, error_report) -> bool:
         result = error.error_id in error_report.json_true_errors
         if result:
@@ -192,7 +215,8 @@ class ProofDebugger(AIAgent, Generable):
                 dst.write(src.read())
         logger.info("Backup created sucessfully.")
 
-    def __pop_error(self, error_report: ErrorReport, errors_to_skip: set) -> CBMCError | None:  # TODO: Refactor Error Handling
+    # TODO: Refactor Error Handling
+    def __pop_error(self, error_report: ErrorReport, errors_to_skip: set) -> CBMCError | None:
         logger.info("Unresolved Errors: %i", len(error_report.unresolved_errs))
         error = error_report.get_next_error(errors_to_skip)
         if error[2] is None:

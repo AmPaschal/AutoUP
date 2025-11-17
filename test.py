@@ -11,6 +11,7 @@ import os
 
 # Utils
 import requests
+import random
 
 # Constants
 PATH = "/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_4"
@@ -199,7 +200,7 @@ def main():
         d for d in os.listdir(PATH)
         if os.path.isdir(os.path.join(PATH, d))
     ]
-    #folders = folders[1:3]
+    folders = random.sample(folders, 5)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     with ThreadPoolExecutor(max_workers=MAX_PROCESSES) as executor:
         futures = {
