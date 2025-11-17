@@ -15,7 +15,7 @@ from commons.models import GPT, Generable
 from debugger.output_models import ModelOutput
 from logger import setup_logger
 from commons.utils import Status
-
+from debugger.dereference_handler import DerefereneErrorHandler
 
 # OLD
 from debugger.error_report import ErrorReport, CBMCError
@@ -41,11 +41,17 @@ class ProofDebugger(AIAgent, Generable):
         self.target_func = f"{target_function_name}_harness.c"
         self.harness_file_path = os.path.join(harness_path, self.target_func)
         self.target_file_path = target_file_path
+        self.programmatic_handler = DerefereneErrorHandler(
+            root_dir=self.root_dir,
+            harness_path=self.harness_path,
+            harness_file_path=self.harness_file_path
+        )
         logger.info("self.harness_path %s", self.harness_path)
         logger.info("self.root_dir %s", self.root_dir)
         logger.info("self.target_func %s", self.target_func)
         logger.info("self.target_file_path %s", self.target_file_path)
         self.__max_attempts = 3
+
 
     def generate(self) -> bool:
         """Iterates over errors"""
@@ -66,10 +72,18 @@ class ProofDebugger(AIAgent, Generable):
         while error is not None:
             logger.info("Target Error: %s", error)
             self.__create_backup()
-            result, current_coverage = self.generate_single_fix(error, current_coverage)
+            result = None
+            # First, we try to fix the error programmatically
+            if error.cluster == "deref_null":
+                result = self.generate_fix_programmatically(error, current_coverage)
+            # If not successful, we use the LLM to fix it
             if not result:
-                self.__restore_backup()
-                errors_to_skip.add(error.error_id)
+                if result == False: # Programmatic fix attempted and failed
+                    self.__restore_backup()
+                result, current_coverage = self.generate_fix_with_llm(error, current_coverage)
+                if result == False: # LLM fix attempted and failed
+                    self.__restore_backup()
+            errors_to_skip.add(error.error_id)
             self.__discard_backup()
             error_clusters = extract_errors_and_payload(self.target_func, self.harness_file_path)
             error_report = ErrorReport(
@@ -93,8 +107,33 @@ class ProofDebugger(AIAgent, Generable):
         overall_coverage = viewer_coverage.get("overall_coverage", {})
 
         return overall_coverage
+    
+    def generate_fix_programmatically(self, error: CBMCError, current_coverage: dict) -> bool:
+            
+        """Generate the fix of a given error using programmatic handler"""
+        updated_harness = self.programmatic_handler.analyze(error)
+        if not updated_harness:
+            logger.error("Programmatic handler could not analyze the error.")
+            return False
+        self.__update_harness(updated_harness)
+        make_result = self.run_make()
+        if make_result.get("status") != Status.SUCCESS:
+            logger.error("Make command failed after programmatic fix.")
+            return False
+        if not self.__is_error_covered(error):
+            logger.error("Error not covered after programmatic fix.")
+            return False
+        new_coverage = self.get_overall_coverage()
+        if new_coverage.get("hit", 0.0) < current_coverage.get("hit", 0.0):
+            logger.error("Overall coverage decreased after programmatic fix.")
+            return False
+        if not self.__is_error_solved(error):
+            logger.error("Error not solved after programmatic fix.")
+            return False
+        logger.info("Error resolved programmatically!")
+        return True
 
-    def generate_single_fix(self, error: CBMCError, current_coverage: dict) -> tuple[bool, dict]:
+    def generate_fix_with_llm(self, error: CBMCError, current_coverage: dict) -> tuple[bool, dict]:
         """Generate the fix of a given error"""
         cause_of_failure = None
         conversation_history = []
@@ -106,6 +145,7 @@ class ProofDebugger(AIAgent, Generable):
             logger.info("Attempt: %i", attempt)
             logger.info("Cluster: %s", error.cluster)
             logger.info("Error id: %s", error.error_id)
+
             system_prompt = self.__get_prompt("general_system")
             user_prompt = self.__compute_user_prompt(error, cause_of_failure)
             output, chat_data = self.llm.chat_llm(
@@ -307,7 +347,8 @@ class ProofDebugger(AIAgent, Generable):
             )
         logger.info("Backup discarded sucessfully.")
 
-    def __pop_error(self, error_report: ErrorReport, errors_to_skip: set) -> CBMCError | None:  # TODO: Refactor Error Handling
+# TODO: Refactor Error Handling
+    def __pop_error(self, error_report: ErrorReport, errors_to_skip: set) -> CBMCError | None:  
         logger.info("Unresolved Errors: %i", len(error_report.errors_by_line))
         error = error_report.get_next_error(errors_to_skip)
         if error[2] is None:
