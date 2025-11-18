@@ -6,6 +6,7 @@ import json
 import shutil
 import time
 from typing import Any, Callable, Type
+import uuid
 from dotenv import load_dotenv
 from agent import AIAgent
 from pathlib import Path
@@ -108,6 +109,9 @@ class MakefileDebugger(AIAgent, Generable):
         status = Status.ERROR
 
         conversation = []
+
+        tag = uuid.uuid4().hex[:4].upper()
+        self.__create_backup(tag)
         
         # Finally, we iteratively call the LLM to fix any errors until it succeeds
         while user_prompt and attempts <= self._max_attempts:
@@ -123,15 +127,16 @@ class MakefileDebugger(AIAgent, Generable):
                 self.update_makefile(llm_response.updated_makefile)
             if llm_response.updated_harness:
                 self.update_harness(llm_response.updated_harness)
+
             make_results = self.run_make(compile_only=True)
-            
 
             status_code = make_results.get('status', Status.ERROR)
 
             if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:
                 logger.info("Makefile successfully generated and compilation succeeded.")
                 self.log_task_attempt("makefile_debugger", attempts, llm_data, "")
-                status = Status.SUCCESS
+                make_results = self.run_make(compile_only=False)
+                status = Status.SUCCESS if make_results.get('status', Status.ERROR) == Status.SUCCESS else Status.ERROR
                 break
             elif status_code == Status.FAILURE:
                 logger.info("Make command failed; reprompting LLM with make results.")
@@ -143,9 +148,13 @@ class MakefileDebugger(AIAgent, Generable):
                 status = status_code
                 break
 
-            attempts += 1
+            attempts += 1  
 
         self.log_task_result("makefile_debugger", status == Status.SUCCESS, attempts)
+
+        if status != Status.SUCCESS:
+            self.__restore_backup(tag)
+        self.__discard_backup(tag)
 
         return status == Status.SUCCESS
 

@@ -8,6 +8,7 @@ import os
 # Utils
 from datetime import datetime
 import json
+import uuid
 
 # AutoUp
 from agent import AIAgent
@@ -21,6 +22,7 @@ from debugger.dereference_handler import DerefereneErrorHandler
 from debugger.error_report import ErrorReport, CBMCError
 from debugger.parser import extract_errors_and_payload, get_json_errors
 from debugger.advice import get_advice_for_cluster
+from src.makefile.makefile_debugger import MakefileDebugger
 
 logger = setup_logger(__name__)
 
@@ -60,7 +62,8 @@ class ProofDebugger(AIAgent, Generable):
         error = self.__pop_error(error_report, errors_to_skip)
         while error is not None:
             logger.info("Target Error: %s", error)
-            self.__create_backup()
+            tag = uuid.uuid4().hex[:4].upper()
+            self.__create_backup(tag)
             result = None
             # First, we try to fix the error programmatically
             if error.cluster == "deref_null":
@@ -68,12 +71,12 @@ class ProofDebugger(AIAgent, Generable):
             # If not successful, we use the LLM to fix it
             if not result:
                 if result == False: # Programmatic fix attempted and failed
-                    self.__restore_backup()
+                    self.__restore_backup(tag)
                 result, current_coverage = self.generate_fix_with_llm(error, current_coverage)
                 if result == False: # LLM fix attempted and failed
-                    self.__restore_backup()
+                    self.__restore_backup(tag)
             errors_to_skip.add(error.error_id)
-            self.__discard_backup()
+            self.__discard_backup(tag)
             error_clusters = extract_errors_and_payload(self.harness_file_name, self.harness_file_path)
             error_report = ErrorReport(
                 error_clusters
@@ -165,8 +168,15 @@ class ProofDebugger(AIAgent, Generable):
                 break
             if make_result.get("status") == Status.FAILURE:
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="make_failed")
-                cause_of_failure = {"reason": "make_failed", "make_output": make_result}
-                continue
+                # Let's use the makefile debugger to fix this error
+                makefile_debugger = MakefileDebugger(
+                    args=self.args,
+                    project_container=self.project_container,
+                )
+                compile_errors_fixed = makefile_debugger.generate()
+                if not compile_errors_fixed:
+                    cause_of_failure = {"reason": "make_failed", "make_output": make_result}
+                    continue
             if not self.__is_error_covered(error):
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_covered")
                 cause_of_failure = {"reason": "error_not_covered"}
@@ -274,68 +284,7 @@ class ProofDebugger(AIAgent, Generable):
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results
 
-    def __create_backup(self):
-        harness_backup_path = os.path.join(
-            self.harness_dir, f"{self.harness_file_name}.backup",
-        )
-        with open(self.harness_file_path, "r", encoding="utf-8") as src:
-            with open(harness_backup_path, "w", encoding="utf-8") as dst:
-                dst.write(src.read())
-        build_backup_path = os.path.join(
-            self.harness_dir, "build_backup",
-        )
-        if os.path.exists(build_backup_path):
-            subprocess.run(
-                ["rm", "-rf", build_backup_path],
-                check=True,
-            )
-        build_path = os.path.join(self.harness_dir, "build")
-        if os.path.exists(build_path):
-            subprocess.run(
-                ["cp", "-r", build_path, build_backup_path],
-                check=True,
-            )
-        logger.info("Backup created sucessfully.")
-
-    def __restore_backup(self):
-        harness_backup_path = os.path.join(
-            self.harness_dir, f"{self.harness_file_name}.backup",
-        )
-        with open(harness_backup_path, "r", encoding="utf-8") as src:
-            with open(self.harness_file_path, "w", encoding="utf-8") as dst:
-                dst.write(src.read())
-        build_backup_path = os.path.join(
-            self.harness_dir, "build_backup",
-        )
-        build_path = os.path.join(self.harness_dir, "build")
-        if os.path.exists(build_path):
-            subprocess.run(
-                ["rm", "-rf", build_path],
-                check=True,
-            )
-        if os.path.exists(build_backup_path):
-            subprocess.run(
-                ["cp", "-r", build_backup_path, build_path],
-                check=True,
-            )
-        logger.info("Backup restored sucessfully.")
-
-    def __discard_backup(self):
-        harness_backup_path = os.path.join(
-            self.harness_dir, f"{self.harness_file_name}.backup",
-        )
-        if os.path.exists(harness_backup_path):
-            os.remove(harness_backup_path)
-        build_backup_path = os.path.join(
-            self.harness_dir, "build_backup",
-        )
-        if os.path.exists(build_backup_path):
-            subprocess.run(
-                ["rm", "-rf", build_backup_path],
-                check=True,
-            )
-        logger.info("Backup discarded sucessfully.")
-
+    
 # TODO: Refactor Error Handling
     def __pop_error(self, error_report: ErrorReport, errors_to_skip: set) -> CBMCError | None:  
         logger.info("Unresolved Errors: %i", len(error_report.errors_by_line))

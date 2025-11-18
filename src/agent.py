@@ -21,6 +21,7 @@ class AIAgent(ABC):
 
     def __init__(self, agent_name, args, project_container: ProjectContainer):
         self.agent_name = agent_name
+        self.args = args
         self.root_dir=args.root_dir
         self.harness_dir=args.harness_path
         self.target_function=args.target_function_name
@@ -356,3 +357,82 @@ class AIAgent(ABC):
             return None
 
         return function_coverage
+    
+    def __create_backup(self, tag: str):
+        harness_backup_path = os.path.join(
+            self.harness_dir, f"{self.harness_file_name}.{tag}.backup",
+        )
+        with open(self.harness_file_path, "r", encoding="utf-8") as src:
+            with open(harness_backup_path, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        makefile_backup_path = os.path.join(
+            self.harness_dir, f"Makefile.{tag}.backup",
+        )
+        with open(self.makefile_path, "r", encoding="utf-8") as src:
+            with open(makefile_backup_path, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        build_backup_path = os.path.join(
+            self.harness_dir, f"build_backup.{tag}",
+        )
+        if os.path.exists(build_backup_path):
+            subprocess.run(
+                ["rm", "-rf", build_backup_path],
+                check=True,
+            )
+        build_path = os.path.join(self.harness_dir, "build")
+        if os.path.exists(build_path):
+            subprocess.run(
+                ["cp", "-r", build_path, build_backup_path],
+                check=True,
+            )
+        logger.info("Backup created sucessfully.")
+
+    def __restore_backup(self, tag: str):
+        harness_backup_path = os.path.join(
+            self.harness_dir, f"{self.harness_file_name}.{tag}.backup",
+        )
+        with open(harness_backup_path, "r", encoding="utf-8") as src:
+            with open(self.harness_file_path, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        makefile_backup_path = os.path.join(
+            self.harness_dir, f"Makefile.{tag}.backup",
+        )
+        with open(makefile_backup_path, "r", encoding="utf-8") as src:
+            with open(self.makefile_path, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        build_backup_path = os.path.join(
+            self.harness_dir, f"build_backup.{tag}",
+        )
+        build_path = os.path.join(self.harness_dir, "build")
+        if os.path.exists(build_path):
+            subprocess.run(
+                ["rm", "-rf", build_path],
+                check=True,
+            )
+        if os.path.exists(build_backup_path):
+            subprocess.run(
+                ["cp", "-r", build_backup_path, build_path],
+                check=True,
+            )
+        logger.info("Backup restored sucessfully.")
+
+    def __discard_backup(self, tag: str):
+        harness_backup_path = os.path.join(
+            self.harness_dir, f"{self.harness_file_name}.{tag}.backup",
+        )
+        if os.path.exists(harness_backup_path):
+            os.remove(harness_backup_path)
+        makefile_backup_path = os.path.join(
+            self.harness_dir, f"Makefile.{tag}.backup",
+        )
+        if os.path.exists(makefile_backup_path):
+            os.remove(makefile_backup_path)
+        build_backup_path = os.path.join(
+            self.harness_dir, f"build_backup.{tag}",
+        )
+        if os.path.exists(build_backup_path):
+            subprocess.run(
+                ["rm", "-rf", build_backup_path],
+                check=True,
+            )
+        logger.info("Backup discarded sucessfully.")
