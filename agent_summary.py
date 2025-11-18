@@ -7,13 +7,13 @@ import os
 # Utils
 import pandas as pd
 
-METRICS_FOLDER = "metrics/2025-11-17_18-19"
-AGENT_REPORT_FILE_PATH = "metrics/2025-11-17_18-19/agent_report.csv"
+METRICS_FOLDER = "metrics/2025-11-18_00-00"
+AGENT_REPORT_FILE_PATH = "metrics/2025-11-18_00-00/agent_report.csv"
 
 
 def generate_csv_file(df: pd.DataFrame) -> None:
     """ Creates a CSV file """
-    df.to_csv(AGENT_REPORT_FILE_PATH, index=False)
+    df.to_csv(AGENT_REPORT_FILE_PATH)
 
 def create_dataframe_from_agent_metrics() -> pd.DataFrame:
     """Load data and creates the dataframe"""
@@ -28,6 +28,8 @@ def create_dataframe_from_agent_metrics() -> pd.DataFrame:
         for metric in json_list:
             metric["file"] = file
         df = pd.concat([df, pd.json_normalize(json_list)], ignore_index=True)
+        df = df.set_index("file")
+        df = df.groupby(df.index).agg('first')
     return df
 
 
