@@ -123,7 +123,7 @@ def process_mode(args):
             metrics_file=args.metrics_file,
             project_container=project_container
         ))
-    if args.mode in ["debugger"]:
+    if args.mode in ["debugger", "all"]:
         agents.append(ProofDebugger(
             harness_path=args.harness_path,
             root_dir=args.root_dir,
@@ -142,8 +142,6 @@ def process_mode(args):
 
 def summarize_metrics_per_agent(metrics_file: str, logger):
     """ Summarize metrics from the given file and print to logger """
-    from commons.metric_summary import summarize_metrics_file
-
     with open(metrics_file, "r") as file:
         metrics_data = file.readlines()
 

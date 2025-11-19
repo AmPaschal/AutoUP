@@ -1,5 +1,5 @@
 # Number of bits to represent object
-OBJ_BITS ?= 8
+OBJ_BITS ?= 16
 
 C_INC ?=
 

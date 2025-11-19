@@ -404,6 +404,7 @@ class CoverageDebugger(AIAgent, Generable):
 
         if make_results.get("status", Status.ERROR) != Status.SUCCESS:
             logger.error("Make command failed to run.")
+            self.log_agent_result({"initial_coverage": None, "final_coverage": None})
             return False
 
         # Get and log initial coverage
@@ -418,6 +419,7 @@ class CoverageDebugger(AIAgent, Generable):
         if not next_function or not coverage_data or not target_block_line:
             logger.info("[INFO] No uncovered functions found.")
             #return 0  # All functions are covered
+            self.log_agent_result({"initial_coverage": initial_coverage, "final_coverage": 1})
             return True
 
         # Create first LLM prompt
@@ -490,6 +492,6 @@ class CoverageDebugger(AIAgent, Generable):
                 final_coverage.get("percentage", 0.0) * 100
             )
         )
-
+        self.log_agent_result({"initial_coverage": initial_coverage, "final_coverage": final_coverage})
         return True
 
