@@ -205,6 +205,20 @@ class AIAgent(ABC):
         with open(self.metrics_file, 'a') as f:
             f.write(json.dumps(log_entry) + "\n")
 
+    def log_agent_result(self, data: dict):
+        if not self.metrics_file:
+            return
+
+        log_entry = {
+            "type": "agent_result",
+            "agent_name": self.agent_name,
+            "data": data,
+            "timestamp": time.time()
+        }
+
+        with open(self.metrics_file, 'a') as f:
+            f.write(json.dumps(log_entry) + "\n")
+
     def log_task_result(self, task_id, success: bool, total_attempts: int):
         if not self.metrics_file:
             return

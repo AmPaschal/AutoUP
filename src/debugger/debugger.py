@@ -43,12 +43,18 @@ class ProofDebugger(AIAgent, Generable):
         )
         self.__max_attempts = 3
 
-
     def generate(self) -> bool:
         """Iterates over errors"""
         make_result = self.run_make()
         if make_result["status"] != Status.SUCCESS:
             logger.error("Initial proof does not build successfully.")
+            self.log_agent_result({
+                "initial_errors": None,
+                "final_errors": None,
+                "errors_solved": None,
+                "errors_solved_programatically": None,
+                "final_coverage": None,
+            })
             return False
         current_coverage = self.get_overall_coverage()
         if current_coverage:
@@ -58,7 +64,11 @@ class ProofDebugger(AIAgent, Generable):
         error_report = ErrorReport(
             error_clusters
         )
+        initial_errors = len(error_report.errors_by_line)
+        logger.info("Unresolved Errors: %i", initial_errors)
         errors_to_skip = set()
+        total_errors_solved = 0
+        errors_solved_programatically = 0
         error = self.__pop_error(error_report, errors_to_skip)
         while error is not None:
             logger.info("Target Error: %s", error)
@@ -69,12 +79,17 @@ class ProofDebugger(AIAgent, Generable):
             if error.cluster == "deref_null":
                 result = self.generate_fix_programmatically(error, current_coverage)
             # If not successful, we use the LLM to fix it
-            if not result:
-                if result == False: # Programmatic fix attempted and failed
-                    self.restore_backup(tag)
+            if result:
+                total_errors_solved += 1
+                errors_solved_programatically += 1
+            else:
+                self.restore_backup(tag)
                 result, current_coverage = self.generate_fix_with_llm(error, current_coverage)
-                if result == False: # LLM fix attempted and failed
+                if result: # LLM fix succeeded
+                    total_errors_solved += 1
+                else:
                     self.restore_backup(tag)
+            
             errors_to_skip.add(error.error_id)
             self.discard_backup(tag)
             error_clusters = extract_errors_and_payload(self.harness_file_name, self.harness_file_path)
@@ -84,6 +99,14 @@ class ProofDebugger(AIAgent, Generable):
             error = self.__pop_error(error_report, errors_to_skip)
         current_coverage = self.get_overall_coverage()
         logger.info(f"[INFO] Final Overall Coverage: {json.dumps(current_coverage, indent=2)}")
+        final_errors = len(error_report.errors_by_line)
+        self.log_agent_result({
+            "initial_errors": initial_errors,
+            "final_errors": final_errors,
+            "errors_solved": total_errors_solved,
+            "errors_solved_programatically": errors_solved_programatically,
+            "final_coverage": self.get_overall_coverage(),
+        })
         return True
 
     def get_overall_coverage(self):
@@ -314,7 +337,7 @@ class ProofDebugger(AIAgent, Generable):
     
 # TODO: Refactor Error Handling
     def __pop_error(self, error_report: ErrorReport, errors_to_skip: set) -> CBMCError | None:  
-        logger.info("Unresolved Errors: %i", len(error_report.errors_by_line))
+        
         error = error_report.get_next_error(errors_to_skip)
         if error[2] is None:
             return None
@@ -328,3 +351,4 @@ class ProofDebugger(AIAgent, Generable):
 
     def __get_advice(self, cluster: str):
         return get_advice_for_cluster(cluster, self.harness_file_name)
+   
