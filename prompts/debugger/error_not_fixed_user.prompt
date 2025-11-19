@@ -1,25 +1,15 @@
-The previously suggested preconditions did not resolve the provided error.
+The previously suggested fix did not resolve the provided error.
 
 The updated value of each variable during the previous run, grouped by the scope they were defined in, is provided below:
 {variables}
 
-Your first objective is to evaluate the preconditions you suggested in your previous response, and determine whether they should still be included in the harness.
+Your first objective is to evaluate the refinements you suggested in your previous response and the updated variables, 
+    determine why the previous refinement did not resolve the error, 
+    and propose a new refinement to resolve the error.
 
-For each precondition you suggested in your last response, use the updated variable values provided to answer the following questions:
-1. What potential cause for the error was addressed by this precondition?
-2. Based on the updated variable values provided, did this precondition sufficiently constrain the variables to address the potential cause of the error?
-3. If the variables in the precondition were sufficiently constrained, is this precondition absolutely necessary to ensure there is no error?
-4. If the variables in the precondition were NOT constrained properly, is this suggeted precondition SIMPLE while covering all use cases of that variable?
-5. If the error occured in a helper function to the main harness function, is the precondition placed in an appropriate location?
-6. Are there other DISTINCT variables that could also be contributing to the error that were not addressed by this precondition?
+It is possible that the error was not resolved because the proposed precondition was incomplete and did not consider all possible scenarios that could lead to the error.
 
-Based on your responses to these questions, determine if each precondition should be kept without changes, kept with modified constraints, or discarded.
-If you determined that a precondition should be kept, then include it.
-If you determined that a precondition should be kept with modified constraints, then include the modified version of the precondition.
-
-Your second objective is to repeat the analysis steps laid out in the initial prompt using the updated variable values, and explore other variables that may need preconditions to prevent the error.
-Based on this analysis and your analysis of your previously suggested preconditions, provide an improved set of preconditions.
-
-Finally, provide an updated harness file content to override the previous target file
+Finally, provide an updated harness file content to override the previous target file.
+If it is not possible to resolve the error using preconditions in the harness, provide a detailed analysis why and return empty fix_recommendation and updated_harness fields.
 
 Provide your response in the specified schema format.

@@ -30,7 +30,7 @@ class AIAgent(ABC):
         self.project_container=project_container
 
 
-        self.harness_file_name = f"{args.target_function}_harness.c"
+        self.harness_file_name = f"{self.target_function}_harness.c"
         self.harness_file_path = os.path.join(self.harness_dir, self.harness_file_name)
         self.makefile_path = os.path.join(self.harness_dir, 'Makefile')
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
@@ -358,7 +358,7 @@ class AIAgent(ABC):
 
         return function_coverage
     
-    def __create_backup(self, tag: str):
+    def create_backup(self, tag: str):
         harness_backup_path = os.path.join(
             self.harness_dir, f"{self.harness_file_name}.{tag}.backup",
         )
@@ -387,7 +387,7 @@ class AIAgent(ABC):
             )
         logger.info("Backup created sucessfully.")
 
-    def __restore_backup(self, tag: str):
+    def restore_backup(self, tag: str):
         harness_backup_path = os.path.join(
             self.harness_dir, f"{self.harness_file_name}.{tag}.backup",
         )
@@ -416,7 +416,7 @@ class AIAgent(ABC):
             )
         logger.info("Backup restored sucessfully.")
 
-    def __discard_backup(self, tag: str):
+    def discard_backup(self, tag: str):
         harness_backup_path = os.path.join(
             self.harness_dir, f"{self.harness_file_name}.{tag}.backup",
         )

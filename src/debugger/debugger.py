@@ -22,7 +22,7 @@ from debugger.dereference_handler import DerefereneErrorHandler
 from debugger.error_report import ErrorReport, CBMCError
 from debugger.parser import extract_errors_and_payload, get_json_errors
 from debugger.advice import get_advice_for_cluster
-from src.makefile.makefile_debugger import MakefileDebugger
+from makefile.makefile_debugger import MakefileDebugger
 
 logger = setup_logger(__name__)
 
@@ -63,7 +63,7 @@ class ProofDebugger(AIAgent, Generable):
         while error is not None:
             logger.info("Target Error: %s", error)
             tag = uuid.uuid4().hex[:4].upper()
-            self.__create_backup(tag)
+            self.create_backup(tag)
             result = None
             # First, we try to fix the error programmatically
             if error.cluster == "deref_null":
@@ -71,12 +71,12 @@ class ProofDebugger(AIAgent, Generable):
             # If not successful, we use the LLM to fix it
             if not result:
                 if result == False: # Programmatic fix attempted and failed
-                    self.__restore_backup(tag)
+                    self.restore_backup(tag)
                 result, current_coverage = self.generate_fix_with_llm(error, current_coverage)
                 if result == False: # LLM fix attempted and failed
-                    self.__restore_backup(tag)
+                    self.restore_backup(tag)
             errors_to_skip.add(error.error_id)
-            self.__discard_backup(tag)
+            self.discard_backup(tag)
             error_clusters = extract_errors_and_payload(self.harness_file_name, self.harness_file_path)
             error_report = ErrorReport(
                 error_clusters
@@ -125,18 +125,41 @@ class ProofDebugger(AIAgent, Generable):
         logger.info("Error resolved programmatically!")
         return True
 
+    def create_error_trace_file(self, error: CBMCError):
+
+        json_report_path = os.path.join(self.harness_dir, "build/report/json")
+        if not os.path.exists(json_report_path):
+            logger.error(f"[ERROR] JSON report path not found: {json_report_path}")
+            return 
+
+        with open(os.path.join(json_report_path, "viewer-trace.json"), 'r') as file:
+            error_traces = json.load(file)
+
+        error_trace = error_traces.get('viewer-trace', {}).get('traces', {}).get(error.error_id, {})
+        
+        error_trace_file = f"{self.harness_dir}/error_trace.json"
+        with open(error_trace_file, 'w') as outfile:
+            json.dump(error_trace, outfile, indent=4)
+
+
     def generate_fix_with_llm(self, error: CBMCError, current_coverage: dict) -> tuple[bool, dict]:
         """Generate the fix of a given error"""
         cause_of_failure = None
         conversation_history = []
         attempt = 0
-        current_coverage = current_coverage
+
+        self.create_error_trace_file(error)
 
         while attempt < self.__max_attempts:
             attempt += 1
             logger.info("Attempt: %i", attempt)
             logger.info("Cluster: %s", error.cluster)
             logger.info("Error id: %s", error.error_id)
+
+            error_covered_initially = self.__is_error_covered(error)
+
+            if not error_covered_initially:
+                logger.info("Error not covered initially. Continuing to fix.")
 
             system_prompt = self.__get_prompt("general_system")
             user_prompt = self.__compute_user_prompt(error, cause_of_failure)
@@ -177,7 +200,7 @@ class ProofDebugger(AIAgent, Generable):
                 if not compile_errors_fixed:
                     cause_of_failure = {"reason": "make_failed", "make_output": make_result}
                     continue
-            if not self.__is_error_covered(error):
+            if error_covered_initially and not self.__is_error_covered(error):
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_covered")
                 cause_of_failure = {"reason": "error_not_covered"}
                 continue
@@ -234,17 +257,21 @@ class ProofDebugger(AIAgent, Generable):
         logger.info("Computing user prompt using 'cause_of_failure' %s", cause_of_failure)
         if cause_of_failure is None:
             logger.info("cause_of_failure is None")
-            advice = self.__get_advice(error.cluster)
+            
             user_prompt = self.__get_prompt("no_previous_user")
             user_prompt = user_prompt.replace("{message}", error.msg)
-            user_prompt = user_prompt.replace("{target_file_path}", self.target_file_path)
-            user_prompt = user_prompt.replace("{harness_file_path}", self.harness_file_path) 
+            user_prompt = user_prompt.replace("{error_file}", error.file)
+            user_prompt = user_prompt.replace("{error_function}", error.func)
+            user_prompt = user_prompt.replace("{error_line}", str(error.line))
+            user_prompt = user_prompt.replace("{harness_dir}", self.harness_dir) 
             if error.vars:
                 user_prompt = user_prompt.replace(
                     "{variables}", json.dumps(error.vars, indent=4))
-            user_prompt = user_prompt.replace("{advice}", '\n'.join(
-                [f'{i + 1}. {step}' for i, step in enumerate(advice)]))
-            user_prompt = user_prompt.replace("{harness}", self.harness_file_name)
+                
+            harness_content = self.get_harness()
+            makefile_content = self.get_makefile()
+            user_prompt = user_prompt.replace("{harness_content}", harness_content)
+            user_prompt = user_prompt.replace("{makefile_content}", makefile_content)
             return user_prompt
         if cause_of_failure["reason"] == "make_failed":
             logger.info("Reason: make_failed")

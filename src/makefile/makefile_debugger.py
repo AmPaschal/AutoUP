@@ -111,7 +111,7 @@ class MakefileDebugger(AIAgent, Generable):
         conversation = []
 
         tag = uuid.uuid4().hex[:4].upper()
-        self.__create_backup(tag)
+        self.create_backup(tag)
         
         # Finally, we iteratively call the LLM to fix any errors until it succeeds
         while user_prompt and attempts <= self._max_attempts:
@@ -153,8 +153,8 @@ class MakefileDebugger(AIAgent, Generable):
         self.log_task_result("makefile_debugger", status == Status.SUCCESS, attempts)
 
         if status != Status.SUCCESS:
-            self.__restore_backup(tag)
-        self.__discard_backup(tag)
+            self.restore_backup(tag)
+        self.discard_backup(tag)
 
         return status == Status.SUCCESS
 

@@ -1,29 +1,22 @@
 The most recent execution of the harness resulted in the following error:
 {message}
 
+It occurs in the following program location:
+Error file: {error_file}
+Error function: {error_function}
+Error line: {error_line}
+
 The value of each variable passed into the target function before the error occurred, grouped by the scope they were initalized in, is provided below:
 {variables}
 
-Complete the following steps to determine an appropriate set of preconditions that will resolve the error.
-First, find the current definition of the "harness" function in the following path: {harness_file_path}
-Then, note which variables have existing preconditions.
-Finally, find the definition of the function where the error occurred in the following path: {target_file_path}
+The harness that led to the error:
+{harness_content}
 
-Then, provide a general analysis of the error and the variables involved.
+The makefile, which contains the necessary configuration variables and include paths:
+{makefile_content}
 
-Finally, use this information to answer the following questions and determine the variable responsible for the error:
-{advice}
+The trace containing the precise execution steps and all variable states from the harness function to the error line is contained in:
+{harness_dir}/error_trace.json
 
-Based on this analysis, determine the smallest possible set of preconditions that can be added to the harness to resolve the error.
-
-Then, translate these preconditions to valid lines of code based on the following criteria:
-1. Your preconditions are formatted as __CPROVER_assume(<precondition>).
-2. Your preconditions ONLY use variables that are defined in the harness.
-3. Your chosen place to insert the preconditions in the function is directly after the lines where all variables in the precondition are initialized.
-4. Your chosen place to insert the preconditions is within the line numbers of the harness function, and is placed before the call to {harness}.
-5. It does not repeat any logic found in existing __CPROVER_assume statements in the harness.
-6. All the possible structs used in the new preconditions are successfully included at the beginning of the harness file using #include instrumentation
-
-Finally, provide an updated harness file content to override the previous target file
-
-Provide your response in the specified schema format.
+The build directory, containing the harness and the makefile is located in {harness_dir}.
+The verification results is located in {harness_dir}/build/report/json
