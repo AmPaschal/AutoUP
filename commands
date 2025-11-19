@@ -5,3 +5,44 @@ python3 src/run.py debugger \
 --target_file_path=sys/net/gnrc/network_layer/ipv6/gnrc_ipv6.c \
 --log_file=logs/2025-11-13_19-34/_receive.log \
 --metrics_file=metrics/2025-11-13_19-34/_receive.jsonl
+
+
+python3 src/run.py function-stubs \
+--root_dir=/home/rcalvome/Documents/AutoUp/framework/contiki-ng \
+--target_function_name=uncompress_hdr_iphc \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/contiki-ng/cbmc/uncompress_hdr_iphc \
+--target_file_path=/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/ipv6/sicslowpan.c \
+--log_file=logs/2025-11-18_00-01/uncompress_hdr_iphc.log \
+--metrics_file=metrics/2025-11-18_00-01/uncompress_hdr_iphc.jsonl
+
+nohup python3 src/run.py all \
+--root_dir=/home/rcalvome/Documents/AutoUp/framework/contiki-ng \
+--target_function_name=input_l2cap_frame_flow_channel \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/contiki-ng/cbmc/input_l2cap_frame_flow_channel \
+--target_file_path=/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/mac/ble/ble-l2cap.c \
+--log_file=logs/2025-11-18_00-01/input_l2cap_frame_flow_channel.log \
+--metrics_file=metrics/2025-11-18_00-01/input_l2cap_frame_flow_channel.jsonl \
+> output.log 2>&1 &
+
+nohup python3 src/run.py all \
+--root_dir=/home/rcalvome/Documents/AutoUp/framework/contiki-ng \
+--target_function_name=ns_input \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/contiki-ng/cbmc/ns_input \
+--target_file_path=/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/ipv6/uip-nd6.c \
+--log_file=logs/2025-11-18_00-01/ns_input.log \
+--metrics_file=metrics/2025-11-18_00-01/ns_input.jsonl \
+> output.log 2>&1 &
+
+nohup python3 src/run.py all \
+--root_dir=/home/rcalvome/Documents/AutoUp/framework/contiki-ng \
+--target_function_name=dao_input_storing \
+--harness_path=/home/rcalvome/Documents/AutoUp/framework/contiki-ng/cbmc/dao_input_storing \
+--target_file_path=/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/routing/rpl-classic/rpl-icmp6.c \
+--log_file=logs/2025-11-18_00-01/dao_input_storing.log \
+--metrics_file=metrics/2025-11-18_00-01/dao_input_storing.jsonl \
+> output.log 2>&1 &
+
+input_l2cap_frame_flow_channel
+cbmc --flush --verbosity 9  --object-bits 16 --32   --nondet-static --unwind 2    --unwinding-assertions --trace --xml-ui build/input_l2cap_frame_flow_channel.goto > build/reports/cbmc.xml 2>&1
+
+

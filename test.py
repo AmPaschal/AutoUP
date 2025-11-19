@@ -14,8 +14,8 @@ import requests
 import random
 
 # Constants
-PATH = "/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_4"
-ROOT_DIR = "/home/rcalvome/Documents/AutoUp/framework/RIOT"
+PATH = "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/cbmc"
+ROOT_DIR = "/home/rcalvome/Documents/AutoUp/framework/contiki-ng"
 WEBHOOK_URL = "https://hooks.slack.com/triggers/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"
 
 MAX_PROCESSES = 4
@@ -164,19 +164,21 @@ def get_target_file_by_cscope(sample: str) -> str:
 
 def run_sample(sample, timestamp: str):
     """Run single test sample"""
-    folder_path = os.path.join(PATH, sample)
-    target_file_path = get_target_file_by_cscope(sample)
+    folder_path = os.path.join(PATH, sample[0])
+    #target_file_path = get_target_file_by_cscope(sample)
+    target_file_path = sample[1]
     os.makedirs(f"logs/{timestamp}", exist_ok=True)
     os.makedirs(f"metrics/{timestamp}", exist_ok=True)
     cmd = [
-        "python", "src/run.py", "debugger",
+        "python", "src/run.py", "all",
         f"--root_dir={ROOT_DIR}",
-        f"--target_function_name={sample}",
+        f"--target_function_name={sample[0]}",
         f"--harness_path={folder_path}",
         f"--target_file_path={target_file_path}",
-        f"--log_file=logs/{timestamp}/{sample}.log",
-        f"--metrics_file=metrics/{timestamp}/{sample}.jsonl",
+        f"--log_file=logs/{timestamp}/{sample[0]}.log",
+        f"--metrics_file=metrics/{timestamp}/{sample[0]}.jsonl",
     ]
+    print("cmd:", cmd)
     with subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -201,6 +203,20 @@ def main():
         if os.path.isdir(os.path.join(PATH, d)) and "_receive" in d
     ]
     #folders = random.sample(folders, 5)
+    folders = [
+        ("dao_input_storing", "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/routing/rpl-classic/rpl-icmp6.c"),
+        ("encode_string_len", "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/app-layer/snmp/snmp-ber.c"),
+        ("get_channel_for_cid", "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/mac/ble/ble-l2cap.c"),
+        ("input_l2cap_frame_flow_channel", "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/mac/ble/ble-l2cap.c"),
+        ("ns_input", "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/ipv6/uip-nd6.c"),
+        ("snmp_ber_decode_length", "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/app-layer/snmp/snmp-ber.c"),
+        ("snmp_ber_decode_oid", "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/app-layer/snmp/snmp-ber.c"),
+        ("snmp_ber_decode_unsigned_integer", "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/app-layer/snmp/snmp-ber.c"),
+        ("snmp_engine_get_bulk", "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/app-layer/snmp/snmp-engine.c"),
+        ("snmp_message_decode", "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/app-layer/snmp/snmp-message.c"),
+        ("uipbuf_get_next_header", "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/ipv6/uipbuf.c"),
+        ("uncompress_hdr_iphc", "/home/rcalvome/Documents/AutoUp/framework/contiki-ng/os/net/ipv6/sicslowpan.c"),
+    ]
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     with ThreadPoolExecutor(max_workers=MAX_PROCESSES) as executor:
         futures = {

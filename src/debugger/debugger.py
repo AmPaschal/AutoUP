@@ -50,6 +50,7 @@ class ProofDebugger(AIAgent, Generable):
         logger.info("self.target_func %s", self.target_func)
         logger.info("self.target_file_path %s", self.target_file_path)
         self.__max_attempts = 3
+        self.__programmatic_errors_solved = 0
 
     def generate(self) -> bool:
         """Iterates over errors"""
@@ -58,8 +59,10 @@ class ProofDebugger(AIAgent, Generable):
             logger.error("Initial proof does not build successfully.")
             self.log_agent_result({
                 "initial_errors": None,
-                "errors_solved": None,
                 "final_errors": None,
+                "errors_solved": None,
+                "errors_solved_programatically": None,
+                "final_coverage": None,
             })
             return False
         self.__create_backup()
@@ -86,8 +89,10 @@ class ProofDebugger(AIAgent, Generable):
         final_errors = len(error_report.unresolved_errs)
         self.log_agent_result({
             "initial_errors": initial_errors,
-            "errors_solved": errors_solved,
             "final_errors": final_errors,
+            "errors_solved": errors_solved,
+            "errors_solved_programatically": self.__programmatic_errors_solved,
+            "final_coverage": self.__compute_final_coverage(),
         })
         return True
 
@@ -105,6 +110,8 @@ class ProofDebugger(AIAgent, Generable):
                 conversation_history,
                 attempt == 1,  # Programmatic analysis if first attempt, LLM analysis otherwise
             )
+            if len(history) == 0: # It was programatically solved
+                self.__programmatic_errors_solved += 1
             make_result = self.__execute_make()
             error_report = ErrorReport(
                 extract_errors_and_payload(self.target_func, self.harness_file_path),
@@ -246,3 +253,21 @@ class ProofDebugger(AIAgent, Generable):
 
     def __get_advice(self, cluster: str):
         return get_advice_for_cluster(cluster, self.target_func)
+    
+    def __compute_final_coverage(self):
+        """ Computes the final coverage from the coverage report. """
+        coverage_report_path = os.path.join(
+            self.harness_path,
+            "build/report/json/viewer-coverage.json",
+        )
+        if not os.path.exists(coverage_report_path):
+            logger.error("Coverage report not found: %s", coverage_report_path)
+            return {}
+
+        with open(coverage_report_path, "r", encoding="utf-8") as f:
+            coverage_data = json.load(f)
+
+        viewer_coverage = coverage_data.get("viewer-coverage", {})
+        overall_coverage = viewer_coverage.get("overall_coverage", {})
+
+        return overall_coverage

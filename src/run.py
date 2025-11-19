@@ -123,7 +123,7 @@ def process_mode(args):
             metrics_file=args.metrics_file,
             project_container=project_container
         ))
-    if args.mode in ["debugger"]:
+    if args.mode in ["debugger", "all"]:
         agents.append(ProofDebugger(
             harness_path=args.harness_path,
             root_dir=args.root_dir,
