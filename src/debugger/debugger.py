@@ -107,6 +107,7 @@ class ProofDebugger(AIAgent, Generable):
             "errors_solved_programatically": errors_solved_programatically,
             "final_coverage": self.get_overall_coverage(),
         })
+        self.save_status('debugger')
         return True
 
     def get_overall_coverage(self):

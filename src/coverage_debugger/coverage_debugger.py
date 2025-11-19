@@ -477,5 +477,6 @@ class CoverageDebugger(AIAgent, Generable):
             )
         )
         self.log_agent_result({"initial_coverage": initial_coverage, "final_coverage": final_coverage})
+        self.save_status('coverage')
         return True
 

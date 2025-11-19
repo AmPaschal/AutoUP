@@ -323,6 +323,7 @@ class StubGenerator(AIAgent, Generable):
         logger.error("Failed to generate compilable harness after maximum attempts.")
 
         self.log_agent_result(agent_result)
+        self.save_status('stubs')
         return agent_result.get("generation_status", False)
         
         

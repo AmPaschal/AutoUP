@@ -7,6 +7,7 @@ from agent import AIAgent
 from commons.models import GPT, Generable
 from makefile.output_models import HarnessResponse
 from logger import setup_logger
+from makefile.makefile_debugger import MakefileDebugger
 
 logger = setup_logger(__name__)
 class InitialHarnessGenerator(AIAgent, Generable):
@@ -174,7 +175,15 @@ class InitialHarnessGenerator(AIAgent, Generable):
 
         # We setup the initial Makefile
         makefile = self.setup_initial_makefile()
-        self.update_makefile(makefile)        
+        self.update_makefile(makefile)   
 
-        return True
+        # Now, we try to resolve all the make errors
+        makefile_debugger = MakefileDebugger(
+                                args=self.args,
+                                project_container=self.project_container
+                            )
+        status = makefile_debugger.generate()
+
+        self.save_status('harness')
+        return status
         

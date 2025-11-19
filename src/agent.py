@@ -371,6 +371,20 @@ class AIAgent(ABC):
             return None
 
         return function_coverage
+
+    def save_status(self, tag: str):
+        harness_tagged_path = os.path.join(
+            self.harness_dir, f"{self.harness_file_name}.{tag}",
+        )
+        with open(self.harness_file_path, "r", encoding="utf-8") as src:
+            with open(harness_tagged_path, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        makefile_tagged_path = os.path.join(
+            self.harness_dir, f"Makefile.{tag}",
+        )
+        with open(self.makefile_path, "r", encoding="utf-8") as src:
+            with open(makefile_tagged_path, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
     
     def create_backup(self, tag: str):
         harness_backup_path = os.path.join(

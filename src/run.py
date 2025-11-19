@@ -93,10 +93,6 @@ def process_mode(args):
             args=args,
             project_container=project_container
         ))
-        agents.append(MakefileDebugger(
-            args=args,
-            project_container=project_container
-        ))
     if args.mode in ["function-stubs", "all"]:
         agents.append(StubGenerator(
             args=args,
