@@ -177,10 +177,19 @@ def analyze_error_report(errors_div, report_dir, new_precon_lines=[]):
             # Get the li holding line info
             error_report = li.find('li')
             while error_report is not None:
-                func_name = re.search(r'Function ([a-zA-Z0-9_]+)', error_report.text).group(1)
-
+                func_name_found = re.search(r'Function ([a-zA-Z0-9_]+)', error_report.text)
+                
+                if func_name_found:
+                    func_name = func_name_found.group(1)
+                else:
+                    raise ValueError("Couldn't find function name in error report")
+                
                 if not is_built_in:
-                    func_file_path = re.match(r'(?:\.+/)?((?:.*)\.(c|h))\.html', error_report.find("a")['href']).group(1) # Strip out the ./ and .html from this path
+                    func_file_path_found = re.match(r'(?:\.+/)?((?:.*)\.(c|h))\.html', error_report.find("a")['href']) # Strip out the ./ and .html from this path
+                    if func_file_path_found:
+                        func_file_path = func_file_path_found.group(1)
+                    else:
+                        raise ValueError("Couldn't find function file path in error report")
                 else:
                     func_file_path = None
 
@@ -194,7 +203,12 @@ def analyze_error_report(errors_div, report_dir, new_precon_lines=[]):
                     else:
                         is_null_pointer_deref = False
 
-                    line_num = int(re.search(r'\s*Line (\d+)',error_block.text).group(1))
+                    line_num_found = re.search(r'\s*Line (\d+)',error_block.text)
+                                         
+                    if line_num_found:
+                        line_num = int(line_num_found.group(1))
+                    else:
+                        raise ValueError("Couldn't find line number in error report")
 
                     
                     if func_file_path != None and re.match(r'.*_harness.c', func_file_path):
@@ -302,7 +316,8 @@ def analyze_traces(extracted_errors, json_path, new_precon_lines=[]):
                             if j != len(keys) - 1: 
                                 curr_scope = curr_scope[root_key][idx]
                             else:
-                                curr_scope[root_key][idx] = value
+                                root_key_scope = curr_scope.get(root_key, dict())
+                                root_key_scope[idx] = value
                             continue
                         else:
                             if key not in curr_scope:
@@ -522,15 +537,6 @@ def extract_errors_and_payload(harness_name, harness_path, check_for_coverage=No
     html_report_dir = os.path.join(harness_dir, Path("build", "report", "html"))
     json_report_dir = os.path.join(harness_dir, Path("build", "report", "json"))
 
-    # First run make
-    # try:
-    #     run_command('make', cwd=harness_dir)
-    # except Exception as e:
-    #     print(f"Make command failed: {e}")
-    #     raise SyntaxError("Make command failed, please check your harness for syntax errors")
-    
-    # print ("Make command completed")
-
     if check_for_coverage is not None:
         # This call will throw a custom error if the error is not covered by the harness
         check_error_is_covered(check_for_coverage, json_report_dir, new_precon_lines)
@@ -544,43 +550,47 @@ def extract_errors_and_payload(harness_name, harness_path, check_for_coverage=No
     if len(error_clusters) == 0:
         print("No error traces found")
         return {}
+    
+    try:
 
-    html_files = analyze_traces(error_clusters, json_report_dir, new_precon_lines)
-    # print(f"Extracted {len(html_files)} trace files")
-    func_text, stub_text, global_vars, macros = extract_func_definitions(html_files, html_report_dir, undefined_funcs)
-    
-    harness_info = {
-        'harness_definition': func_text.pop('harness'),
-    }
-    
-    if len(stub_text) > 0:
-        harness_info['function_models'] = stub_text
-    
-    if len(global_vars) > 0:
-        harness_info['global_vars'] = global_vars
-    
-    if len(macros) > 0:
-        harness_info['macros'] = macros
+        html_files = analyze_traces(error_clusters, json_report_dir, new_precon_lines)
+        # print(f"Extracted {len(html_files)} trace files")
+        func_text, stub_text, global_vars, macros = extract_func_definitions(html_files, html_report_dir, undefined_funcs)
+        
+        harness_info = {
+            'harness_definition': func_text.pop('harness'),
+        }
+        
+        if len(stub_text) > 0:
+            harness_info['function_models'] = stub_text
+        
+        if len(global_vars) > 0:
+            harness_info['global_vars'] = global_vars
+        
+        if len(macros) > 0:
+            harness_info['macros'] = macros
 
-    if not os.path.exists(f'./payloads/{harness_name}'):
-        os.makedirs(f'./payloads/{harness_name}')
+        if not os.path.exists(f'./payloads/{harness_name}'):
+            os.makedirs(f'./payloads/{harness_name}')
 
-    with open(f'./payloads/{harness_name}/{harness_name}_functions.json', 'w') as f:
-        json.dump(func_text,f,indent=4)
-    
-    with open(f'./payloads/{harness_name}/{harness_name}_harness.json', 'w') as f:
-        json.dump(harness_info, f, indent=4)
+        with open(f'./payloads/{harness_name}/{harness_name}_functions.json', 'w') as f:
+            json.dump(func_text,f,indent=4)
+        
+        with open(f'./payloads/{harness_name}/{harness_name}_harness.json', 'w') as f:
+            json.dump(harness_info, f, indent=4)
+    except Exception as e:
+        print(f"Failed to extract function definitions: {e}")
+        
 
     return error_clusters
 
-def get_json_errors(harness_path) -> tuple[set[str], set[str]]:
+def get_json_errors(harness_path) -> set[str]:
     """Get the positive errors from the JSON resport generated by CBMC"""
     report = {}
-    harness_dir = os.path.dirname(harness_path)
-    json_report_dir = os.path.join(harness_dir, Path("build", "report", "json"))
+    json_report_dir = os.path.join(harness_path, Path("build", "report", "json"))
     with open(f"{json_report_dir}/viewer-result.json", "r", encoding="utf-8") as f:
         report = json.loads(f.read())
-    return set(report["viewer-result"]["results"]["false"]), set(report["viewer-result"]["results"]["true"])
+    return set(report["viewer-result"]["results"]["false"])
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

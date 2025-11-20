@@ -106,6 +106,8 @@ class GPT(LLM):
         # Start with the initial user input
         new_message = {'role': 'user', 'content': input_messages}
 
+        logger.info(f"LLM Prompt:\n{input_messages}")
+
         if conversation_history is None:
             conversation_history = []
 
@@ -124,19 +126,26 @@ class GPT(LLM):
 
         while True:
             # Call the model
-            client_response: ParsedResponse = self.with_retry_on_error(
-                lambda: self.client.responses.parse(
-                    model="gpt-5",
-                    instructions=system_messages,
-                    input=input_list,
-                    text_format=output_format,
-                    tool_choice="auto",
-                    reasoning={"effort": "low"},
-                    tools=llm_tools,
-                    temperature=1.0,
-                ),
-                [openai.RateLimitError, pydantic_core._pydantic_core.ValidationError]
-            )
+            try:
+                client_response: ParsedResponse = self.with_retry_on_error(
+                    lambda: self.client.responses.parse(
+                        model="gpt-5",
+                        instructions=system_messages,
+                        input=input_list,
+                        text_format=output_format,
+                        tool_choice="auto",
+                        reasoning={"effort": "low"},
+                        tools=llm_tools,
+                        temperature=1.0,
+                    ),
+                    [openai.RateLimitError, pydantic_core._pydantic_core.ValidationError]
+                )
+            except openai.BadRequestError as bad_req_err:
+                logger.error(f"Bad request error from LLM: {bad_req_err}")
+                return None, {}
+            except Exception as e:
+                logger.error(f"Unexpected error from LLM: {e}")
+                return None, {}
 
             # Update token usage
             if client_response.usage:
@@ -175,7 +184,9 @@ class GPT(LLM):
                     "output": function_result,
                 })
 
-        parsed_output = client_response.output_parsed
+        parsed_output: BaseModel|None = client_response.output_parsed
+        parsed_output_dict = parsed_output.model_dump_json(indent=2) if parsed_output else {}
+        logger.info(f"LLM Response:\n{parsed_output_dict}")
 
         conversation_history.append({'role': 'assistant', 'content': str(parsed_output)})
 

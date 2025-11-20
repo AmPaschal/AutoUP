@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 from time import time
+import uuid
 
 from anyio import Path
 from agent import AIAgent
@@ -16,17 +17,12 @@ logger = setup_logger(__name__)
 
 class StubGenerator(AIAgent, Generable):
 
-    def __init__(self, root_dir, harness_dir, target_func, target_file_path, metrics_file, project_container):
+    def __init__(self, args, project_container):
         super().__init__(
             "StubGenerator",
-            project_container=project_container,
-            metrics_file=metrics_file
+            args,
+            project_container=project_container
         )
-        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
-        self.root_dir = root_dir
-        self.harness_dir = harness_dir
-        self.target_func = target_func
-        self.target_file_path = target_file_path
         self._max_attempts = 5
 
     def extract_function_signature(self, file_path: str, func_name: str, start_line: int) -> str:
@@ -91,7 +87,7 @@ class StubGenerator(AIAgent, Generable):
         stubs_text = "\n\n".join(stubs_list)
 
         # Get the existing harness code
-        harness_file_path = os.path.join(self.harness_dir, f'{self.target_func}_harness.c')
+        harness_file_path = os.path.join(self.harness_dir, f'{self.target_function}_harness.c')
         with open(harness_file_path, 'r') as f:
             harness_code = f.read()
 
@@ -108,7 +104,7 @@ class StubGenerator(AIAgent, Generable):
     
     def save_harness(self, harness_code):
         os.makedirs(self.harness_dir, exist_ok=True)
-        harness_file_path = os.path.join(self.harness_dir, f'{self.target_func}_harness.c')
+        harness_file_path = os.path.join(self.harness_dir, f'{self.target_function}_harness.c')
         
         with open(harness_file_path, 'w') as f:
             f.write(harness_code)
@@ -236,36 +232,6 @@ class StubGenerator(AIAgent, Generable):
         logger.info(f"Number of functions without bodies and returning pointers: {len(result)}")
 
         return result
-    
-    def backup_harness(self):
-        """
-        Create an unmodified copy of the harness file that we can restore,
-        but only if the harness file exists.
-        """
-        harness_file_path = os.path.join(self.harness_dir, f'{self.target_func}_harness.c')
-        if not os.path.exists(harness_file_path):
-            return None
-        backup_path = os.path.join(self.harness_dir, f'{self.target_func}_harness.c.backup')
-        shutil.copy(harness_file_path, backup_path)
-        return backup_path
-
-    def restore_backup(self, backup_path):
-        if not os.path.exists(backup_path):
-            logger.info(f"Backup file {backup_path} does not exist. Cannot restore harness.")
-            return
-        
-        harness_file_path = os.path.join(self.harness_dir, f'{self.target_func}_harness.c')
-
-        # If harness was generated, back it up with the timestamp
-        if os.path.exists(harness_file_path):
-            timestamp = int(time())
-            generated_backup_path = os.path.join(self.harness_dir, f'{self.target_func}_harness.c.{timestamp}.backup')
-            shutil.copy(harness_file_path, generated_backup_path)
-            logger.info(f"Backed up generated harness to {generated_backup_path}")
-
-        shutil.copy(backup_path, harness_file_path)
-        logger.info(f"Restored harness from {backup_path} to {harness_file_path}")
-        os.remove(backup_path)
 
     def run_make(self, compile_only: bool = True) -> dict:
         make_cmd = "make compile -j4" if compile_only else "make -j4"
@@ -279,30 +245,32 @@ class StubGenerator(AIAgent, Generable):
         self.run_make(compile_only=True)
 
         # 1. Get functions to stub
-        goto_file = os.path.join(self.harness_dir, "build", f"{self.target_func}.goto")
+        goto_file = os.path.join(self.harness_dir, "build", f"{self.target_function}.goto")
         if not os.path.exists(goto_file):
             logger.error(f"GOTO file not found: {goto_file}")
-            self.log_agent_result({"stubs_generated": None})
+            self.log_agent_result({"stubs_to_generate": None})
             return False
         
         functions_to_stub = self.extract_functions_without_body_and_returning_pointer(goto_file)
 
         if not functions_to_stub:
             logger.info("No functions found!")
-            self.log_agent_result({"stubs_generated": 0})
+            self.log_agent_result({"stubs_to_generate": 0})
             return True
 
         system_prompt, user_prompt = self.prepare_initial_prompt(functions_to_stub)
         tools = self.get_tools()
         attempts = 0
 
-        backup_path = self.backup_harness()
+        tag = uuid.uuid4().hex[:4].upper()
+        self.save_harness(tag)
 
         logger.info(f'System Prompt:\n{system_prompt}')
 
         conversation = []
 
-        stubs_generated = len(functions_to_stub)
+        stubs_to_generate = len(functions_to_stub)
+        agent_result = {"stubs_to_generate": stubs_to_generate, "generation_status": False}
         while user_prompt and attempts < self._max_attempts:
             logger.info(f'User Prompt:\n{user_prompt}')
 
@@ -330,12 +298,8 @@ class StubGenerator(AIAgent, Generable):
 
             if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:
                 logger.info("Generated harness builds succeeded.")
-
-                if backup_path:
-                    # Remove backup as harness is successfully generated
-                    os.remove(backup_path)
-                self.log_agent_result({"stubs_generated": stubs_generated})
-                return True
+                agent_result["generation_status"] = True
+                break    
             elif status_code == Status.FAILURE:
                 logger.info("Make command failed; reprompting LLM with make results.")
 
@@ -358,10 +322,8 @@ class StubGenerator(AIAgent, Generable):
         
         logger.error("Failed to generate compilable harness after maximum attempts.")
 
-        if backup_path:
-            # Restore original harness
-            self.restore_backup(backup_path)
-        self.log_agent_result({"stubs_generated": None})
-        return False
+        self.log_agent_result(agent_result)
+        self.save_status('stubs')
+        return agent_result.get("generation_status", False)
         
         

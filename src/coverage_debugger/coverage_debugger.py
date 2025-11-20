@@ -21,40 +21,15 @@ class AgentAction(Enum):
 
 class CoverageDebugger(AIAgent, Generable):
 
-    def __init__(self, root_dir, harness_dir, target_func, 
-                 target_file_path, metrics_file, project_container):
+    def __init__(self, args, project_container):
         super().__init__(
             "CoverageDebugger",
+            args,
             project_container,
-            harness_dir=harness_dir,
-            metrics_file=metrics_file
         )
-        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
-        self.root_dir = root_dir
-        self.harness_dir = harness_dir
-        self.target_func = target_func
-        self.target_file_path = target_file_path
         self._max_attempts = 3
 
-    def _get_function_coverage_status(self, file_path, function_name):
-        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
-        if not os.path.exists(coverage_report_path):
-            logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
-            return None
-
-        with open(coverage_report_path, "r") as f:
-            coverage_data = json.load(f)
-
-        viewer_coverage = coverage_data.get("viewer-coverage", {})
-        function_coverage = (
-            viewer_coverage.get("coverage", {}).get(file_path, {}).get(function_name, {})
-        )
-
-        if not function_coverage:
-            logger.error(f"[ERROR] Function '{function_name}' not found in coverage report for file '{file_path}'.")
-            return None
-
-        return function_coverage
+    
 
     def get_overall_coverage(self):
         coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
@@ -100,7 +75,7 @@ class CoverageDebugger(AIAgent, Generable):
                 total = stats.get("total", 0)
                 missed = max(total - hit, 0)
 
-                if total == 0 or pct >= 1.0:
+                if hit == 0 or pct >= 1.0:
                     continue  # fully covered or invalid
 
                 entry = {
@@ -118,7 +93,7 @@ class CoverageDebugger(AIAgent, Generable):
                 elif (
                     target_func_entry is None
                     and self.target_file_path.endswith(file_path or "")
-                    and func_name == self.target_func
+                    and func_name == self.target_function
                 ):
                     target_func_entry = entry
                 else:
@@ -207,7 +182,7 @@ class CoverageDebugger(AIAgent, Generable):
 
     def update_proof(self, updated_harness, updated_makefile):
         if updated_harness:
-            harness_path = os.path.join(self.harness_dir, f"{self.target_func}_harness.c")
+            harness_path = os.path.join(self.harness_dir, f"{self.target_function}_harness.c")
             backup_path = harness_path + ".bak"
 
             # Backup original harness if it exists
@@ -235,7 +210,7 @@ class CoverageDebugger(AIAgent, Generable):
             logger.info(f"Makefile updated at {makefile_path}")
 
     def reverse_proof_update(self):
-        harness_path = os.path.join(self.harness_dir, f"{self.target_func}_harness.c")
+        harness_path = os.path.join(self.harness_dir, f"{self.target_function}_harness.c")
         harness_backup = harness_path + ".bak"
         if os.path.exists(harness_backup):
             shutil.move(harness_backup, harness_path)
@@ -248,7 +223,7 @@ class CoverageDebugger(AIAgent, Generable):
             logger.info(f"Makefile reverted to original from {makefile_backup}")
 
     def remove_proof_backups(self):
-        harness_backup = os.path.join(self.harness_dir, f"{self.target_func}_harness.c.bak")
+        harness_backup = os.path.join(self.harness_dir, f"{self.target_function}_harness.c.bak")
         if os.path.exists(harness_backup):
             os.remove(harness_backup)
             logger.info(f"Removed harness backup at {harness_backup}")
@@ -310,13 +285,9 @@ class CoverageDebugger(AIAgent, Generable):
 
         # CASE 1 — LLM returned no valid response
         if not llm_response:
-            user_prompt = (
-                "The LLM did not return a valid response. "
-                "Please provide a response using the expected format.\n"
-            )
-            return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "no_llm_response")
-
-        logger.info(f'LLM Response:\n{json.dumps(llm_response.to_dict(), indent=2)}')
+            # An error occurred. We will skip this block 
+            logger.error("[ERROR] No valid response from LLM.")
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "no_llm_response")
 
         # CASE 2 — LLM proposed no modifications
         if not llm_response.proposed_modifications and not llm_response.updated_harness and not llm_response.updated_makefile:
@@ -331,9 +302,13 @@ class CoverageDebugger(AIAgent, Generable):
         make_results = self.run_make()
 
         # CASE 3 — Make failed entirely
-        if make_results.get("status", Status.ERROR) in [Status.ERROR, Status.TIMEOUT]:
+        if make_results.get("status", Status.ERROR) in [Status.ERROR]:
             logger.error("Make command failed to run.")
-            return (AgentAction.TERMINATE, None, current_coverage, "make_invocation_failed")
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "make_invocation_failed")
+
+        if make_results.get("status", Status.ERROR) == Status.TIMEOUT:
+            logger.error("Make command timed out.")
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "make_timeout")
 
         # CASE 4 — Build failed (exit code != 0)
         if make_results.get("status", Status.ERROR) == Status.FAILURE:
@@ -436,7 +411,9 @@ class CoverageDebugger(AIAgent, Generable):
         while user_prompt:
 
             attempts += 1
-            logger.info(f'LLM Prompt:\n{user_prompt}')
+            
+            task_id = f"cov-{next_function['function']}-{target_block_line}"
+            logger.info(f"[INFO] Processing task '{task_id}', attempt {attempts}.")
 
             llm_response, chat_data = self.llm.chat_llm(
                 system_prompt, user_prompt, CoverageDebuggerResponse,
@@ -445,9 +422,12 @@ class CoverageDebugger(AIAgent, Generable):
                 conversation_history=conversation
             )
 
-            task_id = f"cov-{next_function['function']}-{target_block_line}"
-
-            llm_result, user_prompt, current_coverage, error_tag = self.validate_llm_response(llm_response, next_function, target_block_line, attempts, current_coverage)
+            llm_result, user_prompt, current_coverage, error_tag = self.validate_llm_response(
+                                                                        llm_response, 
+                                                                        next_function, 
+                                                                        target_block_line, 
+                                                                        attempts, 
+                                                                        current_coverage)
             self.log_task_attempt(task_id, attempts, chat_data, error=error_tag)
 
             if llm_result == AgentAction.RETRY_BLOCK and attempts < self._max_attempts: 
@@ -469,6 +449,10 @@ class CoverageDebugger(AIAgent, Generable):
                 break
 
             if get_next_block:
+                # First, let's log the overall coverage
+                overall_coverage = self.get_overall_coverage()
+                if overall_coverage:
+                    logger.info(f"[INFO] Overall Coverage: {json.dumps(overall_coverage, indent=2)}")
                 next_function, coverage_data, target_block_line = self._get_next_uncovered_function(functions_to_skip)
                 if not next_function or not coverage_data or not target_block_line:
                     logger.info("[INFO] No more uncovered functions found.")
@@ -493,5 +477,6 @@ class CoverageDebugger(AIAgent, Generable):
             )
         )
         self.log_agent_result({"initial_coverage": initial_coverage, "final_coverage": final_coverage})
+        self.save_status('coverage')
         return True
 

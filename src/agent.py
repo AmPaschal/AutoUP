@@ -10,6 +10,7 @@ import tiktoken
 from commons.docker_tool import ProjectContainer
 from logger import setup_logger
 from commons.utils import Status
+from commons.models import GPT
 
 logger = setup_logger(__name__)
 
@@ -18,12 +19,22 @@ class AIAgent(ABC):
     Shared features for any OpenAI agent that interacts with a vector store
     """
 
-    def __init__(self, agent_name, project_container: ProjectContainer, harness_dir=None, metrics_file: str=""):
+    def __init__(self, agent_name, args, project_container: ProjectContainer):
         self.agent_name = agent_name
-        self.harness_dir = harness_dir
-        self.project_container: ProjectContainer = project_container
-        self._max_attempts = 5
-        self.metrics_file = metrics_file
+        self.args = args
+        self.root_dir=args.root_dir
+        self.harness_dir=args.harness_path
+        self.target_function=args.target_function_name
+        self.target_file_path=args.target_file_path
+        self.metrics_file=args.metrics_file
+        self.project_container=project_container
+
+
+        self.harness_file_name = f"{self.target_function}_harness.c"
+        self.harness_file_path = os.path.join(self.harness_dir, self.harness_file_name)
+        self.makefile_path = os.path.join(self.harness_dir, 'Makefile')
+        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
+        
 
     def truncate_result_custom(self, result: dict, cmd: str, max_input_tokens: int, model: str) -> dict:
         """
@@ -45,12 +56,7 @@ class AIAgent(ABC):
         encoding = tiktoken.get_encoding("cl100k_base")
         
         stdout_tokens = encoding.encode(result["stdout"])
-        stderr_tokens = encoding.encode(result["stderr"])
-
-        total_tokens = len(stdout_tokens) + len(stderr_tokens)
-
-        if total_tokens > 130000:
-            max_input_tokens = 180000      
+        stderr_tokens = encoding.encode(result["stderr"])  
         
         trunc_msg = "[Truncated to fit context window]"
         trunc_msg_tokens = encoding.encode(trunc_msg)
@@ -179,7 +185,7 @@ class AIAgent(ABC):
         else:
             raise ValueError(f"Unknown function call: {tool_name}")
         
-        logger.info(f"Function call response: {tool_response}")
+        logger.info(f"Function call response:\n {tool_response}")
         return str(tool_response)
 
     def log_task_attempt(self, task_id, attempt_number, llm_data, error):
@@ -228,6 +234,26 @@ class AIAgent(ABC):
 
         with open(self.metrics_file, 'a') as f:
             f.write(json.dumps(log_entry) + "\n")
+
+
+    def update_makefile(self, makefile_content):
+        with open(self.makefile_path, 'w') as file:
+            file.write(makefile_content)
+
+    def update_harness(self, harness_code):
+        
+        with open(self.harness_file_path, 'w') as f:
+            f.write(harness_code)
+
+    def get_makefile(self):
+        with open(self.makefile_path, 'r') as file:
+            makefile_content = file.read()
+        return makefile_content
+    
+    def get_harness(self):
+        with open(self.harness_file_path, 'r') as file:
+            harness_content = file.read()
+        return harness_content
 
 
     def execute_command(self, cmd: str, workdir: str, timeout: int) -> dict:
@@ -325,3 +351,116 @@ class AIAgent(ABC):
         ]
 
         return [*self.get_tools(), *coverage_tools]
+
+    def _get_function_coverage_status(self, file_path, function_name):
+        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
+        if not os.path.exists(coverage_report_path):
+            logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
+            return None
+
+        with open(coverage_report_path, "r") as f:
+            coverage_data = json.load(f)
+
+        viewer_coverage = coverage_data.get("viewer-coverage", {})
+        function_coverage = (
+            viewer_coverage.get("coverage", {}).get(file_path, {}).get(function_name, {})
+        )
+
+        if not function_coverage:
+            logger.error(f"[ERROR] Function '{function_name}' not found in coverage report for file '{file_path}'.")
+            return None
+
+        return function_coverage
+
+    def save_status(self, tag: str):
+        harness_tagged_path = os.path.join(
+            self.harness_dir, f"{self.harness_file_name}.{tag}",
+        )
+        with open(self.harness_file_path, "r", encoding="utf-8") as src:
+            with open(harness_tagged_path, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        makefile_tagged_path = os.path.join(
+            self.harness_dir, f"Makefile.{tag}",
+        )
+        with open(self.makefile_path, "r", encoding="utf-8") as src:
+            with open(makefile_tagged_path, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+    
+    def create_backup(self, tag: str):
+        harness_backup_path = os.path.join(
+            self.harness_dir, f"{self.harness_file_name}.{tag}.backup",
+        )
+        with open(self.harness_file_path, "r", encoding="utf-8") as src:
+            with open(harness_backup_path, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        makefile_backup_path = os.path.join(
+            self.harness_dir, f"Makefile.{tag}.backup",
+        )
+        with open(self.makefile_path, "r", encoding="utf-8") as src:
+            with open(makefile_backup_path, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        build_backup_path = os.path.join(
+            self.harness_dir, f"build_backup.{tag}",
+        )
+        if os.path.exists(build_backup_path):
+            subprocess.run(
+                ["rm", "-rf", build_backup_path],
+                check=True,
+            )
+        build_path = os.path.join(self.harness_dir, "build")
+        if os.path.exists(build_path):
+            subprocess.run(
+                ["cp", "-r", build_path, build_backup_path],
+                check=True,
+            )
+        logger.info("Backup created sucessfully.")
+
+    def restore_backup(self, tag: str):
+        harness_backup_path = os.path.join(
+            self.harness_dir, f"{self.harness_file_name}.{tag}.backup",
+        )
+        with open(harness_backup_path, "r", encoding="utf-8") as src:
+            with open(self.harness_file_path, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        makefile_backup_path = os.path.join(
+            self.harness_dir, f"Makefile.{tag}.backup",
+        )
+        with open(makefile_backup_path, "r", encoding="utf-8") as src:
+            with open(self.makefile_path, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        build_backup_path = os.path.join(
+            self.harness_dir, f"build_backup.{tag}",
+        )
+        build_path = os.path.join(self.harness_dir, "build")
+        if os.path.exists(build_path):
+            subprocess.run(
+                ["rm", "-rf", build_path],
+                check=True,
+            )
+        if os.path.exists(build_backup_path):
+            subprocess.run(
+                ["cp", "-r", build_backup_path, build_path],
+                check=True,
+            )
+        logger.info("Backup restored sucessfully.")
+
+    def discard_backup(self, tag: str):
+        harness_backup_path = os.path.join(
+            self.harness_dir, f"{self.harness_file_name}.{tag}.backup",
+        )
+        if os.path.exists(harness_backup_path):
+            os.remove(harness_backup_path)
+        makefile_backup_path = os.path.join(
+            self.harness_dir, f"Makefile.{tag}.backup",
+        )
+        if os.path.exists(makefile_backup_path):
+            os.remove(makefile_backup_path)
+        build_backup_path = os.path.join(
+            self.harness_dir, f"build_backup.{tag}",
+        )
+        if os.path.exists(build_backup_path):
+            subprocess.run(
+                ["rm", "-rf", build_backup_path],
+                check=True,
+            )
+        logger.info("Backup discarded sucessfully.")
