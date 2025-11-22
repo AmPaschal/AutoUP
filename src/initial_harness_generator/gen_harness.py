@@ -10,6 +10,9 @@ from logger import setup_logger
 from makefile.makefile_debugger import MakefileDebugger
 
 logger = setup_logger(__name__)
+MAKEFILE_DIR  = os.path.join(os.path.dirname(__file__), '..', 'makefile')
+PROMPT_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts')
+
 class InitialHarnessGenerator(AIAgent, Generable):
 
     def __init__(self, args, project_container):
@@ -73,10 +76,10 @@ class InitialHarnessGenerator(AIAgent, Generable):
             return None
 
     def prepare_prompt(self):
-        with open("prompts/harness_generator_system.prompt", "r") as f:
+        with open(os.path.join(PROMPT_DIR, 'harness_generator_system.prompt'), "r") as f:
             system_prompt = f.read()
 
-        with open("prompts/harness_generator_user.prompt", "r") as f:
+        with open(os.path.join(PROMPT_DIR, 'harness_generator_user.prompt'), "r") as f:
             user_prompt = f.read()
 
         user_prompt = user_prompt.replace("{FUNCTION_NAME}", self.target_function)
@@ -125,7 +128,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
         harness_relative_root = self.get_backward_path(self.root_dir, self.harness_dir)
         target_relative_root = self.get_relative_path(self.root_dir, self.target_file_path)
 
-        with open('src/makefile/Makefile.template', 'r') as file:
+        with open(os.path.join(MAKEFILE_DIR, 'Makefile.template'), 'r') as file:
             makefile = file.read()
 
         makefile = makefile.replace('{ROOT}', str(harness_relative_root))

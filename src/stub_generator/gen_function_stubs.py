@@ -14,6 +14,7 @@ from logger import setup_logger
 from commons.utils import Status
 
 logger = setup_logger(__name__)
+PROMPT_DIR = os.environ.get("PROMPT_DIR")
 
 class StubGenerator(AIAgent, Generable):
 
@@ -67,10 +68,10 @@ class StubGenerator(AIAgent, Generable):
         return signature
 
     def prepare_initial_prompt(self, functions_to_stub):
-        with open("prompts/gen_stubs_system.prompt", "r") as f:
+        with open(PROMPT_DIR + "gen_stubs_system.prompt", "r") as f:
             system_prompt = f.read()
 
-        with open("prompts/gen_stubs_user.prompt", "r") as f:
+        with open(PROMPT_DIR + "gen_stubs_user.prompt", "r") as f:
             user_prompt = f.read()
 
         # Prepare list of function signatures to stub

@@ -121,26 +121,40 @@ class ProjectContainer:
     def start_container(self):
         # Prepare host mapping
         volumes = {}
+        # Default container path matches host path (works for Linux-to-Linux)
+        container_mount_point = self.host_dir
+
         # If host_dir is specified, we assume it is valid. Should have been checked early on
         if os.path.exists(self.host_dir):
-            volumes = {self.host_dir: {'bind': self.host_dir, 'mode': 'rw'}}
-            logger.info(f"[+] Mapping host directory {self.host_dir} -> container {self.host_dir}")
+            # On Windows, we must map the host path (with drive letter) to a valid Linux path
+            if os.name == 'nt':
+                # Use a standard mount point for the project root to avoid "too many colons" error
+                # caused by drive letters in the container path.
+                container_mount_point = "/app"
+            
+            volumes = {self.host_dir: {'bind': container_mount_point, 'mode': 'rw'}}
+            logger.info(f"[+] Mapping host directory {self.host_dir} -> container {container_mount_point}")
 
         if not self.image:
             raise RuntimeError("Image not built. Call build_image() first.")
 
         # Create and run container
         logger.info(f"[+] Creating container '{self.container_name}' from image '{self.image}'...")
-        self.container = self.client.containers.run(
-            self.image,
-            name=self.container_name,
-            user=f"{os.getuid()}:{os.getgid()}",
-            stdin_open=True,
-            tty=True,
-            detach=True,
-            working_dir=self.host_dir,
-            volumes=volumes
-        )
+        
+        run_kwargs = {
+            "image": self.image,
+            "name": self.container_name,
+            "stdin_open": True,
+            "tty": True,
+            "detach": True,
+            "working_dir": container_mount_point,
+            "volumes": volumes
+        }
+
+        if os.name == 'posix':
+            run_kwargs["user"] = f"{os.getuid()}:{os.getgid()}"
+
+        self.container = self.client.containers.run(**run_kwargs)
         logger.info(f"[+] Container '{self.container_name}' is running.")
 
     def initialize_tools(self):

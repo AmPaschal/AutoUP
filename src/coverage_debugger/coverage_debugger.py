@@ -12,6 +12,7 @@ from makefile.output_models import CoverageDebuggerResponse
 from commons.utils import Status
 
 logger = logging.getLogger(__name__)
+PROMPT_DIR = os.path.join(os.path.dirname(__file__),'..','..','prompts')
 
 class AgentAction(Enum):
     RETRY_BLOCK = 0      # ask LLM again
@@ -163,10 +164,10 @@ class CoverageDebugger(AIAgent, Generable):
 
 
     def prepare_prompt(self, function_data, coverage_data, target_block_line):
-        with open("prompts/coverage_debugger_system.prompt", "r") as f:
+        with open(PROMPT_DIR + "coverage_debugger_system.prompt", "r") as f:
             system_prompt = f.read()
 
-        with open("prompts/coverage_debugger_user.prompt", "r") as f:
+        with open(PROMPT_DIR + "coverage_debugger_user.prompt", "r") as f:
             user_prompt = f.read()
 
         user_prompt = user_prompt.replace("{FUNCTION_DATA}", json.dumps(function_data))

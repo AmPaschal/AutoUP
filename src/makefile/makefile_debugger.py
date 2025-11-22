@@ -17,6 +17,8 @@ from logger import setup_logger
 
 load_dotenv()
 logger = setup_logger(__name__)
+MAKEFILE_DIR = os.path.join(os.path.dirname(__file__))
+PROMPT_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts')
 
 class MakefileDebugger(AIAgent, Generable):
 
@@ -67,16 +69,16 @@ class MakefileDebugger(AIAgent, Generable):
 
     def prepare_prompt(self, make_results):
         # Create the system prompt
-        with open('prompts/gen_makefile_system.prompt', 'r') as file:
+        with open(os.path.join(PROMPT_DIR, 'gen_makefile_system.prompt'), 'r') as file:
             system_prompt = file.read()
 
-        with open('src/makefile/Makefile.example', 'r') as file:
+        with open(os.path.join(MAKEFILE_DIR, 'Makefile.example'), 'r') as file:
             example_makefile = file.read()
 
         system_prompt = system_prompt.replace('{SAMPLE_MAKEFILE}', example_makefile)
 
         # Create the user prompt
-        with open('prompts/gen_makefile_user.prompt', 'r') as file:
+        with open(os.path.join(PROMPT_DIR, 'gen_makefile_user.prompt'), 'r') as file:
             user_prompt = file.read()
 
         makefile_content = self.get_makefile()
