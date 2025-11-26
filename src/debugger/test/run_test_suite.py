@@ -1,13 +1,13 @@
 import http.server
 import socketserver
 import webbrowser
-import os
 import json
 import argparse
 import time
 import signal
 import traceback
 import sys
+from pathlib import Path
 from dotenv import load_dotenv
 from AutoUP.src.debugger.debugger import LLMProofDebugger
 import shutil
@@ -24,6 +24,9 @@ def launch_results_server(results, port):
         
 
     # Change the working directory to the one containing your HTML file
+    results_dir = Path("./results")
+    results_dir.mkdir(parents=True, exist_ok=True)
+    import os
     os.chdir("./results")
 
     # Start an HTTP server in that directory
@@ -93,12 +96,12 @@ def launch_results_server(results, port):
 #             print(f"===== Completed {case} Successfully =====\n")
 
 def _remove_preconditions_and_make_backup(settings, report):
-    if not os.path.exists('./backups'):
-        os.makedirs('./backups')
+    backups_dir = Path('./backups')
+    backups_dir.mkdir(parents=True, exist_ok=True)
 
     # Make a backup copy of the original harness
     print("Backing up original harness...")
-    backup_path = os.path.join('./backups', os.path.basename(settings['harness']))
+    backup_path = backups_dir / Path(settings['harness']).name
     shutil.copy(settings['harness'], backup_path)
 
     with open(settings['harness'], 'r') as f:
@@ -119,20 +122,21 @@ def _remove_preconditions_and_make_backup(settings, report):
     with open(settings['harness'], 'w') as f:
         f.writelines(harness_lines)
 
-    print(f"Removed {len(settings['preconditions_lines_to_remove'])} preconditions from {os.path.basename(settings['harness'])}:\n{'\n'.join(removed_precons)}")
+    harness_name = Path(settings['harness']).name
+    print(f"Removed {len(settings['preconditions_lines_to_remove'])} preconditions from {harness_name}:\n{' '.join(removed_precons)}")
     report['Preconditions Removed'] = removed_precons
     return backup_path
 
 def _restore_backup(backup_path, settings):
     # First save a copy of the final harness
-    results_path = './results'
-    if not os.path.exists(results_path):
-        os.makedirs(results_path)
+    results_path = Path('./results')
+    results_path.mkdir(parents=True, exist_ok=True)
 
-    shutil.copy(settings['harness'], os.path.join(results_path, os.path.basename(settings['harness'])))
+    harness_name = Path(settings['harness']).name
+    shutil.copy(settings['harness'], results_path / harness_name)
     print("Saved a copy of the final harness to the results directory")
 
-    if not os.path.exists(backup_path):
+    if not Path(backup_path).exists():
         raise FileNotFoundError("No backups found to restore from")
 
     shutil.copy(backup_path, settings['harness'])
@@ -206,8 +210,8 @@ def test_workflow(harnesses=[], testing_rounds=1):
         backup_path = _remove_preconditions_and_make_backup(settings, results)
 
         try:
-            abs_harness_path = os.path.abspath(settings['harness'])
-            proof_writer = LLMProofDebugger(openai_api_key, abs_harness_path, test_mode=True)
+            abs_harness_path = Path(settings['harness']).resolve()
+            proof_writer = LLMProofDebugger(openai_api_key, str(abs_harness_path), test_mode=True)
             start = time.time()
             harness_report = proof_writer.iterate_proof(max_attempts=3)
             results['Execution Time'] = time.time() - start
@@ -272,10 +276,10 @@ def test_workflow(harnesses=[], testing_rounds=1):
         finally:
             _restore_backup(backup_path, settings)
     
-    if not os.path.exists('./results'):
-        os.makedirs('./results')
+    results_dir = Path('./results')
+    results_dir.mkdir(parents=True, exist_ok=True)
 
-    with open('./results/test_report.json', 'w') as f:
+    with (results_dir / 'test_report.json').open('w') as f:
         json.dump(test_report, f, indent=4)
     
     generate_html_report(test_report)

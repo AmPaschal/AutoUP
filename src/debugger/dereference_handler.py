@@ -2,7 +2,7 @@
 
 # System
 import re
-import os
+from pathlib import Path
 
 # AutoUP
 from debugger.programmatic_handler import ErrorHandler
@@ -85,9 +85,9 @@ class DerefereneErrorHandler(ErrorHandler):
         """Get the new variable to track"""
         file_path = steps[step_index]["location"]["file"]
         line_number = steps[step_index]["location"]["line"]
-        with open(os.path.join(self.root_dir, file_path), "r", encoding="utf-8") as file:
+        with (Path(self.root_dir) / file_path).open("r", encoding="utf-8") as file:
             line = file.readlines()[line_number - 1]
-        logger.info("Path: %s", os.path.join(self.root_dir, file_path))
+        logger.info("Path: %s", Path(self.root_dir) / file_path)
         logger.info("linenumber: %s", line_number)
         logger.info("Line: %s", line)
         match_result = re.search(r"= ?(?:\([\w \*]+\))? ?([-\w>]+);", line)
@@ -109,7 +109,7 @@ class DerefereneErrorHandler(ErrorHandler):
         line_number: int,
     ) -> str | None:
         """ Get the name of an argument given a function"""
-        with open(os.path.join(self.root_dir, file_path), "r", encoding="utf-8") as file:
+        with (Path(self.root_dir) / file_path).open("r", encoding="utf-8") as file:
             line = file.readlines()[line_number - 1]
         args = re.findall(r'\(([^)]*)\)', line)
         if args:

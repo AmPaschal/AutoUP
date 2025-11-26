@@ -1,7 +1,6 @@
 from collections import defaultdict
 import enum
 import glob
-import os
 import logging
 import subprocess
 import json
@@ -9,6 +8,7 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import sys
 
 from src.commons.metric_summary import process_metrics
 
@@ -40,22 +40,22 @@ def get_reachable_functions(json_path: str) -> dict:
 
 def print_coverage(proof_dir: Path):
     print(f"Report for {proof_dir}:")
-    report_path = os.path.join(proof_dir, "build/report/json")
-    coverage_report = os.path.join(report_path, "viewer-coverage.json")
-    if os.path.exists(coverage_report):
-        coverage_dict = get_coverage_dict(coverage_report)
+    report_path = proof_dir / "build" / "report" / "json"
+    coverage_report = report_path / "viewer-coverage.json"
+    if coverage_report.exists():
+        coverage_dict = get_coverage_dict(str(coverage_report))
         print(f"Coverage:\n{coverage_dict}")
-    reachability_report = os.path.join(report_path, "viewer-reachable.json")
-    if os.path.exists(reachability_report):
-        reachable_dict = get_reachable_functions(reachability_report)
+    reachability_report = report_path / "viewer-reachable.json"
+    if reachability_report.exists():
+        reachable_dict = get_reachable_functions(str(reachability_report))
         print(f"Reachable functions:\n{reachable_dict}")
 
 def summarize_metrics_per_agent(metrics_dir: str):
     """Summarize metrics from all metrics-*.jsonl files in a directory and print to logger"""
 
     # ---- Gather all metrics files in the directory ----
-    pattern = os.path.join(metrics_dir, "metrics-*.jsonl")
-    metric_files = glob.glob(pattern)
+    metrics_path = Path(metrics_dir)
+    metric_files = list(metrics_path.glob("metrics-*.jsonl"))
 
     if not metric_files:
         logger.warning(f"No metrics files found in directory: {metrics_dir}")
@@ -68,7 +68,7 @@ def summarize_metrics_per_agent(metrics_dir: str):
     # ---- Load and combine metrics from each file ----
     for metrics_file in metric_files:
         try:
-            with open(metrics_file, "r") as file:
+            with metrics_file.open("r") as file:
                 metrics_data = file.readlines()
 
             file_metrics = [json.loads(line) for line in metrics_data if line.strip()]
@@ -114,7 +114,7 @@ def run_proof_command(entry, args, output_root):
     log_file = output_root / f"{function_name}.log"
     metrics_file = output_root / f"metrics-{function_name}.jsonl"
     cmd = [
-        "python", "src/run.py",
+        str(sys.executable), "src/run.py",
         args.mode,
         "--target_function_name", function_name,
         "--root_dir", str(base_dir),

@@ -7,7 +7,7 @@ from datetime import datetime
 import subprocess
 import json
 import glob
-import os
+from pathlib import Path
 
 # Utils
 import requests
@@ -81,8 +81,8 @@ def process_metrics(metrics: list[dict]) -> dict:
 def summarize_metrics_per_agent(metrics_dir: str):  # TODO
     """Summarize metrics from all *.jsonl files in a directory and print it"""
 
-    pattern = os.path.join(metrics_dir, "*.jsonl")
-    metric_files = glob.glob(pattern)
+    metrics_path = Path(metrics_dir)
+    metric_files = list(metrics_path.glob("*.jsonl"))
 
     if not metric_files:
         print(f"No metrics files found in directory: {metrics_dir}")
@@ -92,7 +92,7 @@ def summarize_metrics_per_agent(metrics_dir: str):  # TODO
 
     for metrics_file in metric_files:
         try:
-            with open(metrics_file, "r", encoding="utf-8") as file:
+            with metrics_file.open("r", encoding="utf-8") as file:
                 metrics_data = file.readlines()
             file_metrics = [json.loads(line)
                             for line in metrics_data if line.strip()]
@@ -164,11 +164,11 @@ def get_target_file_by_cscope(sample: str) -> str:
 
 def run_sample(sample, timestamp: str):
     """Run single test sample"""
-    folder_path = os.path.join(PATH, sample[0])
+    folder_path = Path(PATH) / sample[0]
     #target_file_path = get_target_file_by_cscope(sample)
     target_file_path = sample[1]
-    os.makedirs(f"logs/{timestamp}", exist_ok=True)
-    os.makedirs(f"metrics/{timestamp}", exist_ok=True)
+    Path(f"logs/{timestamp}").mkdir(parents=True, exist_ok=True)
+    Path(f"metrics/{timestamp}").mkdir(parents=True, exist_ok=True)
     cmd = [
         "python", "src/run.py", "all",
         f"--root_dir={ROOT_DIR}",
@@ -198,9 +198,10 @@ def run_sample(sample, timestamp: str):
 def main():
     """Entry point"""
     build_cscope_database()
+    path = Path(PATH)
     folders = [
-        d for d in os.listdir(PATH)
-        if os.path.isdir(os.path.join(PATH, d)) and "_receive" in d
+        d.name for d in path.iterdir()
+        if d.is_dir() and "_receive" in d.name
     ]
     #folders = random.sample(folders, 5)
     folders = [

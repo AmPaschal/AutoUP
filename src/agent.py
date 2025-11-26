@@ -1,7 +1,7 @@
 import json
 import os
 import time
-import subprocess
+import shutil
 from abc import ABC
 from typing import Any, Callable, Type
 
@@ -11,6 +11,7 @@ from commons.docker_tool import ProjectContainer
 from logger import setup_logger
 from commons.utils import Status
 from commons.models import GPT
+import pathlib 
 
 logger = setup_logger(__name__)
 
@@ -22,17 +23,17 @@ class AIAgent(ABC):
     def __init__(self, agent_name, args, project_container: ProjectContainer):
         self.agent_name = agent_name
         self.args = args
-        self.root_dir=args.root_dir
-        self.harness_dir=args.harness_path
+        self.root_dir=pathlib.Path(args.root_dir)
+        self.harness_dir=pathlib.Path(args.harness_path)
         self.target_function=args.target_function_name
-        self.target_file_path=args.target_file_path
+        self.target_file_path=pathlib.Path(args.target_file_path)
         self.metrics_file=args.metrics_file
         self.project_container=project_container
 
 
         self.harness_file_name = f"{self.target_function}_harness.c"
-        self.harness_file_path = os.path.join(self.harness_dir, self.harness_file_name)
-        self.makefile_path = os.path.join(self.harness_dir, 'Makefile')
+        self.harness_file_path = pathlib.Path.joinpath(self.harness_dir, self.harness_file_name)
+        self.makefile_path = pathlib.Path.joinpath(self.harness_dir, 'Makefile')
         self.llm = GPT(name='gpt-5', max_input_tokens=270000)
         
 
@@ -96,8 +97,8 @@ class AIAgent(ABC):
             logger.info(f"Running command: {cmd}")
             result = self.project_container.execute(cmd)
             return self.truncate_result_custom(result, cmd, max_input_tokens=10000, model='gpt-5')
-        except subprocess.CalledProcessError as e:
-            print(f"Command failed with error:\n{e.stderr}")
+        except Exception as e:
+            logger.error(f"Command failed with error: {e}")
             return None
         
     def handle_condition_retrieval_tool(self, function_name, line_number):
@@ -115,8 +116,8 @@ class AIAgent(ABC):
         assert self.harness_dir is not None, "harness_dir must be set to use coverage debugger tools."
 
         # First, check if the coverage-mcdc.json file exists
-        coverage_file_path = os.path.join(self.harness_dir, "build", "reports", "coverage-mcdc.json")
-        if not os.path.exists(coverage_file_path):
+        coverage_file_path = pathlib.Path.joinpath(self.harness_dir, "build", "reports", "coverage-mcdc.json")
+        if not coverage_file_path.exists():
             error_message = f"MC/DC Coverage file not found: {coverage_file_path}"
             tool_response["error"] = error_message
             logger.error(error_message)
@@ -353,8 +354,8 @@ class AIAgent(ABC):
         return [*self.get_tools(), *coverage_tools]
 
     def _get_function_coverage_status(self, file_path, function_name):
-        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
-        if not os.path.exists(coverage_report_path):
+        coverage_report_path = pathlib.Path.joinpath(self.harness_dir, "build/report/json/viewer-coverage.json")
+        if not coverage_report_path.exists():
             logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
             return None
 
@@ -373,13 +374,13 @@ class AIAgent(ABC):
         return function_coverage
 
     def save_status(self, tag: str):
-        harness_tagged_path = os.path.join(
+        harness_tagged_path = pathlib.Path.joinpath(
             self.harness_dir, f"{self.harness_file_name}.{tag}",
         )
         with open(self.harness_file_path, "r", encoding="utf-8") as src:
             with open(harness_tagged_path, "w", encoding="utf-8") as dst:
                 dst.write(src.read())
-        makefile_tagged_path = os.path.join(
+        makefile_tagged_path = pathlib.Path.joinpath(
             self.harness_dir, f"Makefile.{tag}",
         )
         with open(self.makefile_path, "r", encoding="utf-8") as src:
@@ -387,80 +388,65 @@ class AIAgent(ABC):
                 dst.write(src.read())
     
     def create_backup(self, tag: str):
-        harness_backup_path = os.path.join(
+        harness_backup_path = pathlib.Path.joinpath(
             self.harness_dir, f"{self.harness_file_name}.{tag}.backup",
         )
         with open(self.harness_file_path, "r", encoding="utf-8") as src:
             with open(harness_backup_path, "w", encoding="utf-8") as dst:
                 dst.write(src.read())
-        makefile_backup_path = os.path.join(
+        makefile_backup_path = pathlib.Path.joinpath(
             self.harness_dir, f"Makefile.{tag}.backup",
         )
         with open(self.makefile_path, "r", encoding="utf-8") as src:
             with open(makefile_backup_path, "w", encoding="utf-8") as dst:
                 dst.write(src.read())
-        build_backup_path = os.path.join(
+        build_backup_path = pathlib.Path.joinpath(
             self.harness_dir, f"build_backup.{tag}",
         )
-        if os.path.exists(build_backup_path):
-            subprocess.run(
-                ["rm", "-rf", build_backup_path],
-                check=True,
-            )
-        build_path = os.path.join(self.harness_dir, "build")
-        if os.path.exists(build_path):
-            subprocess.run(
-                ["cp", "-r", build_path, build_backup_path],
-                check=True,
-            )
+        if build_backup_path.exists():
+            shutil.rmtree(build_backup_path)
+        build_path = pathlib.Path.joinpath(self.harness_dir, "build")
+        if build_path.exists():
+            shutil.copytree(build_path, build_backup_path)
         logger.info("Backup created sucessfully.")
 
     def restore_backup(self, tag: str):
-        harness_backup_path = os.path.join(
+        harness_backup_path = pathlib.Path.joinpath(
             self.harness_dir, f"{self.harness_file_name}.{tag}.backup",
         )
         with open(harness_backup_path, "r", encoding="utf-8") as src:
             with open(self.harness_file_path, "w", encoding="utf-8") as dst:
                 dst.write(src.read())
-        makefile_backup_path = os.path.join(
+        makefile_backup_path = pathlib.Path.joinpath(
             self.harness_dir, f"Makefile.{tag}.backup",
         )
         with open(makefile_backup_path, "r", encoding="utf-8") as src:
             with open(self.makefile_path, "w", encoding="utf-8") as dst:
                 dst.write(src.read())
-        build_backup_path = os.path.join(
+        build_backup_path = pathlib.Path.joinpath(
             self.harness_dir, f"build_backup.{tag}",
         )
-        build_path = os.path.join(self.harness_dir, "build")
-        if os.path.exists(build_path):
-            subprocess.run(
-                ["rm", "-rf", build_path],
-                check=True,
-            )
-        if os.path.exists(build_backup_path):
-            subprocess.run(
-                ["cp", "-r", build_backup_path, build_path],
-                check=True,
-            )
+        build_path = pathlib.Path.joinpath(self.harness_dir, "build")
+        if build_path.exists():
+            shutil.rmtree(build_path)
+        if build_backup_path.exists():
+            shutil.copytree(build_backup_path, build_path)
         logger.info("Backup restored sucessfully.")
 
     def discard_backup(self, tag: str):
-        harness_backup_path = os.path.join(
+        harness_backup_path = pathlib.Path.joinpath(
             self.harness_dir, f"{self.harness_file_name}.{tag}.backup",
         )
-        if os.path.exists(harness_backup_path):
-            os.remove(harness_backup_path)
-        makefile_backup_path = os.path.join(
+        if harness_backup_path.exists():
+            harness_backup_path.unlink()
+        makefile_backup_path = pathlib.Path.joinpath(
             self.harness_dir, f"Makefile.{tag}.backup",
         )
-        if os.path.exists(makefile_backup_path):
-            os.remove(makefile_backup_path)
-        build_backup_path = os.path.join(
+        if makefile_backup_path.exists():
+            makefile_backup_path.unlink()
+        build_backup_path = pathlib.Path.joinpath(
             self.harness_dir, f"build_backup.{tag}",
         )
-        if os.path.exists(build_backup_path):
-            subprocess.run(
-                ["rm", "-rf", build_backup_path],
-                check=True,
-            )
+        if build_backup_path.exists():
+            shutil.rmtree(build_backup_path)
         logger.info("Backup discarded sucessfully.")

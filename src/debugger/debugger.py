@@ -3,7 +3,6 @@
 # System
 from pathlib import Path
 import subprocess
-import os
 
 # Utils
 from datetime import datetime
@@ -111,12 +110,12 @@ class ProofDebugger(AIAgent, Generable):
         return True
 
     def get_overall_coverage(self):
-        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
-        if not os.path.exists(coverage_report_path):
+        coverage_report_path = self.harness_dir / "build" / "report" / "json" / "viewer-coverage.json"
+        if not coverage_report_path.exists():
             logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
             return {}
 
-        with open(coverage_report_path, "r") as f:
+        with coverage_report_path.open("r") as f:
             coverage_data = json.load(f)
 
         viewer_coverage = coverage_data.get("viewer-coverage", {})
@@ -151,12 +150,12 @@ class ProofDebugger(AIAgent, Generable):
 
     def create_error_trace_file(self, error: CBMCError):
 
-        json_report_path = os.path.join(self.harness_dir, "build/report/json")
-        if not os.path.exists(json_report_path):
+        json_report_path = self.harness_dir / "build" / "report" / "json"
+        if not json_report_path.exists():
             logger.error(f"[ERROR] JSON report path not found: {json_report_path}")
             return 
 
-        with open(os.path.join(json_report_path, "viewer-trace.json"), 'r') as file:
+        with (json_report_path / "viewer-trace.json").open('r') as file:
             error_traces = json.load(file)
 
         error_trace = error_traces.get('viewer-trace', {}).get('traces', {}).get(error.error_id, {})
