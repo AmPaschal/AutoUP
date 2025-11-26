@@ -2,7 +2,6 @@
 
 from pathlib import Path
 import json
-import os
 from agent import AIAgent
 from commons.models import GPT, Generable
 from makefile.output_models import HarnessResponse
@@ -10,8 +9,8 @@ from logger import setup_logger
 from makefile.makefile_debugger import MakefileDebugger
 
 logger = setup_logger(__name__)
-MAKEFILE_DIR  = os.path.join(os.path.dirname(__file__), '..', 'makefile')
-PROMPT_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts')
+MAKEFILE_DIR = Path(__file__).parent / '..' / 'makefile'
+PROMPT_DIR = Path(__file__).parent / '..' / '..' / 'prompts'
 
 class InitialHarnessGenerator(AIAgent, Generable):
 
@@ -24,11 +23,12 @@ class InitialHarnessGenerator(AIAgent, Generable):
         self._max_attempts = 5
 
     def extract_function_code(self, file_path, function_name):
-        if not os.path.exists(file_path):
+        file_path = Path(file_path)
+        if not file_path.exists():
             print(f"[ERROR] File not found: {file_path}")
             return None
 
-        with open(file_path, 'r', encoding="utf-8", errors="ignore") as file:
+        with file_path.open('r', encoding="utf-8", errors="ignore") as file:
             lines = file.readlines()
 
         start_index = None
@@ -76,15 +76,15 @@ class InitialHarnessGenerator(AIAgent, Generable):
             return None
 
     def prepare_prompt(self):
-        with open(os.path.join(PROMPT_DIR, 'harness_generator_system.prompt'), "r") as f:
+        with (PROMPT_DIR / 'harness_generator_system.prompt').open("r") as f:
             system_prompt = f.read()
 
-        with open(os.path.join(PROMPT_DIR, 'harness_generator_user.prompt'), "r") as f:
+        with (PROMPT_DIR / 'harness_generator_user.prompt').open("r") as f:
             user_prompt = f.read()
 
         user_prompt = user_prompt.replace("{FUNCTION_NAME}", self.target_function)
-        user_prompt = user_prompt.replace("{PROJECT_DIR}", self.root_dir)
-        user_prompt = user_prompt.replace("{FUNCTION_SOURCE_FILE}", self.target_file_path)
+        user_prompt = user_prompt.replace("{PROJECT_DIR}", self.project_container.host_to_container_path(self.root_dir))
+        user_prompt = user_prompt.replace("{FUNCTION_SOURCE_FILE}", self.project_container.host_to_container_path(self.target_file_path))
         function_source = self.extract_function_code(self.target_file_path, self.target_function)
         if function_source:
             user_prompt = user_prompt.replace("{FUNCTION_SOURCE}", function_source)
@@ -110,14 +110,17 @@ class InitialHarnessGenerator(AIAgent, Generable):
 
     def create_makefile_include(self):
         """Copy makefile.include from docker to harness parent directory"""
-        src_path = os.path.join('makefiles', 'Makefile.include')
-        dest_path = os.path.join(os.path.dirname(self.harness_dir), 'Makefile.include')
-        if os.path.exists(dest_path):
+        src_path = '/makefiles/Makefile.include'
+        dest_path = self.harness_dir.parent / 'Makefile.include'
+        # Check if file exists in container
+        if dest_path.exists() :
             logger.info(f'Makefile.include already exists at {dest_path}, skipping copy.')
             return
         # Copy inside the container
-        copy_cmd = f"cp {src_path} {dest_path}"
+        dest_container_path = self.project_container.host_to_container_path(dest_path)
+        copy_cmd = f"cp {src_path} {dest_container_path}"
         copy_results = self.project_container.execute(copy_cmd, workdir='/')
+        logger.info(f'Command executed: {copy_cmd}')
         if copy_results.get('exit_code', -1) != 0:
             logger.error(f'Failed to copy Makefile.include: {copy_results.get("stderr", "")}')
             return
@@ -128,19 +131,19 @@ class InitialHarnessGenerator(AIAgent, Generable):
         harness_relative_root = self.get_backward_path(self.root_dir, self.harness_dir)
         target_relative_root = self.get_relative_path(self.root_dir, self.target_file_path)
 
-        with open(os.path.join(MAKEFILE_DIR, 'Makefile.template'), 'r') as file:
+        with (MAKEFILE_DIR / 'Makefile.template').open('r') as file:
             makefile = file.read()
 
         makefile = makefile.replace('{ROOT}', str(harness_relative_root))
         makefile = makefile.replace('{H_ENTRY}', self.target_function)
-        makefile = makefile.replace('{LINK}', f'$(ROOT)/{target_relative_root}')
+        makefile = makefile.replace('{LINK}', f'$(ROOT)/{target_relative_root.as_posix()}')
 
         return makefile
 
     def generate(self) -> bool:
 
         # First generate initial harnesses
-        os.makedirs(self.harness_dir, exist_ok=True)
+        self.harness_dir.mkdir(parents=True, exist_ok=True)
 
         system_prompt, user_prompt = self.prepare_prompt()
         tools = self.get_tools()

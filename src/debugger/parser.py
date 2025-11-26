@@ -1,6 +1,5 @@
 import subprocess
 from pathlib import Path
-import os
 import re
 from hashlib import sha256
 from bs4 import BeautifulSoup
@@ -230,7 +229,7 @@ def analyze_error_report(errors_div, report_dir, new_precon_lines=[]):
                         error_id = re.match(r'\s*\[<a href="./traces/(.+).html">trace</a>\]\s*', error_line.decode_contents()).group(1).strip()
                         error_msg = re.match(r'\s*\[trace\]\s*((?:[^\s]+\s?)+)\s*',error_line.text).group(1).strip()
                         trace_link = error_line.find("a", text='trace')
-                        trace_href = os.path.join(report_dir, trace_link['href'] if trace_link else None)                    
+                        trace_href = str(Path(report_dir) / (trace_link['href'] if trace_link else ""))                    
                         # Skip pointer relations and redundant derefs
                         if ('pointer relation' in error_msg or 
                             (is_null_pointer_deref and 'dereference failure' in error_msg and "pointer NULL" not in error_msg)):
@@ -253,7 +252,8 @@ def analyze_error_report(errors_div, report_dir, new_precon_lines=[]):
     return error_clusters, undefined_funcs
 
 def analyze_traces(extracted_errors, json_path, new_precon_lines=[]):
-    with open(os.path.join(json_path, "viewer-trace.json"), 'r') as file:
+    json_path = Path(json_path)
+    with (json_path / "viewer-trace.json").open('r') as file:
         error_traces = json.load(file)
     
     html_files = dict()
@@ -264,7 +264,7 @@ def analyze_traces(extracted_errors, json_path, new_precon_lines=[]):
             with open(trace_file, "r") as f:
                 soup = BeautifulSoup(f, "html.parser")
 
-            trace_key = os.path.basename(trace_file).replace(".html", "")
+            trace_key = Path(trace_file).stem
             var_trace = error_traces['viewer-trace']['traces'][trace_key]
             harness_vars = defaultdict(dict)
             for trace in var_trace:
@@ -399,7 +399,7 @@ def analyze_traces(extracted_errors, json_path, new_precon_lines=[]):
 def extract_func_definitions(html_files, report_dir, undefined_funcs):
     func_text = dict()
     stub_text = dict()
-    harness_file = os.path.basename(html_files['harness'].split('#')[0])
+    harness_file = Path(html_files['harness'].split('#')[0]).name
     global_vars = []
     macros = []
     for func_name, trace_path in html_files.items():
@@ -407,12 +407,12 @@ def extract_func_definitions(html_files, report_dir, undefined_funcs):
             func_text[func_name] = "Undefined"
             continue
 
-        file_path = os.path.join(report_dir, Path('traces', trace_path))
-        real_path, line_num = file_path.split('#')
+        file_path = Path(report_dir) / 'traces' / trace_path
+        real_path, line_num = str(file_path).split('#')
         with open(real_path, "r") as f:
             soup = BeautifulSoup(f, "html.parser")
         
-        if os.path.basename(real_path) == harness_file and func_name == 'harness':
+        if Path(real_path).name == harness_file and func_name == 'harness':
             global_defs = soup.find_all(string=re.compile(r'\s*\d+\s*(?:extern|\#define)')) #This only actually matches the start of the string
             for definition in global_defs:
                 full_def = definition.parent.text.strip()
@@ -456,7 +456,7 @@ def extract_func_definitions(html_files, report_dir, undefined_funcs):
                         text_to_check = line.text
                     
                     # Remove comments as to not give any "hints" from our pre-written harness
-                    if os.path.basename(real_path) == harness_file:
+                    if Path(real_path).name == harness_file:
                         line_text = re.sub(r'//.*', '', line.text)
                     else:
                         line_text = line.text
@@ -470,7 +470,7 @@ def extract_func_definitions(html_files, report_dir, undefined_funcs):
                     # print(line.text.strip())
                 
                 # If it's a stub
-                if os.path.basename(real_path) == harness_file and func_name != 'harness':
+                if Path(real_path).name == harness_file and func_name != 'harness':
                     stub_text[func_name] = re.sub(r' +', ' ', full_func_text)
                 else:
                     func_text[func_name] = re.sub(r' +', ' ', full_func_text)
@@ -484,7 +484,7 @@ def extract_func_definitions(html_files, report_dir, undefined_funcs):
 
 def check_error_is_covered(error, json_report_dir, new_lines=[]):
     try:
-        with open(os.path.join(json_report_dir, "viewer-coverage.json"), 'r') as file:
+        with (Path(json_report_dir) / "viewer-coverage.json").open('r') as file:
             coverage_data = json.load(file)['viewer-coverage']['coverage']
             file = error.file
             if error.is_built_in:
@@ -532,30 +532,30 @@ def extract_errors_and_payload(harness_name, harness_path, check_for_coverage=No
     Can optionally pass in an error dictionary to check if it is still covered in the current run, and will raise an error if not
     """
 
-    harness_dir = os.path.dirname(harness_path)
+    harness_dir = Path(harness_path).parent
 
-    html_report_dir = os.path.join(harness_dir, Path("build", "report", "html"))
-    json_report_dir = os.path.join(harness_dir, Path("build", "report", "json"))
+    html_report_dir = harness_dir / "build" / "report" / "html"
+    json_report_dir = harness_dir / "build" / "report" / "json"
 
     if check_for_coverage is not None:
         # This call will throw a custom error if the error is not covered by the harness
-        check_error_is_covered(check_for_coverage, json_report_dir, new_precon_lines)
+        check_error_is_covered(check_for_coverage, str(json_report_dir), new_precon_lines)
 
-    error_report = os.path.join(html_report_dir, "index.html")
-    with open(error_report, "r") as f:
+    error_report = html_report_dir / "index.html"
+    with error_report.open("r") as f:
         soup = BeautifulSoup(f, "html.parser")
     
     errors_div = soup.find("div", class_="errors")
-    error_clusters, undefined_funcs = analyze_error_report(errors_div, html_report_dir, new_precon_lines)
+    error_clusters, undefined_funcs = analyze_error_report(errors_div, str(html_report_dir), new_precon_lines)
     if len(error_clusters) == 0:
         print("No error traces found")
         return {}
     
     try:
 
-        html_files = analyze_traces(error_clusters, json_report_dir, new_precon_lines)
+        html_files = analyze_traces(error_clusters, str(json_report_dir), new_precon_lines)
         # print(f"Extracted {len(html_files)} trace files")
-        func_text, stub_text, global_vars, macros = extract_func_definitions(html_files, html_report_dir, undefined_funcs)
+        func_text, stub_text, global_vars, macros = extract_func_definitions(html_files, str(html_report_dir), undefined_funcs)
         
         harness_info = {
             'harness_definition': func_text.pop('harness'),
@@ -570,13 +570,13 @@ def extract_errors_and_payload(harness_name, harness_path, check_for_coverage=No
         if len(macros) > 0:
             harness_info['macros'] = macros
 
-        if not os.path.exists(f'./payloads/{harness_name}'):
-            os.makedirs(f'./payloads/{harness_name}')
+        payload_dir = Path(f'./payloads/{harness_name}')
+        payload_dir.mkdir(parents=True, exist_ok=True)
 
-        with open(f'./payloads/{harness_name}/{harness_name}_functions.json', 'w') as f:
+        with (payload_dir / f'{harness_name}_functions.json').open('w') as f:
             json.dump(func_text,f,indent=4)
         
-        with open(f'./payloads/{harness_name}/{harness_name}_harness.json', 'w') as f:
+        with (payload_dir / f'{harness_name}_harness.json').open('w') as f:
             json.dump(harness_info, f, indent=4)
     except Exception as e:
         print(f"Failed to extract function definitions: {e}")
@@ -587,8 +587,8 @@ def extract_errors_and_payload(harness_name, harness_path, check_for_coverage=No
 def get_json_errors(harness_path) -> set[str]:
     """Get the positive errors from the JSON resport generated by CBMC"""
     report = {}
-    json_report_dir = os.path.join(harness_path, Path("build", "report", "json"))
-    with open(f"{json_report_dir}/viewer-result.json", "r", encoding="utf-8") as f:
+    json_report_dir = Path(harness_path) / "build" / "report" / "json"
+    with (json_report_dir / "viewer-result.json").open("r", encoding="utf-8") as f:
         report = json.loads(f.read())
     return set(report["viewer-result"]["results"]["false"])
 
@@ -597,10 +597,11 @@ if __name__ == "__main__":
         print("Usage: parser.py <harness path>")
         sys.exit(1)
 
-    harness_name = os.path.basename(sys.argv[1]).replace('_harness.c', "")
-    harness_dir = os.path.dirname(sys.argv[1])
+    harness_path = Path(sys.argv[1])
+    harness_name = harness_path.stem.replace('_harness', '')
+    harness_dir = harness_path.parent
 
-    if not os.path.exists(harness_dir):
+    if not harness_dir.exists():
         raise FileNotFoundError(f"Harness directory {harness_dir} does not exist")
 
     extracted_errors = extract_errors_and_payload(harness_name, harness_dir)

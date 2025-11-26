@@ -6,7 +6,7 @@ import shutil
 from time import time
 import uuid
 
-from anyio import Path
+from pathlib import Path
 from agent import AIAgent
 from commons.models import GPT, Generable
 from makefile.output_models import HarnessResponse
@@ -14,7 +14,7 @@ from logger import setup_logger
 from commons.utils import Status
 
 logger = setup_logger(__name__)
-PROMPT_DIR = os.environ.get("PROMPT_DIR")
+PROMPT_DIR = Path(__file__).parent.parent.parent / 'prompts'
 
 class StubGenerator(AIAgent, Generable):
 
@@ -68,10 +68,10 @@ class StubGenerator(AIAgent, Generable):
         return signature
 
     def prepare_initial_prompt(self, functions_to_stub):
-        with open(PROMPT_DIR + "gen_stubs_system.prompt", "r") as f:
+        with (PROMPT_DIR / "gen_stubs_system.prompt").open("r") as f:
             system_prompt = f.read()
 
-        with open(PROMPT_DIR + "gen_stubs_user.prompt", "r") as f:
+        with (PROMPT_DIR / "gen_stubs_user.prompt").open("r") as f:
             user_prompt = f.read()
 
         # Prepare list of function signatures to stub
@@ -88,12 +88,12 @@ class StubGenerator(AIAgent, Generable):
         stubs_text = "\n\n".join(stubs_list)
 
         # Get the existing harness code
-        harness_file_path = os.path.join(self.harness_dir, f'{self.target_function}_harness.c')
-        with open(harness_file_path, 'r') as f:
+        harness_file_path = self.harness_dir / f'{self.target_function}_harness.c'
+        with harness_file_path.open('r') as f:
             harness_code = f.read()
 
-        makefile_path = os.path.join(self.harness_dir, 'Makefile')
-        with open(makefile_path, 'r') as f:
+        makefile_path = self.harness_dir / 'Makefile'
+        with makefile_path.open('r') as f:
             makefile_code = f.read()
 
         user_prompt = user_prompt.replace("{HARNESS_CODE}", harness_code)
@@ -104,11 +104,10 @@ class StubGenerator(AIAgent, Generable):
         return system_prompt, user_prompt
     
     def save_harness(self, harness_code):
-        os.makedirs(self.harness_dir, exist_ok=True)
-        harness_file_path = os.path.join(self.harness_dir, f'{self.target_function}_harness.c')
+        self.harness_dir.mkdir(parents=True, exist_ok=True)
+        harness_file_path = self.harness_dir / f'{self.target_function}_harness.c'
         
-        with open(harness_file_path, 'w') as f:
-            f.write(harness_code)
+        harness_file_path.write_text(harness_code)
         
         logger.info(f'Harness saved to {harness_file_path}')
 
@@ -221,12 +220,12 @@ class StubGenerator(AIAgent, Generable):
             if ret_type.get("id") == "pointer":
                 file_rel_path = func_symbol.get("location", {}).get("namedSub", {}).get("file", {}).get("id", "")
                 base_path = func_symbol.get("location", {}).get("namedSub", {}).get("working_directory", {}).get("id", "")
-                file_abs_path = os.path.normpath(os.path.join(base_path, file_rel_path))
+                file_abs_path = Path(base_path) / file_rel_path
                 signature_line_str = func_symbol.get("location", {}).get("namedSub", {}).get("line", {}).get("id", "")
                 line_number = int(signature_line_str) if signature_line_str.isdigit() else 0
                 result.append({
                     "name": func_name,
-                    "file": file_abs_path,
+                    "file": str(file_abs_path),
                     "line": line_number,
                 })
 
@@ -246,8 +245,8 @@ class StubGenerator(AIAgent, Generable):
         self.run_make(compile_only=True)
 
         # 1. Get functions to stub
-        goto_file = os.path.join(self.harness_dir, "build", f"{self.target_function}.goto")
-        if not os.path.exists(goto_file):
+        goto_file = self.harness_dir / "build" / f"{self.target_function}.goto"
+        if not goto_file.exists():
             logger.error(f"GOTO file not found: {goto_file}")
             self.log_agent_result({"stubs_to_generate": None})
             return False

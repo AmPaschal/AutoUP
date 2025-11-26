@@ -3,16 +3,15 @@
 from enum import Enum
 import logging
 import shutil
-import subprocess
 import json
-import os
 from agent import AIAgent
 from commons.models import GPT, Generable
 from makefile.output_models import CoverageDebuggerResponse
 from commons.utils import Status
+import pathlib
 
 logger = logging.getLogger(__name__)
-PROMPT_DIR = os.path.join(os.path.dirname(__file__),'..','..','prompts')
+PROMPT_DIR = pathlib.Path(__file__).parent.parent.parent.joinpath("prompts", "")
 
 class AgentAction(Enum):
     RETRY_BLOCK = 0      # ask LLM again
@@ -33,12 +32,12 @@ class CoverageDebugger(AIAgent, Generable):
     
 
     def get_overall_coverage(self):
-        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
-        if not os.path.exists(coverage_report_path):
+        coverage_report_path = self.harness_dir.joinpath("build/report/json/viewer-coverage.json")
+        if not coverage_report_path.exists():
             logging.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
             return {}
 
-        with open(coverage_report_path, "r") as f:
+        with coverage_report_path.open("r") as f:
             coverage_data = json.load(f)
 
         viewer_coverage = coverage_data.get("viewer-coverage", {})
@@ -47,12 +46,12 @@ class CoverageDebugger(AIAgent, Generable):
         return overall_coverage
 
     def _get_next_uncovered_function(self, functions_lines_to_skip: dict[str, set]):
-        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
-        if not os.path.exists(coverage_report_path):
+        coverage_report_path = self.harness_dir.joinpath("build/report/json/viewer-coverage.json")
+        if not coverage_report_path.exists():
             logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
             return None, None, None
 
-        with open(coverage_report_path, "r") as f:
+        with coverage_report_path.open("r") as f:
             coverage_data = json.load(f)
 
         viewer_coverage = coverage_data.get("viewer-coverage", {})
@@ -93,7 +92,7 @@ class CoverageDebugger(AIAgent, Generable):
                     harness_func = entry
                 elif (
                     target_func_entry is None
-                    and self.target_file_path.endswith(file_path or "")
+                    and str(self.target_file_path).endswith(file_path or "")
                     and func_name == self.target_function
                 ):
                     target_func_entry = entry
@@ -158,22 +157,22 @@ class CoverageDebugger(AIAgent, Generable):
         try:
             result = self.project_container.execute(cmd)
             return result['stdout']
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
             logger.error(f"[ERROR] CLI command failed: {e}")
             return "[Error Getting Source]"
 
 
     def prepare_prompt(self, function_data, coverage_data, target_block_line):
-        with open(PROMPT_DIR + "coverage_debugger_system.prompt", "r") as f:
+        with (PROMPT_DIR / "coverage_debugger_system.prompt").open("r") as f:
             system_prompt = f.read()
 
-        with open(PROMPT_DIR + "coverage_debugger_user.prompt", "r") as f:
+        with (PROMPT_DIR / "coverage_debugger_user.prompt").open("r") as f:
             user_prompt = f.read()
 
         user_prompt = user_prompt.replace("{FUNCTION_DATA}", json.dumps(function_data))
         user_prompt = user_prompt.replace("{COVERAGE_DATA}", json.dumps(coverage_data))
-        user_prompt = user_prompt.replace("{PROJECT_DIR}", self.root_dir)
-        user_prompt = user_prompt.replace("{HARNESS_DIR}", self.harness_dir)
+        user_prompt = user_prompt.replace("{PROJECT_DIR}", self.project_container.host_to_container_path(self.root_dir))
+        user_prompt = user_prompt.replace("{HARNESS_DIR}", self.project_container.host_to_container_path(self.harness_dir))
         user_prompt = user_prompt.replace("{TARGET_BLOCK_LINE}", str(target_block_line) if target_block_line else "N/A")
 
         function_source = self.extract_function_cli_awk(function_data["file"], coverage_data)
@@ -183,55 +182,53 @@ class CoverageDebugger(AIAgent, Generable):
 
     def update_proof(self, updated_harness, updated_makefile):
         if updated_harness:
-            harness_path = os.path.join(self.harness_dir, f"{self.target_function}_harness.c")
-            backup_path = harness_path + ".bak"
+            harness_path = self.harness_dir / f"{self.target_function}_harness.c"
+            backup_path = harness_path.with_suffix(harness_path.suffix + ".bak")
 
             # Backup original harness if it exists
-            if os.path.exists(harness_path):
+            if harness_path.exists():
                 shutil.copy2(harness_path, backup_path)
                 logger.info(f"Original harness backed up at {backup_path}")
 
             # Write updated harness
-            with open(harness_path, "w") as f:
-                f.write(updated_harness)
+            harness_path.write_text(updated_harness)
             logger.info(f"Harness updated at {harness_path}")
 
         if updated_makefile:
-            makefile_path = os.path.join(self.harness_dir, "Makefile")
-            backup_path = makefile_path + ".bak"
+            makefile_path = self.harness_dir / "Makefile"
+            backup_path = makefile_path.with_suffix(makefile_path.suffix + ".bak")
 
             # Backup original Makefile if it exists
-            if os.path.exists(makefile_path):
+            if makefile_path.exists():
                 shutil.copy2(makefile_path, backup_path)
                 logger.info(f"Original Makefile backed up at {backup_path}")
 
             # Write updated Makefile
-            with open(makefile_path, "w") as f:
-                f.write(updated_makefile)
+            makefile_path.write_text(updated_makefile)
             logger.info(f"Makefile updated at {makefile_path}")
 
     def reverse_proof_update(self):
-        harness_path = os.path.join(self.harness_dir, f"{self.target_function}_harness.c")
-        harness_backup = harness_path + ".bak"
-        if os.path.exists(harness_backup):
+        harness_path = self.harness_dir / f"{self.target_function}_harness.c"
+        harness_backup = harness_path.with_suffix(harness_path.suffix + ".bak")
+        if harness_backup.exists():
             shutil.move(harness_backup, harness_path)
             logger.info(f"Harness reverted to original from {harness_backup}")
 
-        makefile_path = os.path.join(self.harness_dir, "Makefile")
-        makefile_backup = makefile_path + ".bak"
-        if os.path.exists(makefile_backup):
+        makefile_path = self.harness_dir / "Makefile"
+        makefile_backup = makefile_path.with_suffix(makefile_path.suffix + ".bak")
+        if makefile_backup.exists():
             shutil.move(makefile_backup, makefile_path)
             logger.info(f"Makefile reverted to original from {makefile_backup}")
 
     def remove_proof_backups(self):
-        harness_backup = os.path.join(self.harness_dir, f"{self.target_function}_harness.c.bak")
-        if os.path.exists(harness_backup):
-            os.remove(harness_backup)
+        harness_backup = self.harness_dir / f"{self.target_function}_harness.c.bak"
+        if harness_backup.exists():
+            harness_backup.unlink()
             logger.info(f"Removed harness backup at {harness_backup}")
 
-        makefile_backup = os.path.join(self.harness_dir, "Makefile.bak")
-        if os.path.exists(makefile_backup):
-            os.remove(makefile_backup)
+        makefile_backup = self.harness_dir / "Makefile.bak"
+        if makefile_backup.exists():
+            makefile_backup.unlink()
             logger.info(f"Removed Makefile backup at {makefile_backup}")
 
     def get_uncovered_code_block(self, coverage_data: dict[str, str], skipped_blocks: set[str]):

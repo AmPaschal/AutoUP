@@ -3,7 +3,7 @@
 # System
 from abc import ABC, abstractmethod
 import json
-import os
+from pathlib import Path
 
 # AutoUP
 from debugger.error_report import CBMCError
@@ -16,12 +16,7 @@ class ErrorHandler(ABC):
 
     def __init__(self, harness_path: str, root_dir: str, harness_file_path: str) -> None:
         self.root_dir = root_dir
-        self.report_path = os.path.join(
-            harness_path,
-            "build",
-            "report",
-            "json",
-        )
+        self.report_path = Path(harness_path) / "build" / "report" / "json"
         self.harness_file_path = harness_file_path
 
     def analyze(self, error: CBMCError) -> str | None:
@@ -38,11 +33,7 @@ class ErrorHandler(ABC):
         """Implements the specific analysis to a error"""
 
     def __load_steps(self, error_id: str) -> list:
-        with open(
-            os.path.join(self.report_path, "viewer-trace.json"),
-            "r",
-            encoding="utf-8",
-        ) as file:
+        with (self.report_path / "viewer-trace.json").open("r", encoding="utf-8") as file:
             data = json.loads(file.read())
         return data["viewer-trace"]["traces"][error_id]
 

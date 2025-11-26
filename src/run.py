@@ -156,12 +156,15 @@ def main():
     args = get_parser()
 
     if args.root_dir:
-        args.root_dir = pathlib.Path(args.root_dir).resolve().as_posix()
+        args.root_dir = pathlib.Path(args.root_dir).resolve()
     if args.harness_path:
-        args.harness_path = pathlib.Path(args.harness_path).resolve().as_posix()
+        args.harness_path = pathlib.Path(args.harness_path).resolve()
     if args.target_file_path:
-        args.target_file_path = pathlib.Path(args.target_file_path).resolve().as_posix()
+        args.target_file_path = pathlib.Path(args.target_file_path).resolve()
 
+    # Store original host paths
+    args.host_harness_path = args.harness_path
+    args.output_dir = args.harness_path.parent
 
     init_logging(args.log_file)
     logger = setup_logger(__name__)
@@ -172,9 +175,10 @@ def main():
 
     container_name = f"autoup_{uuid.uuid4().hex[:8]}"
     project_container = ProjectContainer(
-        dockerfile_path=os.path.join(os.path.dirname(__file__), "..", "docker", "tools.Dockerfile"),
+        dockerfile_path=pathlib.Path(__file__).parent.parent.joinpath("docker", "tools.Dockerfile"),
         host_dir=args.root_dir,
-        container_name=container_name
+        container_name=container_name,
+        output_dir=args.output_dir
     )
     try:
         project_container.initialize()

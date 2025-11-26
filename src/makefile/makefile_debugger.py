@@ -17,8 +17,8 @@ from logger import setup_logger
 
 load_dotenv()
 logger = setup_logger(__name__)
-MAKEFILE_DIR = os.path.join(os.path.dirname(__file__))
-PROMPT_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts')
+MAKEFILE_DIR = Path(__file__).parent
+PROMPT_DIR = Path(__file__).parent / '..' / '..' / 'prompts'
 
 class MakefileDebugger(AIAgent, Generable):
 
@@ -48,14 +48,14 @@ class MakefileDebugger(AIAgent, Generable):
 
     def print_coverage(self, proof_dir: Path):
         print(f"Report for {proof_dir}:")
-        report_path = os.path.join(proof_dir, "build/report/json")
-        coverage_report = os.path.join(report_path, "viewer-coverage.json")
-        if os.path.exists(coverage_report):
-            coverage_dict = self.get_coverage_dict(coverage_report)
+        report_path = proof_dir / "build" / "report" / "json"
+        coverage_report = report_path / "viewer-coverage.json"
+        if coverage_report.exists():
+            coverage_dict = self.get_coverage_dict(str(coverage_report))
             print(f"Coverage:\n{coverage_dict}")
-        reachability_report = os.path.join(report_path, "viewer-reachable.json")
-        if os.path.exists(reachability_report):
-            reachable_dict = self.get_reachable_functions(reachability_report)
+        reachability_report = report_path / "viewer-reachable.json"
+        if reachability_report.exists():
+            reachable_dict = self.get_reachable_functions(str(reachability_report))
             print(f"Reachable functions:\n{reachable_dict}")
 
     
@@ -69,24 +69,24 @@ class MakefileDebugger(AIAgent, Generable):
 
     def prepare_prompt(self, make_results):
         # Create the system prompt
-        with open(os.path.join(PROMPT_DIR, 'gen_makefile_system.prompt'), 'r') as file:
+        with (PROMPT_DIR / 'gen_makefile_system.prompt').open('r') as file:
             system_prompt = file.read()
 
-        with open(os.path.join(MAKEFILE_DIR, 'Makefile.example'), 'r') as file:
+        with (MAKEFILE_DIR / 'Makefile.example').open('r') as file:
             example_makefile = file.read()
 
         system_prompt = system_prompt.replace('{SAMPLE_MAKEFILE}', example_makefile)
 
         # Create the user prompt
-        with open(os.path.join(PROMPT_DIR, 'gen_makefile_user.prompt'), 'r') as file:
+        with (PROMPT_DIR / 'gen_makefile_user.prompt').open('r') as file:
             user_prompt = file.read()
 
         makefile_content = self.get_makefile()
         harness_content = self.get_harness()
 
         user_prompt = user_prompt.replace('{TARGET_FUNC}', self.target_function)
-        user_prompt = user_prompt.replace('{MAKEFILE_DIR}', self.harness_dir)
-        user_prompt = user_prompt.replace('{PROJECT_DIR}', self.root_dir)
+        user_prompt = user_prompt.replace('{MAKEFILE_DIR}', str(self.harness_dir))
+        user_prompt = user_prompt.replace('{PROJECT_DIR}', str(self.root_dir))
         user_prompt = user_prompt.replace('{MAKEFILE_CONTENT}', makefile_content)
         user_prompt = user_prompt.replace('{HARNESS_CONTENT}', harness_content)
         user_prompt = user_prompt.replace('{MAKE_ERROR}', make_results.get('stderr', ''))   
