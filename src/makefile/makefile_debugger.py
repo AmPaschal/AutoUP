@@ -21,11 +21,12 @@ logger = setup_logger(__name__)
 class MakefileDebugger(AIAgent, Generable):
 
 
-    def __init__(self, args, project_container):
+    def __init__(self, args, project_container, tree_sitter):
         super().__init__(
             "MakefileGenerator",
             args,
-            project_container
+            project_container,
+            tree_sitter=tree_sitter
         )
         
         self._max_attempts = 10
@@ -116,7 +117,9 @@ class MakefileDebugger(AIAgent, Generable):
         # Finally, we iteratively call the LLM to fix any errors until it succeeds
         while user_prompt and attempts <= self._max_attempts:
 
-            llm_response, llm_data = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
+            llm_response, llm_data = self.llm.chat_llm(
+                system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation
+            )
 
             if not llm_response:
                 user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n"

@@ -8,6 +8,7 @@ from typing import Any, Callable, Type
 import tiktoken
 
 from commons.docker_tool import ProjectContainer
+from commons.tree_sitter_utils import TreeSitterParser
 from logger import setup_logger
 from commons.utils import Status
 from commons.models import GPT
@@ -19,7 +20,7 @@ class AIAgent(ABC):
     Shared features for any OpenAI agent that interacts with a vector store
     """
 
-    def __init__(self, agent_name, args, project_container: ProjectContainer):
+    def __init__(self, agent_name, args, project_container: ProjectContainer, tree_sitter: TreeSitterParser):
         self.agent_name = agent_name
         self.args = args
         self.root_dir=args.root_dir
@@ -28,6 +29,7 @@ class AIAgent(ABC):
         self.target_file_path=args.target_file_path
         self.metrics_file=args.metrics_file
         self.project_container=project_container
+        self.parser = tree_sitter
 
 
         self.harness_file_name = f"{self.target_function}_harness.c"
@@ -43,26 +45,23 @@ class AIAgent(ABC):
             - If stderr > 50% of max tokens, truncate stderr first.
             - Otherwise, keep stderr in full and truncate stdout.
             - Replace truncated content with '[Truncated to fit context window]'.
-        
+
         Args:
             result: The result object with attributes `exit_code`, `stdout`, `stderr`.
             cmd (str): The executed command.
             max_input_tokens (int): Maximum total tokens allowed.
             model (str): Model name for tokenization.
-        
+
         Returns:
             dict: Dictionary with truncated stdout/stderr and command info.
         """
         encoding = tiktoken.get_encoding("cl100k_base")
-        
         stdout_tokens = encoding.encode(result["stdout"])
         stderr_tokens = encoding.encode(result["stderr"])  
         
         trunc_msg = "[Truncated to fit context window]"
         trunc_msg_tokens = encoding.encode(trunc_msg)
-        
         stderr_limit_threshold = max_input_tokens // 2
-        
         if len(stderr_tokens) > stderr_limit_threshold:
             # Truncate stderr to 50% of max tokens
             allowed_stderr_tokens = stderr_limit_threshold - len(trunc_msg_tokens)
@@ -145,7 +144,7 @@ class AIAgent(ABC):
             logger.error(error_message)
             tool_response["error"] = error_message
             return tool_response
-        
+
         function_line_goals = [
             goal for goal in goals
             if goal.get("description", "").startswith("condition") and 
@@ -163,6 +162,9 @@ class AIAgent(ABC):
         tool_response["results"] = function_line_goals
         return tool_response
 
+    def handle_symbol_retrieval_call(self, symbol):
+        return self.parser.get_def(symbol)
+
     def handle_tool_calls(self, tool_name, function_args):
         logging_text = f"""
         Function call: 
@@ -178,6 +180,9 @@ class AIAgent(ABC):
         elif tool_name == "run_cscope_command":
             command = function_args.get("command", "")
             tool_response = self.run_bash_command(command)
+        elif tool_name == "fetch_symbol_definition":
+            symbol = function_args.get("name", "")
+            tool_response = self.handle_symbol_retrieval_call(symbol)
         elif tool_name == "get_condition_satisfiability":
             function_name = function_args.get("function_name", "")
             line_number = function_args.get("line_number", -1)
@@ -191,7 +196,7 @@ class AIAgent(ABC):
     def log_task_attempt(self, task_id, attempt_number, llm_data, error):
         if not self.metrics_file:
             return
-        
+
         log_entry = {
             "type": "task_attempt",
             "agent_name": self.agent_name,
@@ -222,7 +227,7 @@ class AIAgent(ABC):
     def log_task_result(self, task_id, success: bool, total_attempts: int):
         if not self.metrics_file:
             return
-        
+
         log_entry = {
             "type": "task_result",
             "agent_name": self.agent_name,
@@ -259,7 +264,7 @@ class AIAgent(ABC):
     def execute_command(self, cmd: str, workdir: str, timeout: int) -> dict:
         try:
             result = self.project_container.execute(cmd, workdir=workdir, timeout=timeout)
-            
+
             if result.get('exit_code', -1) == 124:
                 logger.error(f"Command '{cmd}' timed out.")
                 result['stdout'] += "[TIMEOUT]"
@@ -291,31 +296,51 @@ class AIAgent(ABC):
                         },
                         "cmd": {
                             "type": "string",
-                            "description": "A bash command-line command to run"
-                        }
+                            "description": "A bash command-line command to run"},
                     },
                     "required": ["reason", "cmd"],
-                    "additionalProperties": False
-                }
+                    "additionalProperties": False,
+                },
             },
+            # {
+            #     "type": "function",
+            #     "name": "run_cscope_command",
+            #     "description": "Run a cscope command to search for type and function definitions, cross-references, and file paths.",
+            #     "strict": True,
+            #     "parameters": {
+            #         "type": "object",
+            #         "properties": {
+            #             "reason": {
+            #                 "type": "string",
+            #                 "description": "The reason for running the command"
+            #             },
+            #             "command": {
+            #                 "type": "string",
+            #                 "description": "A cscope command to run"
+            #             }
+            #         },
+            #         "required": ["reason", "command"],
+            #         "additionalProperties": False
+            #     }
+            # }
             {
                 "type": "function",
-                "name": "run_cscope_command",
-                "description": "Run a cscope command to search for type and function definitions, cross-references, and file paths.",
+                "name": "fetch_symbol_definition",
+                "description": "Calls a function that can retrieve the complete definition of any type, struct or function in the kernel, along with the file where it is defined",
                 "strict": True,
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "reason": {
                             "type": "string",
-                            "description": "The reason for running the command"
+                            "description": "The reason for searching for this symbol"
                         },
-                        "command": {
+                        "name": {
                             "type": "string",
-                            "description": "A cscope command to run"
+                            "description": "The name of the symbol to retrieve"
                         }
                     },
-                    "required": ["reason", "command"],
+                    "required": ["reason", "name"],
                     "additionalProperties": False
                 }
             }

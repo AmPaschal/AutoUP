@@ -16,12 +16,12 @@ from commons.utils import Status
 logger = setup_logger(__name__)
 
 class StubGenerator(AIAgent, Generable):
-
-    def __init__(self, args, project_container):
+    def __init__(self, args, project_container, tree_sitter):
         super().__init__(
             "StubGenerator",
             args,
-            project_container=project_container
+            project_container=project_container,
+            tree_sitter=tree_sitter
         )
         self._max_attempts = 5
 
@@ -29,10 +29,10 @@ class StubGenerator(AIAgent, Generable):
         """
         Extracts the function signature for `func_name` starting at `start_line`
         from the given C/C++ source file.
-        
+
         - It captures multi-line signatures.
         - Stops reading once it encounters the opening '{' or a semicolon (';').
-        
+
         Returns the full signature as a single string (without the body).
         """
 
@@ -101,7 +101,7 @@ class StubGenerator(AIAgent, Generable):
         user_prompt = user_prompt.replace("{PROJECT_DIR}", self.root_dir)
 
         return system_prompt, user_prompt
-    
+
     def save_harness(self, harness_code):
         os.makedirs(self.harness_dir, exist_ok=True)
         harness_file_path = os.path.join(self.harness_dir, f'{self.target_function}_harness.c')
@@ -150,13 +150,13 @@ class StubGenerator(AIAgent, Generable):
         if goto_functions_result['exit_code'] != 0:
             logger.error("Failed to find functions in GOTO binary.")
             return []
-        
+
         goto_functions = json.loads(goto_functions_result['stdout'])
 
         if len(goto_functions) != 3 or "functions" not in goto_functions[2]:
             logger.error("Unexpected format of goto functions output.")
             return []
-        
+
         goto_functions_list = goto_functions[2]["functions"]
 
         logger.info(f"Total functions found in GOTO binary: {len(goto_functions_list)}")
@@ -275,15 +275,17 @@ class StubGenerator(AIAgent, Generable):
             logger.info(f'User Prompt:\n{user_prompt}')
 
             # First, generate stubs using the LLM
-            llm_response, _ = self.llm.chat_llm(system_prompt, 
-                                                           user_prompt, 
-                                                           HarnessResponse, 
-                                                           llm_tools=tools, 
-                                                           call_function=self.handle_tool_calls, 
-                                                           conversation_history=conversation)
+            llm_response, _ = self.llm.chat_llm(
+                system_prompt,
+                user_prompt,
+                HarnessResponse,
+                llm_tools=tools,
+                call_function=self.handle_tool_calls,
+                conversation_history=conversation
+            )
 
             if not llm_response:
-                user_prompt = "The LLM did not return a valid response. Please try again and provide response in the correct format.\n" 
+                user_prompt = "The LLM did not return a valid response. Please try again and provide response in the correct format.\n"
                 attempts += 1
                 continue
 
@@ -293,7 +295,7 @@ class StubGenerator(AIAgent, Generable):
 
             # Now, try to build the harness using make
             make_results = self.run_make(compile_only=False)
-            
+
             status_code = make_results.get('status', Status.ERROR)
 
             if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:

@@ -21,11 +21,12 @@ class AgentAction(Enum):
 
 class CoverageDebugger(AIAgent, Generable):
 
-    def __init__(self, args, project_container):
+    def __init__(self, args, project_container, tree_sitter):
         super().__init__(
             "CoverageDebugger",
             args,
             project_container,
+            tree_sitter=tree_sitter
         )
         self._max_attempts = 3
 
@@ -125,7 +126,6 @@ class CoverageDebugger(AIAgent, Generable):
         logger.info("[INFO] No uncovered functions remaining.")
         return None, None, None
 
-
     def run_make(self):
         make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=900)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
@@ -135,11 +135,11 @@ class CoverageDebugger(AIAgent, Generable):
     def extract_function_cli_awk(self, file_path, line_coverage):
         """
         Extract function lines using awk, preserving original line numbers.
-        
+
         Args:
             file_path (str): Path to the C source file.
             line_coverage (dict): Dictionary of line numbers (str or int) from CBMC coverage.
-            
+    
         Returns:
             list of str: Lines of the function with original line numbers prepended.
         """
@@ -153,14 +153,12 @@ class CoverageDebugger(AIAgent, Generable):
 
         # Build the cli command
         cmd = f"nl -ba {file_path} | sed -n '{start_line},{end_line}p'"
-        
         try:
             result = self.project_container.execute(cmd)
             return result['stdout']
         except subprocess.CalledProcessError as e:
             logger.error(f"[ERROR] CLI command failed: {e}")
             return "[Error Getting Source]"
-
 
     def prepare_prompt(self, function_data, coverage_data, target_block_line):
         with open("prompts/coverage_debugger_system.prompt", "r") as f:
@@ -409,25 +407,25 @@ class CoverageDebugger(AIAgent, Generable):
 
         # Start the debugging loop
         while user_prompt:
-
             attempts += 1
             
             task_id = f"cov-{next_function['function']}-{target_block_line}"
             logger.info(f"[INFO] Processing task '{task_id}', attempt {attempts}.")
 
             llm_response, chat_data = self.llm.chat_llm(
-                system_prompt, user_prompt, CoverageDebuggerResponse,
+                system_prompt,
+                user_prompt,
+                CoverageDebuggerResponse,
                 llm_tools=self.get_coverage_tools(),
                 call_function=self.handle_tool_calls,
-                conversation_history=conversation
+                conversation_history=conversation,
             )
 
+            task_id = f"cov-{next_function['function']}-{target_block_line}"
+
             llm_result, user_prompt, current_coverage, error_tag = self.validate_llm_response(
-                                                                        llm_response, 
-                                                                        next_function, 
-                                                                        target_block_line, 
-                                                                        attempts, 
-                                                                        current_coverage)
+                llm_response, next_function, target_block_line, attempts, current_coverage
+            )
             self.log_task_attempt(task_id, attempts, chat_data, error=error_tag)
 
             if llm_result == AgentAction.RETRY_BLOCK and attempts < self._max_attempts: 

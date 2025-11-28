@@ -22,7 +22,7 @@ from logger import init_logging, setup_logger
 from commons.metric_summary import process_metrics
 from stub_generator.gen_function_stubs import StubGenerator
 from commons.models import Generable
-
+from commons.tree_sitter_utils import TreeSitterParser
 
 # Global project container
 project_container: Optional[ProjectContainer] = None
@@ -76,7 +76,7 @@ def get_parser():
     return parser.parse_args()
 
 
-def process_mode(args):
+def process_mode(args, parser):
     """ Process the mode selected in the CLI"""
 
     logger = setup_logger(__name__)
@@ -91,22 +91,26 @@ def process_mode(args):
     if args.mode in ["harness", "all"]:
         agents.append(InitialHarnessGenerator(
             args=args,
-            project_container=project_container
+            project_container=project_container,
+            tree_sitter=parser,
         ))
     if args.mode in ["function-stubs", "all"]:
         agents.append(StubGenerator(
             args=args,
-            project_container=project_container
+            project_container=project_container,
+            tree_sitter=parser,
         ))
     if args.mode in ["coverage", "all"]:
         agents.append(CoverageDebugger(
             args=args,
-            project_container=project_container
+            project_container=project_container,
+            tree_sitter=parser,
         ))
     if args.mode in ["debugger", "all"]:
         agents.append(ProofDebugger(
             args=args,
-            project_container=project_container
+            project_container=project_container,
+            tree_sitter=parser,
         ))
         
 
@@ -171,8 +175,8 @@ def main():
     except Exception as e:
         logger.error(f"Error initializing Project container: {e}")
         return
-    
-    process_mode(args)
+    parser = TreeSitterParser(args.root_dir, args.target_function_name, args.target_file_path)
+    process_mode(args, parser)
 
     if args.metrics_file:
         # Summarize metrics and print results to log

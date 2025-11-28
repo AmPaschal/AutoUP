@@ -11,12 +11,12 @@ from makefile.makefile_debugger import MakefileDebugger
 
 logger = setup_logger(__name__)
 class InitialHarnessGenerator(AIAgent, Generable):
-
-    def __init__(self, args, project_container):
+    def __init__(self, args, project_container, tree_sitter):
         super().__init__(
             "InitialHarnessGenerator",
             args,
-            project_container
+            project_container,
+            tree_sitter=tree_sitter
         )
         self._max_attempts = 5
 
@@ -151,7 +151,9 @@ class InitialHarnessGenerator(AIAgent, Generable):
         while user_prompt and attempts <= self._max_attempts:
 
             attempts += 1
-            llm_response, llm_data = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
+            llm_response, llm_data = self.llm.chat_llm(
+                system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation
+            )
 
             if not llm_response:
                 self.log_task_attempt("harness_generation", attempts, llm_data, "invalid_response")

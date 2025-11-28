@@ -13,7 +13,7 @@ Your job is to create stubs for the functions below and integrate them in the pr
 </makefile
 
 If you would like to get more information about the codebase to help you identify necessary include statements or type definitions, 
-you can run bash commands using the provided function tool 'run_bash_command' or 'run_cscope_command'. 
+you can run bash commands using the provided function tool 'run_bash_command' or 'fetch_symbol_definition'. 
 These commands will be run from the project directory `{PROJECT_DIR}`, and the output will be formatted as a JSON object 
 containing the original command, the exit code, stdout output, and stderr output. 
 

@@ -30,11 +30,12 @@ logger = setup_logger(__name__)
 class ProofDebugger(AIAgent, Generable):
     """Agentic Proof Debugger"""
 
-    def __init__(self, args, project_container):
+    def __init__(self, args, project_container, tree_sitter):
         super().__init__(
             agent_name="debugger",
             args=args,
             project_container=project_container,
+            tree_sitter=tree_sitter
         )
         self.programmatic_handler = DerefereneErrorHandler(
             root_dir=self.root_dir,

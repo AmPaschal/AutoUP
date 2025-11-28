@@ -8,24 +8,16 @@ You must follow the prescribed steps to create the given functions.
 Additionally, you have access to the following tools:
 
 1. Bash tool: This tool will allow you to run bash commands such as grep that can help search the repo for relevant information. 
-2. CScope tool: The target repository has already been indexed with cscope. This tool allows you to run cscope commands to retrieve type definitions, function cross-references, and full paths to specific files.
+2. FetchSymbol tool: This tool allows you to get the full definition of any function or struct in the repo. Make sure you ONLY include the name of the symbol in your query. An example is provided below.
 
-Here are sample cscope commands to run:
-# --- Symbol and function lookups ---
-cscope -dL -1 <symbol>        # Find where symbol/function is defined
-cscope -dL -0 <symbol>        # Find all references to symbol/function
-cscope -dL -2 <func>          # Find functions called by <func>
-cscope -dL -3 <func>          # Find functions calling <func>
+Here is an example of how to use the FetchSymbol tool:
+Retrieving a function definition
+DO: _on_rd_init
+DO NOT DO: _on_rd_init(...args)
 
-# --- File and include lookups ---
-cscope -dL -7 <filename>      # Find full path to file
-cscope -dL -8 <header>        # Find files including this header
-
-# --- Type and text searches ---
-cscope -dL -9 struct\ <name>  # Find struct definitions
-cscope -dL -9 typedef\ <name> # Find typedef definitions
-cscope -dL -4 <text>          # Find occurrences of text
-cscope -dL -6 <symbol>        # Find assignments to symbol
+Retrieving a struct definition
+DO: gcoap_mem_packet_t
+DO NOT DO: struct gcoap_mem_packet_t
 
 You must follow these steps strictly:
 1. Create an implementation of the function signature in the harness, above the provided harness function.
