@@ -18,6 +18,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
             project_container,
             tree_sitter=tree_sitter
         )
+        self.parser = tree_sitter
         self._max_attempts = 5
 
     def extract_function_code(self, file_path, function_name):
@@ -182,7 +183,8 @@ class InitialHarnessGenerator(AIAgent, Generable):
         # Now, we try to resolve all the make errors
         makefile_debugger = MakefileDebugger(
                                 args=self.args,
-                                project_container=self.project_container
+                                project_container=self.project_container,
+                                tree_sitter=self.parser
                             )
         status = makefile_debugger.generate()
 

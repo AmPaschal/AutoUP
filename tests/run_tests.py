@@ -111,18 +111,19 @@ def run_proof_command(entry, args, output_root):
     proof_dir = Path(entry["proof_dir"])
     src_file = Path(entry["source_file"])
 
+    resolved_base_dir = Path(str(base_dir)).resolve()
+
     log_file = output_root / f"{function_name}.log"
     metrics_file = output_root / f"metrics-{function_name}.jsonl"
     cmd = [
-        "python", "src/run.py",
+        "python3", "src/run.py",
         args.mode,
         "--target_function_name", function_name,
-        "--root_dir", str(base_dir),
+        "--root_dir", str(resolved_base_dir),
         "--harness_path", str(proof_dir),
         "--target_file_path", str(src_file),
         "--metrics_file", str(metrics_file)
     ]
-
 
     try:
         with open(log_file, "w") as f:
