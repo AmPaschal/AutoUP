@@ -22,6 +22,7 @@ from logger import init_logging, setup_logger
 from commons.metric_summary import process_metrics
 from stub_generator.gen_function_stubs import StubGenerator
 from commons.models import Generable
+from validator.precondition_validator import PreconditionValidator
 
 
 # Global project container
@@ -35,13 +36,15 @@ def get_parser():
     )
     parser.add_argument(
         "mode",
-        choices=["harness", "debugger", "function-stubs", "coverage", "all"],
+        choices=["harness", "debugger", "function-stubs", "coverage", "precondition", "all"],
         help=(
             "Execution mode: "
             "'harness' to generate harness/makefile, "
             "'debugger' to run proof debugger, "
             "'function-stubs' to run function stub generator, "
-            "'coverage' to run coverage debugger, or "
+            "'function-stubs' to run function stub generator, "
+            "'coverage' to run coverage debugger, "
+            "'precondition' to run precondition validator, or "
             "'all' to run all 'harness', 'debugger' and 'coverage' modes sequentially."
         )
     )
@@ -105,6 +108,11 @@ def process_mode(args):
         ))
     if args.mode in ["debugger", "all"]:
         agents.append(ProofDebugger(
+            args=args,
+            project_container=project_container
+        ))
+    if args.mode in ["precondition", "all"]:
+        agents.append(PreconditionValidator(
             args=args,
             project_container=project_container
         ))

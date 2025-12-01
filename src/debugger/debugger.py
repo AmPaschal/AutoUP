@@ -209,10 +209,6 @@ class ProofDebugger(AIAgent, Generable):
                 logger.error("[ERROR] Make command failed to execute.")
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="make_invocation_failed")
                 break
-            if make_result.get("status") == Status.TIMEOUT:
-                logger.error("[ERROR] Make command timed out.")
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_timeout")
-                break
             if make_result.get("status") == Status.FAILURE:
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="make_failed")
                 # Let's use the makefile debugger to fix this error
@@ -224,6 +220,11 @@ class ProofDebugger(AIAgent, Generable):
                 if not compile_errors_fixed:
                     cause_of_failure = {"reason": "make_failed", "make_output": make_result}
                     continue
+                make_result = self.run_make()
+            if make_result.get("status") == Status.TIMEOUT:
+                logger.error("[ERROR] Make command timed out.")
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_timeout")
+                break
             if error_covered_initially and not self.__is_error_covered(error):
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_covered")
                 cause_of_failure = {"reason": "error_not_covered"}

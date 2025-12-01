@@ -146,7 +146,7 @@ def run_proof_command(entry, args, output_root):
 def main():
     parser = argparse.ArgumentParser(description="Run proofs for CBMC makefiles.")
     parser.add_argument("input_json", help="Path to JSON file containing proof directories and source files")
-    parser.add_argument("-m", "--mode", choices=["harness", "debugger", "coverage", "function-stubs", "all"], default="harness", help="Execution mode")
+    parser.add_argument("-m", "--mode", choices=["harness", "debugger", "coverage", "function-stubs", "precondition", "all"], default="harness", help="Execution mode")
     parser.add_argument("-b", "--base_dir", default="../RIOT", help="Base project directory (default: ../RIOT)")
     parser.add_argument("-o", "--output", help="Directory to store logs (default: output-${timestamp})")
     parser.add_argument("-j", "--jobs", type=int, default=10, help="Number of parallel jobs")

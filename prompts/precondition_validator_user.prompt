@@ -1,0 +1,10 @@
+Target Function:
+{FUNCTION_NAME}
+
+File Location:
+{FILE_LOCATION}
+
+Proof Harness:
+```c
+{HARNESS_CODE}
+```
