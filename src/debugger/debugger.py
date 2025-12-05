@@ -230,7 +230,7 @@ class ProofDebugger(AIAgent, Generable):
                 cause_of_failure = {"reason": "error_not_covered"}
                 continue
             new_coverage = self.get_overall_coverage()
-            if new_coverage.get("hit", 0.0) < current_coverage.get("hit", 0.0):
+            if new_coverage.get("hit", 0.0) < current_coverage.get("hit", 0.0) or new_coverage.get("percentage", 0.0) < current_coverage.get("percentage", 0.0):
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="overall_coverage_decreased")
                 cause_of_failure = {"reason": "overall_coverage_decreased"}
                 continue
