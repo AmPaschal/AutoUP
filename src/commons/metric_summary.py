@@ -3,6 +3,7 @@
 from collections import defaultdict
 import json
 import os
+import pathlib
 
 def process_metrics(metrics: list[dict]) -> dict:
     # Aggregates
@@ -69,13 +70,13 @@ def process_metrics(metrics: list[dict]) -> dict:
 
     return response
 
-def summarize_metrics_file(metrics_file):
+def summarize_metrics_file(metrics_file: pathlib.Path) -> dict:
     """ Summarize the metrics from the given metrics file. """
     
-    if not os.path.exists(metrics_file):
+    if not metrics_file.exists():
         raise FileNotFoundError(f"Metrics file '{metrics_file}' does not exist.")
     
-    with open(metrics_file, 'r') as file:
+    with metrics_file.open('r') as file:
         metrics_logs = file.readlines()
 
     metrics = [json.loads(line) for line in metrics_logs if line.strip()]
