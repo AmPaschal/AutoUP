@@ -36,9 +36,9 @@ class ProofDebugger(AIAgent, Generable):
             project_container=project_container,
         )
         self.programmatic_handler = DerefereneErrorHandler(
-            root_dir=self.root_dir,
-            harness_path=self.harness_dir,
-            harness_file_path=self.harness_file_path
+            root_dir=str(self.root_dir),
+            harness_path=str(self.harness_dir),
+            harness_file_path=str(self.harness_file_path)
         )
         self.__max_attempts = 3
 
@@ -286,7 +286,7 @@ class ProofDebugger(AIAgent, Generable):
             user_prompt = user_prompt.replace("{error_file}", error.file)
             user_prompt = user_prompt.replace("{error_function}", error.func)
             user_prompt = user_prompt.replace("{error_line}", str(error.line))
-            user_prompt = user_prompt.replace("{harness_dir}", self.harness_dir) 
+            user_prompt = user_prompt.replace("{harness_dir}", str(self.harness_dir)) 
             if error.vars:
                 user_prompt = user_prompt.replace(
                     "{variables}", json.dumps(error.vars, indent=4))
@@ -329,7 +329,7 @@ class ProofDebugger(AIAgent, Generable):
         )
 
     def run_make(self):
-        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=900)
+        make_results = self.execute_command("make -j4", workdir=str(self.harness_dir), timeout=900)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results

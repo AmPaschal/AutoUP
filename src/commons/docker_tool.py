@@ -1,9 +1,11 @@
 from typing import Optional
 from filelock import FileLock, Timeout
 import docker
-import os
 from docker.errors import DockerException, BuildError, APIError
 from docker.models.containers import Container
+from pathlib import Path 
+import os
+
 
 from logger import setup_logger
 
@@ -47,10 +49,10 @@ SUGGEST_INSTALL = f"Install Docker from:\n {FIX_INSTALL_DOCKER}"
 SUGGEST_SDK = f"Install the Python Docker SDK using:\n {FIX_INSTALL_SDK}"
 
 class ProjectContainer:
-    def __init__(self, container_name: str, host_dir: Optional[os.PathLike] = None,
-                 dockerfile_path: Optional[os.PathLike] = None,
+    def __init__(self, container_name: str, host_dir: Path = Path.cwd(),
+                 dockerfile_path: Path = Path("Dockerfile"),
                  image_tag: str = "autoup_project_image",
-                 output_dir: Optional[os.PathLike] = None):
+                 output_dir: Path = Path.cwd().joinpath("output")):
         """
         :param container_name: Name of the container
         :param host_dir: Host directory to map into container
@@ -224,7 +226,7 @@ class ProjectContainer:
         
         # Check if path is under host_dir (project root)
         try:
-            relative_to_host = host_path.relative_to(self.host_dir)
+            relative_to_host = host_path.relative_to(str(self.host_dir))
             # Path is under project root, map to container mount point
             container_path = PurePosixPath(self.container_mount_point) / relative_to_host
             return container_path.as_posix()
@@ -233,7 +235,7 @@ class ProjectContainer:
         
         # Check if path is under output_dir
         try:
-            relative_to_output = host_path.relative_to(self.output_dir)
+            relative_to_output = host_path.relative_to(str(self.output_dir))
             # Path is under output directory, map to container output
             container_path = PurePosixPath(self.container_output_dir) / relative_to_output
             return container_path.as_posix()
