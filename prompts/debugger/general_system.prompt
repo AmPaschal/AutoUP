@@ -81,4 +81,8 @@ Here are some examples of preconditions and harness refinements that can be used
     This can be used to constrain the input data length field to the length of allocated data and to other necessary constraint in the program.
 
 
-
+Here are things you must avoid:
+1. Do NOT introduce new functions in the harness for the purpose of initializing specific global variables. If necessary, define the variable in the harness using `extern` so you can initialize or constrain it using preconditions.
+2. Do NOT set a variable to a specific value. Always specify a minimally constrained precondition for which the variable is still safe.
+3. Do NOT try to initialize a buffer or input using concrete values. This is BOUNDED MODEL CHECKING and we want buffers or variables to be non-deterministically initialized, and only constrained using preconditions where necessary.
+4. Do NOT constrain intermediate buffer or array members. For example, do not try to define preconditions on specific bytes within a buffer, specific options in a list of options, or specific array members. If the error is caused by a portion of a buffer or array that is not correctly validated, it is a real bug and cannot be addressed using preconditions.

@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import json
 import os
+import uuid
 from agent import AIAgent
 from commons.models import GPT, Generable
 from makefile.output_models import CoverageDebuggerResponse
@@ -183,13 +184,7 @@ class CoverageDebugger(AIAgent, Generable):
     def update_proof(self, updated_harness, updated_makefile):
         if updated_harness:
             harness_path = os.path.join(self.harness_dir, f"{self.target_function}_harness.c")
-            backup_path = harness_path + ".bak"
-
-            # Backup original harness if it exists
-            if os.path.exists(harness_path):
-                shutil.copy2(harness_path, backup_path)
-                logger.info(f"Original harness backed up at {backup_path}")
-
+            
             # Write updated harness
             with open(harness_path, "w") as f:
                 f.write(updated_harness)
@@ -197,13 +192,7 @@ class CoverageDebugger(AIAgent, Generable):
 
         if updated_makefile:
             makefile_path = os.path.join(self.harness_dir, "Makefile")
-            backup_path = makefile_path + ".bak"
-
-            # Backup original Makefile if it exists
-            if os.path.exists(makefile_path):
-                shutil.copy2(makefile_path, backup_path)
-                logger.info(f"Original Makefile backed up at {backup_path}")
-
+            
             # Write updated Makefile
             with open(makefile_path, "w") as f:
                 f.write(updated_makefile)
@@ -406,11 +395,16 @@ class CoverageDebugger(AIAgent, Generable):
         get_next_block = False
 
         conversation = []
+        tag = ""
 
         # Start the debugging loop
         while user_prompt:
 
             attempts += 1
+
+            if attempts == 1:
+                tag = uuid.uuid4().hex[:4].upper()
+                self.create_backup(tag)
             
             task_id = f"cov-{next_function['function']}-{target_block_line}"
             logger.info(f"[INFO] Processing task '{task_id}', attempt {attempts}.")
@@ -432,19 +426,21 @@ class CoverageDebugger(AIAgent, Generable):
 
             if llm_result == AgentAction.RETRY_BLOCK and attempts < self._max_attempts: 
                 # If an error occurred in the last attempt, the previous function returns a retry_block action instead of skip_block
-                self.reverse_proof_update()
+                self.restore_backup(tag)
             elif llm_result == AgentAction.SKIP_BLOCK or attempts >= self._max_attempts:
-                self.reverse_proof_update()
+                self.restore_backup(tag)
+                self.discard_backup(tag)
                 functions_to_skip.setdefault(next_function['function'], set()).add(target_block_line)
                 self.log_task_result(task_id, False, attempts)
                 get_next_block = True
             elif llm_result == AgentAction.NEXT_BLOCK:
-                self.remove_proof_backups()
+                self.discard_backup(tag)
                 get_next_block = True
                 functions_to_skip.setdefault(next_function['function'], set()).add(target_block_line)
                 self.log_task_result(task_id, True, attempts)
             elif llm_result == AgentAction.TERMINATE:
-                self.reverse_proof_update()
+                self.restore_backup(tag)
+                self.discard_backup(tag)
                 self.log_task_result(task_id, False, attempts)
                 break
 
@@ -461,8 +457,6 @@ class CoverageDebugger(AIAgent, Generable):
                 attempts = 0
                 conversation = []
                 system_prompt, user_prompt = self.prepare_prompt(next_function, coverage_data, target_block_line)
-
-            
 
         # Final coverage report
         final_coverage = self.get_overall_coverage()

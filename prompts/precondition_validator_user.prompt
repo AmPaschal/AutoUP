@@ -1,10 +1,16 @@
-Target Function:
-{FUNCTION_NAME}
+Original Harness:
+{ORIGINAL_HARNESS}
 
-File Location:
-{FILE_LOCATION}
+Error Details:
+Error: {ERROR_SUMMARY}
+File: {ERROR_FILE}
+Function: {ERROR FUNCTION}
+Line: {ERROR_LINE}
 
-Proof Harness:
-```c
-{HARNESS_CODE}
-```
+Error Analysis:
+{ERROR_ANALYSIS}
+
+Proposed Changes:
+{HARNESS_DIFF}
+
+

@@ -78,10 +78,14 @@ class InitialHarnessGenerator(AIAgent, Generable):
 
         with open("prompts/harness_generator_user.prompt", "r") as f:
             user_prompt = f.read()
+        
+        target_relative_root = self.get_relative_path(self.root_dir, self.target_file_path)
+        include_line = f'#include "{target_relative_root}"'
 
         user_prompt = user_prompt.replace("{FUNCTION_NAME}", self.target_function)
         user_prompt = user_prompt.replace("{PROJECT_DIR}", self.root_dir)
         user_prompt = user_prompt.replace("{FUNCTION_SOURCE_FILE}", self.target_file_path)
+        user_prompt = user_prompt.replace("{INCLUDE_TARGET_FILE}", include_line)
         function_source = self.extract_function_code(self.target_file_path, self.target_function)
         if function_source:
             user_prompt = user_prompt.replace("{FUNCTION_SOURCE}", function_source)
@@ -123,14 +127,12 @@ class InitialHarnessGenerator(AIAgent, Generable):
     def setup_initial_makefile(self):
 
         harness_relative_root = self.get_backward_path(self.root_dir, self.harness_dir)
-        target_relative_root = self.get_relative_path(self.root_dir, self.target_file_path)
 
         with open('src/makefile/Makefile.template', 'r') as file:
             makefile = file.read()
 
         makefile = makefile.replace('{ROOT}', str(harness_relative_root))
         makefile = makefile.replace('{H_ENTRY}', self.target_function)
-        makefile = makefile.replace('{LINK}', f'$(ROOT)/{target_relative_root}')
 
         return makefile
 

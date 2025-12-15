@@ -413,7 +413,7 @@ class AIAgent(ABC):
                 ["cp", "-r", build_path, build_backup_path],
                 check=True,
             )
-        logger.info("Backup created sucessfully.")
+        logger.info(f"Backup created sucessfully with tag '{tag}'.")
 
     def restore_backup(self, tag: str):
         harness_backup_path = os.path.join(
@@ -442,7 +442,7 @@ class AIAgent(ABC):
                 ["cp", "-r", build_backup_path, build_path],
                 check=True,
             )
-        logger.info("Backup restored sucessfully.")
+        logger.info(f"Backup restored sucessfully with tag '{tag}'.")
 
     def discard_backup(self, tag: str):
         harness_backup_path = os.path.join(
@@ -463,4 +463,4 @@ class AIAgent(ABC):
                 ["rm", "-rf", build_backup_path],
                 check=True,
             )
-        logger.info("Backup discarded sucessfully.")
+        logger.info(f"Backup discarded sucessfully with tag '{tag}'.")

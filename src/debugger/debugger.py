@@ -23,6 +23,7 @@ from debugger.error_report import ErrorReport, CBMCError
 from debugger.parser import extract_errors_and_payload, get_json_errors
 from debugger.advice import get_advice_for_cluster
 from makefile.makefile_debugger import MakefileDebugger
+from validator.precondition_validator import PreconditionValidator
 
 logger = setup_logger(__name__)
 
@@ -84,7 +85,7 @@ class ProofDebugger(AIAgent, Generable):
                 errors_solved_programatically += 1
             else:
                 self.restore_backup(tag)
-                result, current_coverage = self.generate_fix_with_llm(error, current_coverage)
+                result, current_coverage = self.generate_fix_with_llm(error, current_coverage, tag)
                 if result: # LLM fix succeeded
                     total_errors_solved += 1
                 else:
@@ -96,6 +97,7 @@ class ProofDebugger(AIAgent, Generable):
             error_report = ErrorReport(
                 error_clusters
             )
+            logger.info("Unresolved Errors: %i", len(error_report.errors_by_line))
             error = self.__pop_error(error_report, errors_to_skip)
         current_coverage = self.get_overall_coverage()
         logger.info(f"[INFO] Final Overall Coverage: {json.dumps(current_coverage, indent=2)}")
@@ -105,7 +107,7 @@ class ProofDebugger(AIAgent, Generable):
             "final_errors": final_errors,
             "errors_solved": total_errors_solved,
             "errors_solved_programatically": errors_solved_programatically,
-            "final_coverage": self.get_overall_coverage(),
+            "debugger_final_coverage": self.get_overall_coverage(),
         })
         self.save_status('debugger')
         return True
@@ -165,8 +167,36 @@ class ProofDebugger(AIAgent, Generable):
         with open(error_trace_file, 'w') as outfile:
             json.dump(error_trace, outfile, indent=4)
 
+    def validate_preconditions(self, error: CBMCError, tag: str, analysis: str) -> Status:
 
-    def generate_fix_with_llm(self, error: CBMCError, current_coverage: dict) -> tuple[bool, dict]:
+        # Execute command to get diff between harness tagged backup and current harness
+        harness_backup_path = f"{self.harness_file_name}.{tag}.backup"
+        diff_command = f"diff {harness_backup_path} {self.harness_file_name}"
+        diff_result = self.execute_command(diff_command, workdir=self.harness_dir, timeout=60)
+
+        logger.info(f"Stdout:\n {diff_result.get('stdout', '')}")
+        logger.info(f"Stderr:\n {diff_result.get('stderr', '')}")
+
+        if diff_result.get("exit_code") != 1 and diff_result.get("exit_code") != 0:
+            logger.error("[ERROR] Diff command failed.")
+            return Status.ERROR
+
+        diff_output = diff_result.get("stdout", "")
+        if not diff_output:
+            logger.info("No differences found between harness and backup; no preconditions to validate.")
+            return Status.SUCCESS
+
+        # Use Precondition Validator to validate the preconditions
+
+        validator = PreconditionValidator(args=self.args, project_container=self.project_container)
+        validation_status = validator.validate(error, diff_output, analysis)
+        if validation_status != Status.SUCCESS:
+            logger.error("[ERROR] Precondition validation failed.")
+            return validation_status
+
+        return Status.SUCCESS
+
+    def generate_fix_with_llm(self, error: CBMCError, current_coverage: dict, tag: str) -> tuple[bool, dict]:
         """Generate the fix of a given error"""
         cause_of_failure = None
         conversation_history = []
@@ -238,7 +268,9 @@ class ProofDebugger(AIAgent, Generable):
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_fixed")
                 cause_of_failure = {"reason": "error_not_fixed"}
                 continue
-            logger.info("Error resolved!")
+            logger.info("Error resolved! Validating proposed preconditions...")
+            self.validate_preconditions(error, tag, output.analysis)
+            logger.info("Preconditions validated!")
             self.log_task_attempt(error.error_id, attempt, chat_data, error=None)
             self.log_task_result(error.error_id, True, attempt)
             logger.info(f"[INFO] Current Overall Coverage: {json.dumps(new_coverage, indent=2)}")

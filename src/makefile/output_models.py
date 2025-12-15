@@ -39,34 +39,36 @@ class CoverageDebuggerResponse(BaseModel):
         }
 
 class Verdict(Enum):
-    SATISFIED = "SATISFIED"
-    UNSATISFIED = "UNSATISFIED"
-    INCONCLUSIVE = "INCONCLUSIVE"
+    VALID = "VALID"
+    VIOLATED_NOT_BUGGY = "VIOLATED_NOT_BUGGY"
+    VIOLATED_BUGGY = "VIOLATED_BUGGY"
 
 class ValidationResult(BaseModel):
-    precondition: str|None
-    function_model: str|None
+    precondition: str
+    parent_function: str
     verdict: Verdict
-    analysis: str
+    untrusted_input_source: str
+    reasoning: str
+    detailed_analysis: str
 
     def to_dict(self):
         return {
             "precondition": self.precondition,
-            "function_model": self.function_model,
-            "verdict": self.verdict,
-            "analysis": self.analysis
+            "parent_function": self.parent_function,
+            "verdict": self.verdict.value,
+            "untrusted_input_source": self.untrusted_input_source,
+            "reasoning": self.reasoning,
+            "detailed_analysis": self.detailed_analysis
         }
 
 class PreconditionValidatorResponse(BaseModel):
     preconditions_analyzed: int
-    function_models_analyzed: int
     validation_result: list[ValidationResult]
     
 
     def to_dict(self):
         return {
             "preconditions_analyzed": self.preconditions_analyzed,
-            "function_models_analyzed": self.function_models_analyzed,
             "validation_result": [
                 v.to_dict() for v in self.validation_result
             ]

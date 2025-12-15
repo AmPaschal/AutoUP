@@ -111,11 +111,6 @@ def process_mode(args):
             args=args,
             project_container=project_container
         ))
-    if args.mode in ["precondition", "all"]:
-        agents.append(PreconditionValidator(
-            args=args,
-            project_container=project_container
-        ))
         
 
     for agent in agents:
