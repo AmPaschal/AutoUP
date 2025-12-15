@@ -1,0 +1,16 @@
+Original Harness:
+{ORIGINAL_HARNESS}
+
+Error Details:
+Error: {ERROR_SUMMARY}
+File: {ERROR_FILE}
+Function: {ERROR FUNCTION}
+Line: {ERROR_LINE}
+
+Error Analysis:
+{ERROR_ANALYSIS}
+
+Proposed Changes:
+{HARNESS_DIFF}
+
+

@@ -106,7 +106,6 @@ class ErrorReport:
         for cluster in ErrorReport.CLUSTER_ORDER:
             if cluster in self.errors_by_cluster and len(self.errors_by_cluster[cluster]) > 0:
                 for error_id in  self.errors_by_cluster[cluster]:
-                    print("errors_to_skip: ", errors_to_skip)
                     if error_id in errors_to_skip:
                         continue
                     if error_id in self.unresolved_errs:

@@ -7,8 +7,8 @@ import os
 # Utils
 import pandas as pd
 
-METRICS_FOLDER = "metrics/2025-11-18_00-01"
-AGENT_REPORT_FILE_PATH = "metrics/2025-11-18_00-01/agent_report.csv"
+METRICS_FOLDER = "/home/pamusuo/research/cbmc-research/AutoUP/output-2025-12-10_17-12-50"
+AGENT_REPORT_FILE_PATH = "/home/pamusuo/research/cbmc-research/AutoUP/output-2025-12-10_17-12-50/agent_report-01.csv"
 
 
 def generate_csv_file(df: pd.DataFrame) -> None:

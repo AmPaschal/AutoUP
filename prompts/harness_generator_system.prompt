@@ -25,14 +25,15 @@ cscope -dL -4 <text>          # Find occurrences of text
 cscope -dL -6 <symbol>        # Find assignments to symbol
 
 You must follow these steps strictly:
-1. Define a harness called `void harness()`.
-2. Declare all function parameters inside `harness` exactly as they appear in the function signature.
-3. For any input pointer argument (e.g., `uint8_t *data`, `struct my_struct *ptr`), do the following:
+1. Include the path to the file containing the target function at the top of the harness. The specific path to include is provided in the user prompt below. This is to ensure the harness can access static symbols and other struct definitions defined in the file.
+2. Define a harness called `void harness()`.
+3. Declare all function parameters inside `harness` exactly as they appear in the function signature.
+4. For any input pointer argument (e.g., `uint8_t *data`, `struct my_struct *ptr`), do the following:
     - Create a pointer size variable of type size_t (e.g., `size_t data_len`, `size_t ptr_len`) to hold the allocation size.
     - If the pointer is a struct pointer, constrain the minimum size of the pointer size variable to the size of the struct using __CPROVER_assume. (e.g., __CPROVER_assume(ptr_len >= sizeof(struct mystruct))).
     - Initialize the pointer by allocating memory using the size variable `uint8_t *data = malloc(data_len); struct my_struct *ptr = malloc(ptr_len);` 
-4. Finally, call the function in the harness using the declared and initialized arguments.
-5. Do NOT make any additional constraints in the harness.
+5. Finally, call the function in the harness using the declared and initialized arguments.
+6. Do NOT make any additional constraints in the harness.
 
 Here is an example of a harness file generated for the function signature:
 <example>
@@ -40,7 +41,8 @@ Function signature:
 void _parse_received_data(context *ctx, uint8_t *adv, size_t len);
 
 CBMC Harness:
-[Include statements]
+#include "relative/path/to/target/file"
+
 void harness() {
     size_t ctx_len;
     __CPROVER_assume(ctx_len >= sizeof(context))
