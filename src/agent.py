@@ -10,7 +10,7 @@ import tiktoken
 from commons.docker_tool import ProjectContainer
 from logger import setup_logger
 from commons.utils import Status
-from commons.models import GPT
+from commons.models import GPT, LiteLLM
 
 logger = setup_logger(__name__)
 
@@ -33,7 +33,8 @@ class AIAgent(ABC):
         self.harness_file_name = f"{self.target_function}_harness.c"
         self.harness_file_path = os.path.join(self.harness_dir, self.harness_file_name)
         self.makefile_path = os.path.join(self.harness_dir, 'Makefile')
-        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
+        #self.llm = GPT(name='gpt-5', max_input_tokens=270000)
+        self.llm = LiteLLM(name='gemini-2.5-flash', max_input_tokens=270000)
         
 
     def truncate_result_custom(self, result: dict, cmd: str, max_input_tokens: int, model: str) -> dict:
