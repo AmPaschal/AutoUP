@@ -219,7 +219,7 @@ class AIAgent(ABC):
         with open(self.metrics_file, 'a') as f:
             f.write(json.dumps(log_entry) + "\n")
 
-    def log_task_result(self, task_id, success: bool, total_attempts: int):
+    def log_task_result(self, task_id, success: bool, total_attempts: int, data: dict|None = None):
         if not self.metrics_file:
             return
         
@@ -229,6 +229,7 @@ class AIAgent(ABC):
             "task_id": task_id,
             "success": success,
             "total_attempts": total_attempts,
+            "data": data,
             "timestamp": time.time()
         }
 

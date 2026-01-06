@@ -11,7 +11,7 @@ H_ENTRY = {H_ENTRY}
 H_CBMCFLAGS = --nondet-static --unwind 2 # Rest to be filled in by LLM
 
 # Env vars, filled in by LLM
-H_DEF = 
+H_DEF = {H_DEF}
 
 # LLM should add more to this
 H_INC = -I$(ROOT) \

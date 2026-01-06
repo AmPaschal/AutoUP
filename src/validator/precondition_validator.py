@@ -19,6 +19,12 @@ class PreconditionValidator(AIAgent, Generable):
             project_container,
         )
 
+        self.preconditions_analyzed = 0
+        self.num_tasks = 0
+        self.valid = 0
+        self.violated_buggy = 0
+        self.violated_not_buggy = 0
+
     def extract_preconditions(self, harness_path):
         """
         Extracts __CPROVER_assume statements from the harness file.
@@ -111,22 +117,34 @@ class PreconditionValidator(AIAgent, Generable):
         else:
             # Save validation result
             self.save_validation_result(error, llm_response)
-            valid_preconditions = len([v for v in llm_response.validation_result if v.precondition and v.verdict == Verdict.VALID])
+            valid = len([v for v in llm_response.validation_result if v.precondition and v.verdict == Verdict.VALID])
+            violated_buggy = len([v for v in llm_response.validation_result if v.precondition and v.verdict == Verdict.VIOLATED_BUGGY])
+            violated_non_buggy = len([v for v in llm_response.validation_result if v.precondition and v.verdict == Verdict.VIOLATED_NOT_BUGGY])
             total_preconditions = len([v for v in llm_response.validation_result if v.precondition])
             
-            agent_result = {
+            task_result = {
+                "total_preconditions": total_preconditions,
+                "valid_preconditions": valid,
+                "violated_buggy": violated_buggy,
+                "violated_not_buggy": violated_non_buggy,
                 "error_id": error.error_id,
-                "error_file": error.file,
-                "error_function": error.func,
-                "error_line": error.line,
                 "error_summary": error.msg,
-                "preconditions_validated": f"{valid_preconditions}/{total_preconditions}",
+                "error_location": {
+                    "file": error.file,
+                    "function": error.func,
+                    "line": error.line,
+                }
             }
             logger.info(f"Precondition Validator Result: {agent_result}")
 
             self.log_task_attempt(task_id, 1, chat_data, error_tag)
-            self.log_task_result(task_id, True, 1)
-            # self.log_agent_result(agent_result)
+            self.log_task_result(task_id, True, 1, task_result)
+
+            self.preconditions_analyzed += total_preconditions
+            self.valid += valid
+            self.violated_buggy += violated_buggy
+            self.violated_not_buggy += violated_non_buggy
+            self.num_tasks += 1
 
             # Check if all verdicts are VALID
             all_satisfied = all(v.verdict == Verdict.VALID for v in llm_response.validation_result)
@@ -134,6 +152,18 @@ class PreconditionValidator(AIAgent, Generable):
                 return Status.SUCCESS
             else:
                 return Status.FAILURE
+            
+    def complete_validation(self):
+
+        agent_result = {
+            "validation_tasks": self.num_tasks,
+            "preconditions_analyzed": self.preconditions_analyzed,
+            "valid_preconditions": self.valid,
+            "violated_buggy": self.violated_buggy,
+            "violated_not_buggy": self.violated_not_buggy
+        }
+
+        self.log_agent_result(agent_result)
 
     def generate(self) -> bool:
         # This method is kept for compatibility but validate should be used instead

@@ -42,6 +42,8 @@ class ProofDebugger(AIAgent, Generable):
             harness_path=self.harness_dir,
             harness_file_path=self.harness_file_path
         )
+        self.validator = PreconditionValidator(args=self.args, project_container=self.project_container)
+        
         self.__max_attempts = 3
 
     def generate(self) -> bool:
@@ -109,6 +111,7 @@ class ProofDebugger(AIAgent, Generable):
             "errors_solved_programatically": errors_solved_programatically,
             "debugger_final_coverage": self.get_overall_coverage(),
         })
+        self.validator.complete_validation()
         self.save_status('debugger')
         return True
 
@@ -188,8 +191,7 @@ class ProofDebugger(AIAgent, Generable):
 
         # Use Precondition Validator to validate the preconditions
 
-        validator = PreconditionValidator(args=self.args, project_container=self.project_container)
-        validation_status = validator.validate(error, diff_output, analysis)
+        validation_status = self.validator.validate(error, diff_output, analysis)
         if validation_status != Status.SUCCESS:
             logger.error("[ERROR] Precondition validation failed.")
             return validation_status
