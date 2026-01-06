@@ -3,6 +3,7 @@
 from pathlib import Path
 import json
 import os
+import re
 from agent import AIAgent
 from commons.models import GPT, Generable
 from makefile.output_models import HarnessResponse
@@ -124,7 +125,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
             return
         logger.info(f'Copied Makefile.include to {dest_path}')
 
-    def setup_initial_makefile(self):
+    def setup_initial_makefile(self, initial_configs):
 
         harness_relative_root = self.get_backward_path(self.root_dir, self.harness_dir)
 
@@ -134,7 +135,32 @@ class InitialHarnessGenerator(AIAgent, Generable):
         makefile = makefile.replace('{ROOT}', str(harness_relative_root))
         makefile = makefile.replace('{H_ENTRY}', self.target_function)
 
+        if initial_configs:
+            config_string = " ".join(f"-D{cfg}=1" for cfg in initial_configs)
+        else:
+            config_string = ""
+
+        makefile = makefile.replace('{H_DEF}', config_string)
+
         return makefile
+
+    def extract_configs_from_sourcefile(self):
+        with open(self.target_file_path, 'r', encoding="utf-8", errors="ignore") as file:
+            lines = file.readlines()
+
+        if not lines:
+            return []
+
+        configs = set()
+        pattern = r'^\s*#\s*ifdef\s+([A-Za-z_][A-Za-z0-9_]*)'
+
+        for line in lines:
+            match = re.match(pattern, line)
+            if match:
+                config = match.group(1)
+                configs.add(config)
+
+        return list(configs)
 
     def generate(self) -> bool:
 
@@ -175,8 +201,10 @@ class InitialHarnessGenerator(AIAgent, Generable):
         # Copy makefile.include from docker to harness parent directory
         self.create_makefile_include()
 
+        initial_configs = self.extract_configs_from_sourcefile()
+
         # We setup the initial Makefile
-        makefile = self.setup_initial_makefile()
+        makefile = self.setup_initial_makefile(initial_configs)
         self.update_makefile(makefile)   
 
         # Now, we try to resolve all the make errors

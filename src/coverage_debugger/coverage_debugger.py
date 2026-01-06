@@ -383,7 +383,7 @@ class CoverageDebugger(AIAgent, Generable):
         if not next_function or not coverage_data or not target_block_line:
             logger.info("[INFO] No uncovered functions found.")
             #return 0  # All functions are covered
-            self.log_agent_result({"initial_coverage": initial_coverage, "final_coverage": 1})
+            self.log_agent_result({"initial_coverage": initial_coverage, "final_coverage": initial_coverage})
             return True
 
         # Create first LLM prompt
