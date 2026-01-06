@@ -34,7 +34,8 @@ class AIAgent(ABC):
         self.harness_file_path = os.path.join(self.harness_dir, self.harness_file_name)
         self.makefile_path = os.path.join(self.harness_dir, 'Makefile')
         #self.llm = GPT(name='gpt-5', max_input_tokens=270000)
-        self.llm = LiteLLM(name='gemini-2.5-flash', max_input_tokens=270000)
+        #self.llm = LiteLLM(name='gemini-2.5-flash', max_input_tokens=270000)
+        self.llm = LiteLLM(name='ollama/llama3.1', max_input_tokens=270000)
         
 
     def truncate_result_custom(self, result: dict, cmd: str, max_input_tokens: int, model: str) -> dict:

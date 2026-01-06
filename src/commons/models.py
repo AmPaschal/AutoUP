@@ -131,13 +131,14 @@ class LiteLLM(LLM):
             try:
                 client_response: ModelResponse = self.with_retry_on_error(
                     lambda: litellm.completion(
-                        model="gemini/gemini-3-pro-preview",
+                        model="ollama/llama3.1",
                         messages=[{"role": "system", "content": system_messages}] + input_list,
                         response_format=output_format,
                         tool_choice="auto",
                         reasoning="low",
                         tools=llm_tools,
                         temperature=1.0,
+                        api_base="http://localhost:11434",
                     ),
                     [pydantic_core._pydantic_core.ValidationError]
                 )
