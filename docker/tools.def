@@ -1,0 +1,46 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%environment
+    export DEBIAN_FRONTEND=noninteractive
+    export C_INCLUDE_PATH=/usr/include/x86_64-linux-gnu
+
+%post
+    apt update && apt install -y \
+        software-properties-common \
+        curl \
+        git \
+        wget \
+        dpkg \
+        build-essential \
+        libc6-dev \
+        universal-ctags \
+        cscope \
+        bash-completion \
+        lsb-release
+
+    add-apt-repository ppa:deadsnakes/ppa
+    ln -fs /usr/share/zoneinfo/America/Indiana/Indianapolis /etc/localtime
+    apt update && apt install -y \
+        python3.11 \
+        python3.11-venv \
+        python3.11-dev \
+        python3-pip
+
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+    dpkg --add-architecture i386
+    apt update && apt install -y libc6-dev-i386 gcc-multilib
+
+    wget https://github.com/diffblue/cbmc/releases/download/cbmc-6.6.0/ubuntu-22.04-cbmc-6.6.0-Linux.deb \
+        -O /tmp/cbmc.deb
+    dpkg -i /tmp/cbmc.deb
+    rm /tmp/cbmc.deb
+
+    pip install cbmc-viewer
+
+    apt clean
+    rm -rf /var/lib/apt/lists/*
+
+%files
+    Makefile.include /makefiles/Makefile.include
