@@ -17,7 +17,7 @@ from coverage_debugger.coverage_debugger import CoverageDebugger
 from makefile.makefile_debugger import MakefileDebugger
 from initial_harness_generator.gen_harness import InitialHarnessGenerator
 from debugger.debugger import ProofDebugger
-from commons.docker_tool import ProjectContainer
+from commons.docker_tool import DockerProjectContainer
 from logger import init_logging, setup_logger
 from commons.metric_summary import process_metrics
 from stub_generator.gen_function_stubs import StubGenerator
@@ -26,7 +26,7 @@ from validator.precondition_validator import PreconditionValidator
 
 
 # Global project container
-project_container: Optional[ProjectContainer] = None
+project_container: Optional[DockerProjectContainer] = None
 
 
 def get_parser():
@@ -164,7 +164,7 @@ def main():
         raise EnvironmentError("No OpenAI API key found")
 
     container_name = f"autoup_{uuid.uuid4().hex[:8]}"
-    project_container = ProjectContainer(
+    project_container = DockerProjectContainer(
         dockerfile_path="docker/tools.Dockerfile",
         host_dir=args.root_dir,
         container_name=container_name

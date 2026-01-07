@@ -6,6 +6,7 @@ from docker.errors import DockerException, BuildError, APIError
 from docker.models.containers import Container
 
 from logger import setup_logger
+from src.commons.project_container import ProjectContainer
 
 
 logger = setup_logger(__name__)
@@ -46,7 +47,7 @@ SUGGEST_START = f"Start the Docker service using:\n {FIX_START_DAEMON}"
 SUGGEST_INSTALL = f"Install Docker from:\n {FIX_INSTALL_DOCKER}"
 SUGGEST_SDK = f"Install the Python Docker SDK using:\n {FIX_INSTALL_SDK}"
 
-class ProjectContainer:
+class DockerProjectContainer(ProjectContainer):
     def __init__(self, dockerfile_path: str, host_dir: str, container_name: str,
                  image_tag="autoup_image:latest"):
         """
