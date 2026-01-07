@@ -92,9 +92,6 @@ class LiteLLM(LLM):
 
     def __init__(self, name: str, max_input_tokens: int):
         super().__init__(name, max_input_tokens)
-        gemini_api_key = os.getenv("GEMINI_API_KEY", None)
-        if not gemini_api_key:
-            raise EnvironmentError("No Gemini API key found")
 
     def chat_llm(
         self,
