@@ -82,7 +82,12 @@ def get_parser():
         "--container_engine",
         choices=["docker", "apptainer"],
         default="docker",
-        help="Container engine to use (default: docker)."
+        help="Container engine to use (default: docker).",
+    )
+    parser.add_argument(
+        "--llm_model",
+        default="gpt-5",
+        help="LLM model to use (default: gpt-5)",
     )
     return parser.parse_args()
 

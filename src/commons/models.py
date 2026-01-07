@@ -88,13 +88,10 @@ class LLM(ABC):
         return None
 
 class LiteLLM(LLM):
-    """LLM implementation implementation using LiteLLM"""
+    """LLM implementation using LiteLLM"""
 
     def __init__(self, name: str, max_input_tokens: int):
         super().__init__(name, max_input_tokens)
-        gemini_api_key = os.getenv("GEMINI_API_KEY", None)
-        if not gemini_api_key:
-            raise EnvironmentError("No Gemini API key found")
 
     def chat_llm(
         self,
@@ -131,7 +128,7 @@ class LiteLLM(LLM):
             try:
                 client_response: ModelResponse = self.with_retry_on_error(
                     lambda: litellm.completion(
-                        model="gemini/gemini-3-pro-preview",
+                        model=self.name,
                         messages=[{"role": "system", "content": system_messages}] + input_list,
                         response_format=output_format,
                         tool_choice="auto",
