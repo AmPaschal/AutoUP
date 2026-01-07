@@ -6,7 +6,7 @@ from docker.errors import DockerException, BuildError, APIError
 from docker.models.containers import Container
 
 from logger import setup_logger
-from src.commons.project_container import ProjectContainer
+from commons.project_container import ProjectContainer
 
 
 logger = setup_logger(__name__)

@@ -7,7 +7,7 @@ from typing import Any, Callable, Type
 
 import tiktoken
 
-from commons.docker_tool import DockerProjectContainer
+from commons.project_container import ProjectContainer
 from logger import setup_logger
 from commons.utils import Status
 from commons.models import GPT, LiteLLM
@@ -19,7 +19,7 @@ class AIAgent(ABC):
     Shared features for any OpenAI agent that interacts with a vector store
     """
 
-    def __init__(self, agent_name, args, project_container: DockerProjectContainer):
+    def __init__(self, agent_name, args, project_container: ProjectContainer):
         self.agent_name = agent_name
         self.args = args
         self.root_dir=args.root_dir

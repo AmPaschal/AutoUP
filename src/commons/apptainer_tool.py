@@ -36,14 +36,16 @@ class ApptainerProjectContainer(ProjectContainer):
     def execute(self, command: str, workdir: Optional[str] = None, timeout: int = 30) -> dict:
         """Execute a command inside the container using bash shell."""
         logger.debug(f"[>] Executing command: {command}")
-        exec_command = ["apptainer", "exec", "--pwd", workdir,
-                        IMAGE_FILE, "timeout", f"{timeout}s", "bash", "-c", command]
+
+        exec_command = ["apptainer", "exec", "--pwd", workdir if workdir else self.host_dir,
+                        IMAGE_FILE, "bash", "-c", f"timeout {timeout} bash -c \"{command}\""]
         with subprocess.Popen(
             exec_command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            errors='ignore'
         ) as process:
             stdout, stderr = process.communicate()
             exit_code = process.poll()
@@ -61,25 +63,30 @@ class ApptainerProjectContainer(ProjectContainer):
         """Stop and remove the container.""" # No needed for Apptainer   
 
     def __build_image(self):
+        if os.path.exists(IMAGE_FILE):
+            logger.info(f"[*] Apptainer image '{IMAGE_FILE}' already exists; skipping build.")
+            return
+        
         if not self.apptainer_def_path or not os.path.exists(self.apptainer_def_path):
             raise FileNotFoundError(
                 f"Definition file path '{self.apptainer_def_path}' does not exist."
             )
+            
         logger.info(f"[+] Building Apptainer image from {self.apptainer_def_path}...")
-
         with subprocess.Popen(
             ["apptainer", "build", "--fakeroot", IMAGE_FILE, self.apptainer_def_path],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            errors='ignore'
         ) as process:
             process.communicate()
             exit_code = process.poll()
         if exit_code == 0:
-            logger.info(f"[+] Image '{self.apptainer_def_path}' built successfully.")
+            logger.info(f"[+] Image '{IMAGE_FILE}' built successfully.")
         else:
-            logger.error("[!] Docker build failed!")
+            logger.error("[!] Apptainer build failed!")
             raise RuntimeError(f"Apptainer build failed with exit code {exit_code}.")
 
     def __initialize_tools(self):
