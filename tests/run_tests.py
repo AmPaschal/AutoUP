@@ -1,4 +1,5 @@
 from collections import defaultdict
+import csv
 import enum
 import glob
 import os
@@ -108,11 +109,12 @@ def run_proof_command(entry, args, output_root):
     """
     base_dir = Path(args.base_dir)
     function_name = entry["function_name"]
-    proof_dir = Path(entry["proof_dir"])
     src_file = Path(entry["source_file"])
+    src_file_name = src_file.stem
+    proof_dir = Path(os.path.join(args.proof_dir, src_file_name, function_name))
 
-    log_file = output_root / f"{function_name}.log"
-    metrics_file = output_root / f"metrics-{function_name}.jsonl"
+    log_file = output_root / f"{src_file_name}-{function_name}.log"
+    metrics_file = output_root / f"metrics-{src_file_name}-{function_name}.jsonl"
     cmd = [
         "python", "src/run.py",
         args.mode,
@@ -145,7 +147,8 @@ def run_proof_command(entry, args, output_root):
 
 def main():
     parser = argparse.ArgumentParser(description="Run proofs for CBMC makefiles.")
-    parser.add_argument("input_json", help="Path to JSON file containing proof directories and source files")
+    parser.add_argument("input_file", help="Path to file containing source files and target functions")
+    parser.add_argument("-p", "--proof_dir", required=True, help="directory containing CBMC proofs")
     parser.add_argument("-m", "--mode", choices=["harness", "debugger", "coverage", "function-stubs", "precondition", "all"], default="harness", help="Execution mode")
     parser.add_argument("-b", "--base_dir", default="../RIOT", help="Base project directory (default: ../RIOT)")
     parser.add_argument("-o", "--output", help="Directory to store logs (default: output-${timestamp})")
@@ -160,9 +163,26 @@ def main():
         output_root = Path(f"output-{timestamp}")
     output_root.mkdir(parents=True, exist_ok=True)
 
-    # Load input JSON
-    with open(args.input_json, "r") as f:
-        entries = json.load(f)
+    # Create proof directory if it doesn't exist
+    Path(args.proof_dir).mkdir(parents=True, exist_ok=True)
+
+    # Extract the file path from args
+    file_path = Path(args.input_file)
+
+    if file_path.suffix.lower() == ".json":
+        # Logic for JSON files
+        with open(file_path, "r", encoding="utf-8") as f:
+            entries = json.load(f)
+
+    elif file_path.suffix.lower() == ".csv":
+        # Logic for CSV files
+        with open(file_path, "r", encoding="utf-8", newline="") as f:
+            # Using DictReader transforms each row into a dictionary
+            reader = csv.DictReader(f)
+            entries = list(reader)
+
+    else:
+        raise ValueError(f"Unsupported file format: {file_path.suffix}")
 
     results = []
 
