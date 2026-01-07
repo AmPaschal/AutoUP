@@ -88,7 +88,7 @@ class LLM(ABC):
         return None
 
 class LiteLLM(LLM):
-    """LLM implementation implementation using LiteLLM"""
+    """LLM implementation using LiteLLM"""
 
     def __init__(self, name: str, max_input_tokens: int):
         super().__init__(name, max_input_tokens)
@@ -131,7 +131,7 @@ class LiteLLM(LLM):
             try:
                 client_response: ModelResponse = self.with_retry_on_error(
                     lambda: litellm.completion(
-                        model="gemini/gemini-3-pro-preview",
+                        model=self.name,
                         messages=[{"role": "system", "content": system_messages}] + input_list,
                         response_format=output_format,
                         tool_choice="auto",
