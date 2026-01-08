@@ -18,8 +18,9 @@ From: ubuntu:22.04
         cscope \
         bash-completion \
         lsb-release
-    ln -fs /usr/share/zoneinfo/America/Indiana/Indianapolis /etc/localtime
+
     add-apt-repository ppa:deadsnakes/ppa
+    ln -fs /usr/share/zoneinfo/America/Indiana/Indianapolis /etc/localtime
     apt update && apt install -y \
         python3.11 \
         python3.11-venv \
@@ -42,4 +43,4 @@ From: ubuntu:22.04
     rm -rf /var/lib/apt/lists/*
 
 %files
-    container/Makefile.include /makefiles/Makefile.include
+    Makefile.include /makefiles/Makefile.include

@@ -135,6 +135,7 @@ class LiteLLM(LLM):
                         reasoning="low",
                         tools=llm_tools,
                         temperature=1.0,
+                        api_base="http://localhost:11434",
                     ),
                     [pydantic_core._pydantic_core.ValidationError]
                 )

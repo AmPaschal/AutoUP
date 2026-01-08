@@ -1,6 +1,7 @@
 """ Debugger class"""
 
 # System
+from typing import Optional
 from pathlib import Path
 import subprocess
 import os
@@ -372,7 +373,7 @@ class ProofDebugger(AIAgent, Generable):
 
     
 # TODO: Refactor Error Handling
-    def __pop_error(self, error_report: ErrorReport, errors_to_skip: set) -> CBMCError | None:  
+    def __pop_error(self, error_report: ErrorReport, errors_to_skip: set) -> Optional[CBMCError]:
         
         error = error_report.get_next_error(errors_to_skip)
         if error[2] is None:
