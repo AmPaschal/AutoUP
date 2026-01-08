@@ -43,4 +43,4 @@ From: ubuntu:22.04
     rm -rf /var/lib/apt/lists/*
 
 %files
-    Makefile.include /makefiles/Makefile.include
+    container/Makefile.include /makefiles/Makefile.include
