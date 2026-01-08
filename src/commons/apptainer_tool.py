@@ -89,7 +89,7 @@ class ApptainerProjectContainer(ProjectContainer):
 
     def __initialize_tools(self):
         """Initialize tools inside the container, if necessary."""
-        cscope_check = self.execute("which cscope")
+        cscope_check = self.execute("command -v cscope")
         if cscope_check["exit_code"] != 0 or not cscope_check["stdout"].strip():
             logger.info("[*] cscope not found in container; skipping cscope initialization.")
             return
