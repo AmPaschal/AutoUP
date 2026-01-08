@@ -142,7 +142,7 @@ class LiteLLM(LLM):
             except Exception as e:
                 logger.error(f"Unexpected error from LLM: {e}")
                 return None, {}
-
+            logger.info(f"LLM raw response: {client_response}")
             # Update token usage
             if client_response.usage:
                 token_usage["input_tokens"] += client_response.usage.prompt_tokens
