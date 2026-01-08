@@ -146,9 +146,9 @@ class LiteLLM(LLM):
             # Update token usage
             if client_response.usage:
                 token_usage["input_tokens"] += client_response.usage.prompt_tokens
-                token_usage["cached_tokens"] += client_response.usage.prompt_tokens_details.cached_tokens or 0
+                #token_usage["cached_tokens"] += client_response.usage.cached_tokens.cached_tokens or 0
                 token_usage["output_tokens"] += client_response.usage.completion_tokens
-                token_usage["reasoning_tokens"] += client_response.usage.completion_tokens_details.reasoning_tokens or 0
+                #token_usage["reasoning_tokens"] += client_response.usage.completion_tokens_details.reasoning_tokens or 0
                 token_usage["total_tokens"] += client_response.usage.total_tokens
 
             # Find function calls
