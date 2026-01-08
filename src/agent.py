@@ -10,7 +10,9 @@ import tiktoken
 from commons.docker_tool import ProjectContainer
 from logger import setup_logger
 from commons.utils import Status
-from commons.models import GPT
+from commons.models import GPT, LiteLLM
+
+from litellm import get_llm_provider
 
 logger = setup_logger(__name__)
 
@@ -33,8 +35,18 @@ class AIAgent(ABC):
         self.harness_file_name = f"{self.target_function}_harness.c"
         self.harness_file_path = os.path.join(self.harness_dir, self.harness_file_name)
         self.makefile_path = os.path.join(self.harness_dir, 'Makefile')
-        self.llm = GPT(name='gpt-5', max_input_tokens=270000)
-        
+
+        try:
+            result = get_llm_provider(args.llm_model)
+            if result[1] == "openai":
+                logger.info(f"Using model '{args.llm_model}' with OpenAI specification")
+                self.llm = GPT(name=args.llm_model, max_input_tokens=270000)
+            else:
+                logger.info(f"Using model '{args.llm_model}' with Litellm wrapper.")
+                self.llm = LiteLLM(name=args.llm_model, max_input_tokens=270000)
+        except Exception as e:
+            logger.error(f"Error. Model '{args.llm_model}' not supported: {e}")
+            raise e
 
     def truncate_result_custom(self, result: dict, cmd: str, max_input_tokens: int, model: str) -> dict:
         """

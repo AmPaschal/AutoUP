@@ -3,12 +3,15 @@ import os
 from pydantic import BaseModel
 import pydantic_core
 import tiktoken
+import json
 import openai
 import random
 import time
 import traceback
 from typing import Any, Callable, Optional, Type
 from openai.types.responses.parsed_response import ParsedResponse
+import litellm
+from litellm import ModelResponse
 
 from logger import setup_logger
 
@@ -84,6 +87,102 @@ class LLM(ABC):
                 self._delay_for_retry(attempt_count=attempt)
         return None
 
+class LiteLLM(LLM):
+    """LLM implementation using LiteLLM"""
+
+    def __init__(self, name: str, max_input_tokens: int):
+        super().__init__(name, max_input_tokens)
+
+    def chat_llm(
+        self,
+        system_messages: str,
+        input_messages: str,
+        output_format: Type[BaseModel],
+        llm_tools: list = [],
+        call_function: Optional[Callable] = None,
+        conversation_history: Optional[list] = None
+    ):
+        # Start with the initial user input
+        new_message = {'role': 'user', 'content': input_messages}
+
+        logger.info(f"LLM Prompt:\n{input_messages}")
+
+        if conversation_history is None:
+            conversation_history = []
+
+        conversation_history.append(new_message)
+
+        input_list = list(conversation_history)
+
+        function_calls_count = 0
+        token_usage = {
+            "input_tokens": 0,
+            "cached_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "total_tokens": 0
+        }
+
+        while True:
+            # Call the model
+            try:
+                client_response: ModelResponse = self.with_retry_on_error(
+                    lambda: litellm.completion(
+                        model=self.name,
+                        messages=[{"role": "system", "content": system_messages}] + input_list,
+                        response_format=output_format,
+                        tool_choice="auto",
+                        reasoning="low",
+                        tools=llm_tools,
+                        temperature=1.0,
+                    ),
+                    [pydantic_core._pydantic_core.ValidationError]
+                )
+            except Exception as e:
+                logger.error(f"Unexpected error from LLM: {e}")
+                return None, {}
+
+            # Update token usage
+            if client_response.usage:
+                token_usage["input_tokens"] += client_response.usage.prompt_tokens
+                token_usage["cached_tokens"] += client_response.usage.prompt_tokens_details.cached_tokens or 0
+                token_usage["output_tokens"] += client_response.usage.completion_tokens
+                token_usage["reasoning_tokens"] += client_response.usage.completion_tokens_details.reasoning_tokens or 0
+                token_usage["total_tokens"] += client_response.usage.total_tokens
+
+            # Find function calls
+            function_calls = client_response.choices[0].message["tool_calls"] or []
+        
+            if not function_calls:
+                # No function calls left → we’re done
+                break
+
+            # Handle each function call and add results back to input_list
+            for item in function_calls:
+                print("Functions to call: ", item.id)
+                if call_function is None:
+                    raise ValueError("call_function must be provided when tools are used.")
+                function_result = call_function(item.function.name, item.function.arguments)
+                function_calls_count += 1
+                input_list.append(client_response.choices[0].message)
+                input_list.append({
+                    "role": "tool",
+                    "tool_call_id": item.id,
+                    "content": function_result,
+                })
+                print("Tool call id responded: ", item.id)
+
+        print(client_response.choices[0].message.content)
+        parsed_output =output_format.model_validate(json.loads(client_response.choices[0].message.content))
+        parsed_output_dict = parsed_output.model_dump_json(indent=2) if parsed_output else {}
+        logger.info(f"LLM Response:\n{parsed_output_dict}")
+
+        conversation_history.append({'role': 'assistant', 'content': str(parsed_output)})
+
+        return parsed_output, {
+            "function_call_count": function_calls_count,
+            "token_usage": token_usage
+        }
 
 class GPT(LLM):
 
