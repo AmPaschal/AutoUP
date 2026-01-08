@@ -76,8 +76,6 @@ class ApptainerProjectContainer(ProjectContainer):
         with subprocess.Popen(
             ["apptainer", "build", "--fakeroot", IMAGE_FILE, self.apptainer_def_path],
             stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
             text=True,
             errors='ignore'
         ) as process:
