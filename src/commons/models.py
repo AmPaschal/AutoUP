@@ -136,6 +136,11 @@ class LiteLLM(LLM):
                         tools=llm_tools,
                         temperature=1.0,
                         api_base="http://localhost:11434",
+                        extra_body={
+                            "options": {
+                                "num_ctx": 131072
+                            }
+                        }
                     ),
                     [pydantic_core._pydantic_core.ValidationError]
                 )
