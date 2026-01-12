@@ -178,8 +178,12 @@ class LiteLLM(LLM):
                 })
                 print("Tool call id responded: ", item.id)
 
-        print(client_response.choices[0].message.content)
-        parsed_output =output_format.model_validate(json.loads(client_response.choices[0].message.content))
+        logger.info(client_response.choices[0].message.content)
+        try:
+            parsed_output =output_format.model_validate(json.loads(client_response.choices[0].message.content))
+        except Exception as e:
+            logger.error(f"Parsing LLM response failed.")
+            return None, {}
         parsed_output_dict = parsed_output.model_dump_json(indent=2) if parsed_output else {}
         logger.info(f"LLM Response:\n{parsed_output_dict}")
 
