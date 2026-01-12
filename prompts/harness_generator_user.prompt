@@ -21,3 +21,4 @@ These commands will be run from the project directory `{PROJECT_DIR}`, and the o
 containing the original command, the exit code, stdout output, and stderr output. 
 
 In your response, you are to include a compilable harness and a detailed analysis of the steps you took to generate the harness.
+For the output, always provide the full contents of any files that include the fixes you suggest. Remember to use the available tools to obtain all the necessary context.
