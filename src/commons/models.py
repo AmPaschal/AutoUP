@@ -130,9 +130,9 @@ class LiteLLM(LLM):
                     lambda: litellm.completion(
                         model=self.name,
                         messages=[{"role": "system", "content": system_messages}] + input_list,
-                        response_format=output_format,
+                        #response_format=output_format,
                         tool_choice="auto",
-                        reasoning="low",
+                        #reasoning="low",
                         tools=llm_tools,
                         temperature=1.0,
                         api_base="http://localhost:11434",
