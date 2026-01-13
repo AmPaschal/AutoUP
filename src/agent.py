@@ -107,7 +107,7 @@ class AIAgent(ABC):
         try:
             logger.info(f"Running command: {cmd}")
             result = self.project_container.execute(cmd)
-            return self.truncate_result_custom(result, cmd, max_input_tokens=10000, model='gpt-5')
+            return self.truncate_result_custom(result, cmd, max_input_tokens=10000, model=self.args.llm_model)
         except subprocess.CalledProcessError as e:
             print(f"Command failed with error:\n{e.stderr}")
             return None
@@ -189,13 +189,22 @@ class AIAgent(ABC):
             tool_response = self.run_bash_command(cmd)
         elif tool_name == "run_cscope_command":
             command = function_args.get("command", "")
+            #ensure command starts with cscope
+            if not command.strip().startswith("cscope"):
+                command = f"cscope {command}"
             tool_response = self.run_bash_command(command)
         elif tool_name == "get_condition_satisfiability":
             function_name = function_args.get("function_name", "")
             line_number = function_args.get("line_number", -1)
             tool_response = self.handle_condition_retrieval_tool(function_name, line_number)
         else:
+            error_message = f"Error: Unknown tool '{tool_name}'. Please check the available tools and try again."
+            logger.warning(error_message)
+            return error_message
+        '''
+        else:
             raise ValueError(f"Unknown function call: {tool_name}")
+        '''
         
         logger.info(f"Function call response:\n {tool_response}")
         return str(tool_response)
@@ -292,44 +301,48 @@ class AIAgent(ABC):
         return [
             {
                 "type": "function",
-                "name": "run_bash_command",
-                "description": "Run a command-line command to search the repo for relevant information, and return the output",
-                "strict": True,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "reason": {
-                            "type": "string",
-                            "description": "The reason for running the command"
+                "function": {  # <--- NESTING ADDED HERE
+                    "name": "run_bash_command",
+                    "description": "Run a command-line command to search the repo for relevant information, and return the output",
+                    "strict": True,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "reason": {
+                                "type": "string",
+                                "description": "The reason for running the command"
+                            },
+                            "cmd": {
+                                "type": "string",
+                                "description": "A bash command-line command to run"
+                            }
                         },
-                        "cmd": {
-                            "type": "string",
-                            "description": "A bash command-line command to run"
-                        }
-                    },
-                    "required": ["reason", "cmd"],
-                    "additionalProperties": False
+                        "required": ["reason", "cmd"],
+                        "additionalProperties": False
+                    }
                 }
             },
             {
                 "type": "function",
-                "name": "run_cscope_command",
-                "description": "Run a cscope command to search for type and function definitions, cross-references, and file paths.",
-                "strict": True,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "reason": {
-                            "type": "string",
-                            "description": "The reason for running the command"
+                "function": {  # <--- NESTING ADDED HERE
+                    "name": "run_cscope_command",
+                    "description": "Run a cscope command to search for type and function definitions, cross-references, and file paths.",
+                    "strict": True,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "reason": {
+                                "type": "string",
+                                "description": "The reason for running the command"
+                            },
+                            "command": {
+                                "type": "string",
+                                "description": "A cscope command to run"
+                            }
                         },
-                        "command": {
-                            "type": "string",
-                            "description": "A cscope command to run"
-                        }
-                    },
-                    "required": ["reason", "command"],
-                    "additionalProperties": False
+                        "required": ["reason", "command"],
+                        "additionalProperties": False
+                    }
                 }
             }
         ]
@@ -338,27 +351,29 @@ class AIAgent(ABC):
         coverage_tools = [
             {
                 "type": "function",
-                "name": "get_condition_satisfiability",
-                "description": "Retrieve the status and satisfiability of conditions present in a specific IF statement.",
-                "strict": True,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "reason": {
-                            "type": "string",
-                            "description": "The reason for executing this tool"
+                "function": {  # <--- NESTING ADDED HERE
+                    "name": "get_condition_satisfiability",
+                    "description": "Retrieve the status and satisfiability of conditions present in a specific IF statement.",
+                    "strict": True,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "reason": {
+                                "type": "string",
+                                "description": "The reason for executing this tool"
+                            },
+                            "function_name": {
+                                "type": "string",
+                                "description": "The name of the function containing the condition"
+                            },
+                            "line_number": {
+                                "type": "integer",
+                                "description": "The line number containing the condition in the source code"
+                            }
                         },
-                        "function_name": {
-                            "type": "string",
-                            "description": "The name of the function containing the condition"
-                        },
-                        "line_number": {
-                            "type": "integer",
-                            "description": "The line number containing the condition in the source code"
-                        }
-                    },
-                    "required": ["reason", "function_name", "line_number"],
-                    "additionalProperties": False
+                        "required": ["reason", "function_name", "line_number"],
+                        "additionalProperties": False
+                    }
                 }
             }
         ]
