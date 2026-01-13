@@ -152,7 +152,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
             return []
 
         configs = set()
-        pattern = r'^\s*#\s*ifdef\s+([A-Za-z_][A-Za-z0-9_]*)'
+        pattern = r'^\s*#\s*(?:ifdef|if)\s+(?:defined\s*\(\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\)?'
 
         for line in lines:
             match = re.match(pattern, line)

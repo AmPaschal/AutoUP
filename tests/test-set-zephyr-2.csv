@@ -1,0 +1,15 @@
+source_file,function_name
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/subsys/bluetooth/controller/ll_sw/ull_conn.c,ull_conn_update_parameters
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/subsys/bluetooth/host/gatt.c,gatt_find_info_rsp
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/subsys/fs/fuse_fs_access_bottom.c,is_mount_point
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/subsys/settings/src/settings_shell.c,cmd_write
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/drivers/ipm/ipm_imx.c,imx_mu_ipm_send
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/drivers/crypto/crypto_stm32.c,crypto_stm32_cbc_decrypt
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/subsys/bluetooth/controller/hci/hci.c,le_advertising_report
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/drivers/usb/device/usb_dc_native_posix.c,usb_dc_ep_write
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/subsys/usb/device/class/netusb/function_rndis.c,handle_encapsulated_rsp
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/subsys/bluetooth/audio/tbs.c,bt_tbs_remote_incoming
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/drivers/ieee802154/ieee802154_nrf5.c,nrf5_tx
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/subsys/fs/fuse_fs_access_bottom.c,fuse_fs_access_readdir
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/drivers/wifi/eswifi/eswifi_core.c,eswifi_mgmt_iface_status
+/home/pamusuo/research/cbmc-research/test-repos/zephyrproject/zephyr/drivers/wifi/eswifi/eswifi_shell.c,eswifi_shell_atcmd
