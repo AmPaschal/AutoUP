@@ -23,6 +23,7 @@ from commons.metric_summary import process_metrics
 from stub_generator.gen_function_stubs import StubGenerator
 from commons.models import Generable
 from validator.precondition_validator import PreconditionValidator
+from validator.violation_reviewer import ViolationReviewer
 
 
 # Global project container
@@ -36,7 +37,15 @@ def get_parser():
     )
     parser.add_argument(
         "mode",
-        choices=["harness", "debugger", "function-stubs", "coverage", "precondition", "all"],
+        choices=[
+            "harness",
+            "debugger",
+            "function-stubs",
+            "coverage",
+            "precondition",
+            "review",
+            "all",
+        ],
         help=(
             "Execution mode: "
             "'harness' to generate harness/makefile, "
@@ -46,7 +55,7 @@ def get_parser():
             "'coverage' to run coverage debugger, "
             "'precondition' to run precondition validator, or "
             "'all' to run all 'harness', 'debugger' and 'coverage' modes sequentially."
-        )
+        ),
     )
     parser.add_argument(
         "--target_function_name",
@@ -116,7 +125,11 @@ def process_mode(args):
             args=args,
             project_container=project_container
         ))
-        
+    if args.mode in ["review"]:
+        agents.append(ViolationReviewer(
+            args=args,
+            project_container=project_container
+        ))
 
     for agent in agents:
         result = agent.generate()
@@ -179,7 +192,7 @@ def main():
     except Exception as e:
         logger.error(f"Error initializing Project container: {e}")
         return
-    
+
     process_mode(args)
 
     if args.metrics_file:
