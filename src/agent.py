@@ -3,11 +3,11 @@ import os
 import time
 import subprocess
 from abc import ABC
-from typing import Any, Callable, Type
+from typing import Any, Callable, Optional, Type
 
 import tiktoken
 
-from commons.docker_tool import ProjectContainer
+from commons.project_container import ProjectContainer
 from logger import setup_logger
 from commons.utils import Status
 from commons.models import GPT, LiteLLM
@@ -241,7 +241,7 @@ class AIAgent(ABC):
         with open(self.metrics_file, 'a') as f:
             f.write(json.dumps(log_entry) + "\n")
 
-    def log_task_result(self, task_id, success: bool, total_attempts: int, data: dict|None = None):
+    def log_task_result(self, task_id, success: bool, total_attempts: int, data: Optional[dict] = None):
         if not self.metrics_file:
             return
         

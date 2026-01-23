@@ -145,13 +145,19 @@ class LiteLLM(LLM):
                         reasoning_effort="low",
                         tools=llm_tools,
                         temperature=1.0,
+                        api_base="http://localhost:11434",
+                        extra_body={
+                            "options": {
+                                "num_ctx": 131072
+                            }
+                        }
                     ),
                     [pydantic_core._pydantic_core.ValidationError]
                 )
             except Exception as e:
                 logger.error(f"Unexpected error from LLM: {e}")
                 return None, {}
-
+            logger.info(f"LLM raw response: {client_response}")
             # Update token usage
             if client_response.usage:
                 token_usage["input_tokens"] += client_response.usage.prompt_tokens
@@ -193,8 +199,12 @@ class LiteLLM(LLM):
                 })
                 print("Tool call id responded: ", item.id)
 
-        print(client_response.choices[0].message.content)
-        parsed_output =output_format.model_validate(json.loads(client_response.choices[0].message.content))
+        logger.info(client_response.choices[0].message.content)
+        try:
+            parsed_output =output_format.model_validate(json.loads(client_response.choices[0].message.content))
+        except Exception as e:
+            logger.error(f"Parsing LLM response failed.")
+            return None, {}
         parsed_output_dict = parsed_output.model_dump_json(indent=2) if parsed_output else {}
         logger.info(f"LLM Response:\n{parsed_output_dict}")
 

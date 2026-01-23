@@ -18,9 +18,11 @@ from coverage_debugger.coverage_debugger import CoverageDebugger
 from makefile.makefile_debugger import MakefileDebugger
 from initial_harness_generator.gen_harness import InitialHarnessGenerator
 from debugger.debugger import ProofDebugger
-from commons.docker_tool import ProjectContainer
+from commons.project_container import ProjectContainer
 from logger import init_logging, setup_logger
 from commons.metric_summary import process_metrics
+from commons.apptainer_tool import ApptainerProjectContainer
+from commons.docker_tool import DockerProjectContainer
 from stub_generator.gen_function_stubs import StubGenerator
 from commons.models import Generable
 from validator.precondition_validator import PreconditionValidator
@@ -35,7 +37,7 @@ project_container: Optional[ProjectContainer] = None
 def get_parser():
     """ Create parser for CLI options """
     parser = argparse.ArgumentParser(
-        description="Tool for harness generation and proof debugging using DockerExecutor."
+        description="Tool for harness generation and proof debugging."
     )
     parser.add_argument(
         "mode",
@@ -80,9 +82,15 @@ def get_parser():
         help="Path where metrics file should be saved."
     )
     parser.add_argument(
+        "--container_engine",
+        choices=["docker", "apptainer"],
+        default="docker",
+        help="Container engine to use (default: docker).",
+    )
+    parser.add_argument(
         "--llm_model",
         default="gpt-5",
-        help="LLM model to use (default: gpt-5)"
+        help="LLM model to use (default: gpt-5)",
     )
     return parser.parse_args()
 
@@ -187,12 +195,18 @@ def main():
         # so the agent can try initializing it anyway.
         logger.warning(f"Could not validate environment for {args.llm_model}: {e}")
 
-    container_name = f"autoup_{uuid.uuid4().hex[:8]}"
-    project_container = ProjectContainer(
-        dockerfile_path="docker/tools.Dockerfile",
-        host_dir=args.root_dir,
-        container_name=container_name
-    )
+    if args.container_engine == "apptainer":
+        project_container = ApptainerProjectContainer(
+            apptainer_def_path="container/tools.def",
+            host_dir=args.root_dir
+        )
+    else:
+        container_name = f"autoup_{uuid.uuid4().hex[:8]}"
+        project_container = DockerProjectContainer(
+            dockerfile_path="container/tools.Dockerfile",
+            host_dir=args.root_dir,
+            container_name=container_name
+        )
     try:
         project_container.initialize()
     except Exception as e:
