@@ -1,0 +1,8 @@
+Precondition: {PRECONDITION}
+Target Function: {TARGET}
+Source File: {SOURCE}
+
+From the previous engineer:
+Untrusted Input Source: {INPUT_SOURCE}
+Reasoning: {REASONING}
+Analysis: {ANALYSIS}

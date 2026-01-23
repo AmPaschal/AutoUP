@@ -53,6 +53,7 @@ python src/run.py
 | `coverage` | Executes coverage debugger to fix coverage gaps. |
 | `debugger` | Executes proof erro debugger to generate preconditions fixing CBMC errors. |
 | `all` | Runs `harness`, `function-stubs`, `coverage`, and `debugger` sequentially. |
+| `review` | Runs the violation reviewer workflow, which is seperate from all other workflows. See notes below.
 
 ---
 
@@ -83,3 +84,31 @@ To automatically fix coverage gaps or generate preconditions fixing errors, repl
 To run all the agents sequentially, use the `all` mode.
 
 ---
+
+# Violation Reviewer Mode
+
+This is a seperate workflow that uses the AutoUP framework to assess preconditions that have been marked as VIOLATED_BUGGY by the PreconditionValidator module, which indicates a bug can potentially be triggered if the precondition is violated. To run this workflow, all of the standard input args are still needed, although only `root_dir` and `harness_path` are actually used:
+
+```bash
+python src/run.py review
+--target_function_name <Not used>
+--root_dir <project_root>
+--harness_path <harnesses_dir>
+--target_file_path <Not used>
+--log_file <log_file_name>
+--metrics_file <Bugged, don't use>
+```
+
+Note for this mode, `harness_path` has a different usage than before. It should now point to a directory containing multiple harness subdirs, each containing a harness and a `validation_result.json` file.
+
+Ex.
+```bash
+python3 src/run.py review
+--target_function_name None
+--root_dir /home/tlelievr/RIOT
+--harness_path /home/tlelievr/RIOT/exp-0103
+--target_file_path  None
+--log_file logfile.txt
+```
+
+This workflow will generate a report called violation_assessments.json, which contains an analysis and severity assessment of every VIOLATED_BUGGY precondition reported.

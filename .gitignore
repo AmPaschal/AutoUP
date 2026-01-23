@@ -11,3 +11,4 @@ logs/
 reports/
 metrics/
 output.log
+violation_assessments.json
