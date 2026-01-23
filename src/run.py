@@ -8,6 +8,7 @@ import argparse
 import signal
 import uuid
 import os
+import time
 
 # Utils
 from dotenv import load_dotenv
@@ -116,10 +117,18 @@ def process_mode(args):
             args=args,
             project_container=project_container
         ))
-        
 
     for agent in agents:
+        start_time = time.perf_counter()
         result = agent.generate()
+        elapsed_time = time.perf_counter() - start_time
+        if args.metrics_file:
+            with open(args.metrics_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "agent_name": agent.__class__.__name__,
+                    "elapsed_time": elapsed_time
+                }))
+                f.write("\n")
         if not result:
             logger.error("Agent '%s' failed. Aborting.", str(agent))
             return
