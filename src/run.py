@@ -25,6 +25,8 @@ from stub_generator.gen_function_stubs import StubGenerator
 from commons.models import Generable
 from validator.precondition_validator import PreconditionValidator
 
+# LLM Support utils
+from litellm import validate_environment
 
 # Global project container
 project_container: Optional[ProjectContainer] = None
@@ -173,9 +175,17 @@ def main():
     init_logging(args.log_file)
     logger = setup_logger(__name__)
 
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    if openai_api_key is None:
-        raise EnvironmentError("No OpenAI API key found")
+    
+    try:
+        # validate_environment returns dict like: {'keys_in_environment': True, 'missing_keys': []}
+        validation = validate_environment(args.llm_model)
+        if not validation['keys_in_environment']:
+            missing = validation['missing_keys']
+            raise EnvironmentError(f"Missing API key for model '{args.llm_model}'. Please set: {missing}")
+    except Exception as e:
+        # Fallback if validation fails (e.g. unknown model), but allow execution to proceed 
+        # so the agent can try initializing it anyway.
+        logger.warning(f"Could not validate environment for {args.llm_model}: {e}")
 
     container_name = f"autoup_{uuid.uuid4().hex[:8]}"
     project_container = ProjectContainer(
