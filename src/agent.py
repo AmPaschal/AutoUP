@@ -64,7 +64,7 @@ class AIAgent(ABC):
             if result[1] == "openai":
                 self.llm = GPT(name=args.llm_model, max_input_tokens=270000)
             else:
-                self.llm = GPT(name=args.llm_model, max_input_tokens=270000, url="http://localhost:11434/v1")
+                self.llm = GPT(name=args.llm_model[0], max_input_tokens=270000, url="http://localhost:11434/v1")
         except Exception as e:
             logger.error(f"Error. Model '{args.llm_model}' not supported: {e}")
             raise e
