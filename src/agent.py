@@ -6,6 +6,8 @@ from abc import ABC
 from typing import Any, Callable, Optional, Type
 
 import tiktoken
+from pydantic import BaseModel, Field
+from openai import pydantic_function_tool
 
 from commons.project_container import ProjectContainer
 from logger import setup_logger
@@ -15,6 +17,26 @@ from commons.models import GPT, LiteLLM
 from litellm import get_llm_provider
 
 logger = setup_logger(__name__)
+
+class RunBashCommandInput(BaseModel):
+    reason: str = Field(..., description="The reason for running the command")
+    cmd: str = Field(..., description="A bash command-line command to run")
+
+
+class RunCscopeCommandInput(BaseModel):
+    reason: str = Field(..., description="The reason for running the command")
+    command: str = Field(..., description="A cscope command to run")
+
+
+class ConditionSatisfiabilityInput(BaseModel):
+    reason: str = Field(..., description="The reason for executing this tool")
+    function_name: str = Field(
+        ..., description="The name of the function containing the condition"
+    )
+    line_number: int = Field(
+        ..., description="The line number containing the condition in the source code"
+    )
+
 
 class AIAgent(ABC):
     """
@@ -302,83 +324,34 @@ class AIAgent(ABC):
 
     def get_tools(self):
         return [
-            {
-                "type": "function",
-                "function": {  # <--- NESTING ADDED HERE
-                    "name": "run_bash_command",
-                    "description": "Run a command-line command to search the repo for relevant information, and return the output",
-                    "strict": True,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "reason": {
-                                "type": "string",
-                                "description": "The reason for running the command"
-                            },
-                            "cmd": {
-                                "type": "string",
-                                "description": "A bash command-line command to run"
-                            }
-                        },
-                        "required": ["reason", "cmd"],
-                        "additionalProperties": False
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {  # <--- NESTING ADDED HERE
-                    "name": "run_cscope_command",
-                    "description": "Run a cscope command to search for type and function definitions, cross-references, and file paths.",
-                    "strict": True,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "reason": {
-                                "type": "string",
-                                "description": "The reason for running the command"
-                            },
-                            "command": {
-                                "type": "string",
-                                "description": "A cscope command to run"
-                            }
-                        },
-                        "required": ["reason", "command"],
-                        "additionalProperties": False
-                    }
-                }
-            }
+            pydantic_function_tool(
+                RunBashCommandInput,
+                name="run_bash_command",
+                description=(
+                    "Run a command-line command to search the repo for relevant information, "
+                    "and return the output"
+                ),
+            ),
+            pydantic_function_tool(
+                RunCscopeCommandInput,
+                name="run_cscope_command",
+                description=(
+                    "Run a cscope command to search for type and function definitions, "
+                    "cross-references, and file paths."
+                ),
+            ),
         ]
 
     def get_coverage_tools(self):
         coverage_tools = [
-            {
-                "type": "function",
-                "function": {  # <--- NESTING ADDED HERE
-                    "name": "get_condition_satisfiability",
-                    "description": "Retrieve the status and satisfiability of conditions present in a specific IF statement.",
-                    "strict": True,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "reason": {
-                                "type": "string",
-                                "description": "The reason for executing this tool"
-                            },
-                            "function_name": {
-                                "type": "string",
-                                "description": "The name of the function containing the condition"
-                            },
-                            "line_number": {
-                                "type": "integer",
-                                "description": "The line number containing the condition in the source code"
-                            }
-                        },
-                        "required": ["reason", "function_name", "line_number"],
-                        "additionalProperties": False
-                    }
-                }
-            }
+            pydantic_function_tool(
+                ConditionSatisfiabilityInput,
+                name="get_condition_satisfiability",
+                description=(
+                    "Retrieve the status and satisfiability of conditions present in a "
+                    "specific IF statement."
+                ),
+            )
         ]
 
         return [*self.get_tools(), *coverage_tools]
