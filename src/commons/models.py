@@ -2,13 +2,16 @@ from abc import ABC, abstractmethod
 import os
 from pydantic import BaseModel
 import pydantic_core
+import tiktoken
+import json
 import openai
 import random
 import time
 import traceback
 from typing import Any, Callable, Optional, Type
-from openai.lib._pydantic import to_strict_json_schema
+from openai.types.responses.parsed_response import ParsedResponse
 import litellm
+from litellm import ModelResponse
 
 from logger import setup_logger
 
@@ -90,14 +93,11 @@ class LLM(ABC):
                 self._delay_for_retry(attempt_count=attempt)
         return None
 
-class GPT(LLM):
+class LiteLLM(LLM):
+    """LLM implementation using LiteLLM"""
 
-    def __init__(self, name: str, max_input_tokens: int, url: Optional[str] = None):
+    def __init__(self, name: str, max_input_tokens: int):
         super().__init__(name, max_input_tokens)
-        openai_api_key = os.getenv("OPENAI_API_KEY", None)
-        if not openai_api_key:
-            raise EnvironmentError("No OpenAI API key found")
-        self.client = openai.OpenAI(api_key=openai_api_key, base_url=url)
 
     def chat_llm(
         self,
@@ -108,22 +108,9 @@ class GPT(LLM):
         call_function: Optional[Callable] = None,
         conversation_history: Optional[list] = None
     ):
-        def build_response_format() -> dict:
-            return {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": output_format.__name__,
-                    "schema": to_strict_json_schema(output_format),
-                    "strict": True,
-                },
-            }
 
-        def parse_output(content: Optional[str]) -> Optional[BaseModel]:
-            if not content:
-                return None
-            if hasattr(output_format, "model_validate_json"):
-                return output_format.model_validate_json(content)
-            return output_format.parse_raw(content)
+        #ENABLE PARAMETER DROPPING
+        litellm.drop_params = True
 
         # Start with the initial user input
         new_message = {'role': 'user', 'content': input_messages}
@@ -138,7 +125,6 @@ class GPT(LLM):
         input_list = list(conversation_history)
 
         function_calls_count = 0
-        parsed_output: BaseModel | None = None
         token_usage = {
             "input_tokens": 0,
             "cached_tokens": 0,
@@ -150,13 +136,135 @@ class GPT(LLM):
         while True:
             # Call the model
             try:
-                messages = [{"role": "system", "content": system_messages}, *input_list]
-                client_response = self.with_retry_on_error(
-                    lambda: self.client.chat.completions.create(
+                client_response: ModelResponse = self.with_retry_on_error(
+                    lambda: litellm.completion(
                         model=self.name,
-                        messages=messages,
-                        response_format=build_response_format(),
+                        messages=[{"role": "system", "content": system_messages}] + input_list,
+                        response_format=output_format,
                         tool_choice="auto",
+                        reasoning_effort="low",
+                        tools=llm_tools,
+                        temperature=1.0,
+                        api_base="http://localhost:11434",
+                        extra_body={
+                            "options": {
+                                "num_ctx": 131072
+                            }
+                        }
+                    ),
+                    [pydantic_core._pydantic_core.ValidationError]
+                )
+            except Exception as e:
+                logger.error(f"Unexpected error from LLM: {e}")
+                return None, {}
+            logger.info(f"LLM raw response: {client_response}")
+            # Update token usage
+            if client_response.usage:
+                token_usage["input_tokens"] += client_response.usage.prompt_tokens
+                
+                # Safe check for cached tokens (input)
+                if hasattr(client_response.usage, "prompt_tokens_details") and client_response.usage.prompt_tokens_details:
+                    token_usage["cached_tokens"] += getattr(client_response.usage.prompt_tokens_details, "cached_tokens", 0)
+
+                token_usage["output_tokens"] += client_response.usage.completion_tokens
+                
+                # Safe check for reasoning tokens (output)
+                if hasattr(client_response.usage, "completion_tokens_details") and client_response.usage.completion_tokens_details:
+                    token_usage["reasoning_tokens"] += getattr(client_response.usage.completion_tokens_details, "reasoning_tokens", 0)
+
+                token_usage["total_tokens"] += client_response.usage.total_tokens
+
+            # Find function calls
+            function_calls = client_response.choices[0].message["tool_calls"] or []
+        
+            if not function_calls:
+                # No function calls left → we’re done
+                break
+            
+            # Append the Assistant's message (containing the tool calls) ONCE
+            input_list.append(client_response.choices[0].message)
+
+            # Handle each function call and add results back to input_list
+            for item in function_calls:
+                print("Functions to call: ", item.id)
+                if call_function is None:
+                    raise ValueError("call_function must be provided when tools are used.")
+                function_result = call_function(item.function.name, item.function.arguments)
+                function_calls_count += 1
+                
+                input_list.append({
+                    "role": "tool",
+                    "tool_call_id": item.id,
+                    "content": function_result,
+                })
+                print("Tool call id responded: ", item.id)
+
+        logger.info(client_response.choices[0].message.content)
+        try:
+            parsed_output =output_format.model_validate(json.loads(client_response.choices[0].message.content))
+        except Exception as e:
+            logger.error(f"Parsing LLM response failed.")
+            return None, {}
+        parsed_output_dict = parsed_output.model_dump_json(indent=2) if parsed_output else {}
+        logger.info(f"LLM Response:\n{parsed_output_dict}")
+
+        conversation_history.append({'role': 'assistant', 'content': str(parsed_output)})
+
+        return parsed_output, {
+            "function_call_count": function_calls_count,
+            "token_usage": token_usage
+        }
+
+class GPT(LLM):
+
+    def __init__(self, name: str, max_input_tokens: int):
+        super().__init__(name, max_input_tokens)
+        openai_api_key = os.getenv("OPENAI_API_KEY", None)
+        if not openai_api_key:
+            raise EnvironmentError("No OpenAI API key found")
+        self.client = openai.OpenAI(api_key=openai_api_key)
+
+    def chat_llm(
+        self,
+        system_messages: str,
+        input_messages: str,
+        output_format: Type[BaseModel],
+        llm_tools: list = [],
+        call_function: Optional[Callable] = None,
+        conversation_history: Optional[list] = None
+    ):
+        # Start with the initial user input
+        new_message = {'role': 'user', 'content': input_messages}
+
+        logger.info(f"LLM Prompt:\n{input_messages}")
+
+        if conversation_history is None:
+            conversation_history = []
+
+        conversation_history.append(new_message)
+
+        input_list = list(conversation_history) 
+
+        function_calls_count = 0
+        token_usage = {
+            "input_tokens": 0,
+            "cached_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "total_tokens": 0
+        }
+
+        while True:
+            # Call the model
+            try:
+                client_response: ParsedResponse = self.with_retry_on_error(
+                    lambda: self.client.responses.parse(
+                        model=self.name,
+                        instructions=system_messages,
+                        input=input_list,
+                        text_format=output_format,
+                        tool_choice="auto",
+                        reasoning={"effort": "low"},
                         tools=llm_tools,
                         temperature=1.0,
                     ),
@@ -171,60 +279,42 @@ class GPT(LLM):
 
             # Update token usage
             if client_response.usage:
-                token_usage["input_tokens"] += client_response.usage.prompt_tokens
-                cached_tokens = (
-                    client_response.usage.prompt_tokens_details.cached_tokens
-                    if client_response.usage.prompt_tokens_details
-                    else 0
-                )
-                token_usage["cached_tokens"] += cached_tokens or 0
-                token_usage["output_tokens"] += client_response.usage.completion_tokens
-                reasoning_tokens = (
-                    client_response.usage.completion_tokens_details.reasoning_tokens
-                    if client_response.usage.completion_tokens_details
-                    else 0
-                )
-                token_usage["reasoning_tokens"] += reasoning_tokens or 0
+                token_usage["input_tokens"] += client_response.usage.input_tokens
+                token_usage["cached_tokens"] += client_response.usage.input_tokens_details.cached_tokens
+                token_usage["output_tokens"] += client_response.usage.output_tokens
+                token_usage["reasoning_tokens"] += client_response.usage.output_tokens_details.reasoning_tokens
                 token_usage["total_tokens"] += client_response.usage.total_tokens
 
-            message = client_response.choices[0].message
-            tool_calls = message.tool_calls or []
+            # Add model outputs to conversation state
+            # This is a workaround for the issue https://github.com/openai/openai-python/issues/2374
+            for item in client_response.output:
+                if item.type == "function_call":
+                    mapping = dict(item)
+                    del mapping['parsed_arguments']
+                    input_list.append(mapping)
+                else:
+                    input_list.append(item)
 
-            if not tool_calls:
+            # Find function calls
+            function_calls = [item for item in client_response.output if item.type == "function_call"]
+
+            if not function_calls:  
                 # No function calls left → we’re done
-                parsed_output = parse_output(message.content)
                 break
 
             # Handle each function call and add results back to input_list
-            input_list.append({
-                "role": "assistant",
-                "content": message.content,
-                "tool_calls": [
-                    {
-                        "id": tool_call.id,
-                        "type": tool_call.type,
-                        "function": {
-                            "name": tool_call.function.name,
-                            "arguments": tool_call.function.arguments,
-                        },
-                    }
-                    for tool_call in tool_calls
-                ],
-            })
-            for tool_call in tool_calls:
+            for item in function_calls:
                 if call_function is None:
                     raise ValueError("call_function must be provided when tools are used.")
-                function_result = call_function(
-                    tool_call.function.name,
-                    tool_call.function.arguments,
-                )
+                function_result = call_function(item.name, item.arguments)
                 function_calls_count += 1
                 input_list.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": function_result,
+                    "type": "function_call_output",
+                    "call_id": item.call_id,
+                    "output": function_result,
                 })
 
+        parsed_output: BaseModel|None = client_response.output_parsed
         parsed_output_dict = parsed_output.model_dump_json(indent=2) if parsed_output else {}
         logger.info(f"LLM Response:\n{parsed_output_dict}")
 

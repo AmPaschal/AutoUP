@@ -12,7 +12,7 @@ from openai import pydantic_function_tool
 from commons.project_container import ProjectContainer
 from logger import setup_logger
 from commons.utils import Status
-from commons.models import GPT
+from commons.models import GPT, LiteLLM
 
 from litellm import get_llm_provider
 
@@ -60,11 +60,12 @@ class AIAgent(ABC):
 
         try:
             result = get_llm_provider(args.llm_model)
-            logger.info(f"Using model '{args.llm_model}' with OpenAI specification")
             if result[1] == "openai":
+                logger.info(f"Using model '{args.llm_model}' with OpenAI specification")
                 self.llm = GPT(name=args.llm_model, max_input_tokens=270000)
             else:
-                self.llm = GPT(name=result[0], max_input_tokens=270000, url="http://localhost:11434/v1")
+                logger.info(f"Using model '{args.llm_model}' with Litellm wrapper.")
+                self.llm = LiteLLM(name=args.llm_model, max_input_tokens=270000)
         except Exception as e:
             logger.error(f"Error. Model '{args.llm_model}' not supported: {e}")
             raise e
