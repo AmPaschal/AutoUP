@@ -20,24 +20,26 @@ H_DEF = -DCONFIG_BT_CTLR_SUBVERSION_NUMBER=0xFFFF -DCONFIG_BT_BUF_ACL_TX_COUNT=1
 
 # LLM should add more to this
 H_INC = \
-	-I$(ROOT)/build/zephyr/include/generated \
-	-I$(ROOT)/build/zephyr/include/generated/zephyr \
-	-I$(ROOT)/include \
-	-I$(ROOT)/soc/native/inf_clock \
-	-I$(ROOT)/boards/native/native_sim \
-	-I$(ROOT)/lib/midi2/. \
-	-I$(ROOT)/scripts/native_simulator/common/src/include \
-	-I$(ROOT)/scripts/native_simulator/native/src/include \
-	-isystem $(ROOT)/lib/libc/minimal/include \
-	-imacros $(ROOT)/build/zephyr/include/generated/zephyr/autoconf.h \
-	-I$(ROOT)/subsys/bluetooth \
-	-I$(ROOT)/subsys/bluetooth/controller/include \
-	-I$(ROOT)/subsys/bluetooth/shell \
-	-I$(ROOT)/subsys/bluetooth/controller/ll_sw \
-	-I$(ROOT)/subsys/bluetooth/controller/ll_sw/nordic \
-	-I$(ROOT)/subsys/bluetooth/controller \
-	-I$(ROOT)/modules/cmsis \
-	-I$(ROOT)/boards/native/common/irq \
+	-I$(ROOT) \
+	-I$(ROOT)/zephyr \
+	-I$(ROOT)/zephyr/build/zephyr/include/generated \
+	-I$(ROOT)/zephyr/build/zephyr/include/generated/zephyr \
+	-I$(ROOT)/zephyr/include \
+	-I$(ROOT)/zephyr/soc/native/inf_clock \
+	-I$(ROOT)/zephyr/boards/native/native_sim \
+	-I$(ROOT)/zephyr/lib/midi2/. \
+	-I$(ROOT)/zephyr/scripts/native_simulator/common/src/include \
+	-I$(ROOT)/zephyr/scripts/native_simulator/native/src/include \
+	-imacros $(ROOT)/zephyr/build/zephyr/include/generated/zephyr/devicetree_generated.h \
+	-imacros $(ROOT)/zephyr/build/zephyr/include/generated/zephyr/autoconf.h \
+	-I$(ROOT)/zephyr/subsys/bluetooth \
+	-I$(ROOT)/zephyr/subsys/bluetooth/controller/include \
+	-I$(ROOT)/zephyr/subsys/bluetooth/shell \
+	-I$(ROOT)/zephyr/subsys/bluetooth/controller/ll_sw \
+	-I$(ROOT)/zephyr/subsys/bluetooth/controller/ll_sw/nordic \
+	-I$(ROOT)/zephyr/subsys/bluetooth/controller \
+	-I$(ROOT)/zephyr/modules/cmsis \
+	-I$(ROOT)/zephyr/boards/native/common/irq \
 
 
 # Include our special build file
