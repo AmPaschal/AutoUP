@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import os
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import pydantic_core
 import tiktoken
 import json
@@ -8,7 +8,8 @@ import openai
 import random
 import time
 import traceback
-from typing import Any, Callable, Optional, Type
+import hashlib
+from typing import Any, Callable, Optional, Type, List, Dict
 from openai.types.responses.parsed_response import ParsedResponse
 import litellm
 from litellm import ModelResponse
@@ -93,6 +94,24 @@ class LLM(ABC):
                 self._delay_for_retry(attempt_count=attempt)
         return None
 
+class RunBashCommand(BaseModel):
+    reason: str = Field(..., description="The reason for running the command")
+    cmd: str = Field(..., description="A bash command-line command to run")
+
+
+def pydantic_to_openai_tool(model: type[BaseModel], *, name: str, description: str) -> Dict[str, Any]:
+    schema = model.model_json_schema()
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": schema,
+        },
+    }
+    
+
+
 class LiteLLM(LLM):
     """LLM implementation using LiteLLM"""
 
@@ -109,9 +128,17 @@ class LiteLLM(LLM):
         conversation_history: Optional[list] = None
     ):
 
-        #ENABLE PARAMETER DROPPING
-        litellm.drop_params = True
-
+        litellm.api_base = "http://localhost:11434"
+        litellm.api_key = "ollama"
+        
+        tools = [
+            pydantic_to_openai_tool(
+                RunBashCommand,
+                name="run_bash_command",
+                description="Run a bash command and return the output",
+            )
+        ]
+        
         # Start with the initial user input
         new_message = {'role': 'user', 'content': input_messages}
 
@@ -143,14 +170,8 @@ class LiteLLM(LLM):
                         response_format=output_format,
                         tool_choice="auto",
                         reasoning_effort="low",
-                        tools=llm_tools,
+                        tools=tools,
                         temperature=1.0,
-                        api_base="http://localhost:11434",
-                        extra_body={
-                            "options": {
-                                "num_ctx": 131072
-                            }
-                        }
                     ),
                     [pydantic_core._pydantic_core.ValidationError]
                 )
@@ -175,31 +196,37 @@ class LiteLLM(LLM):
                 token_usage["total_tokens"] += client_response.usage.total_tokens
 
             # Find function calls
-            function_calls = client_response.choices[0].message["tool_calls"] or []
-        
+            msg = client_response["choices"][0]["message"]
+            function_calls = _extract_tool_calls(msg)
+            #function_calls = client_response.choices[0].message["tool_calls"] or []
+            logger.info(function_calls)
             if not function_calls:
                 # No function calls left → we’re done
                 break
             
             # Append the Assistant's message (containing the tool calls) ONCE
-            input_list.append(client_response.choices[0].message)
+            input_list.append(msg)
+            logger.info(msg)    
 
             # Handle each function call and add results back to input_list
             for item in function_calls:
-                print("Functions to call: ", item.id)
+                logger.info("Functions to call: ", item.id)
                 if call_function is None:
                     raise ValueError("call_function must be provided when tools are used.")
-                function_result = call_function(item.function.name, item.function.arguments)
+                name = item.get("name") or ""
+                args_str = item.get("arguments") or "{}"
+                args = json.loads(args_str)
+                function_result = call_function(name, args)
                 function_calls_count += 1
                 
                 input_list.append({
                     "role": "tool",
                     "tool_call_id": item.id,
+                    "name": name,
                     "content": function_result,
                 })
-                print("Tool call id responded: ", item.id)
+                logger.info("Tool call id responded: ", item.id)
 
-        logger.info(client_response.choices[0].message.content)
         try:
             parsed_output =output_format.model_validate(json.loads(client_response.choices[0].message.content))
         except Exception as e:
