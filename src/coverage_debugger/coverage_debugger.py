@@ -320,22 +320,27 @@ class CoverageDebugger(AIAgent, Generable):
                 "The target function is no longer reached by the updated harness and was reverted.\n"
                 "Please fix so target function is reached.\n"
             )
+            if attempts > 0:
+                user_prompt += "Please carefully review why the latest update to the harness or Makefile did not work. In your analysis, explain why the previous adjustments failed, identify the resulting coverage gaps, and propose a refined solution, justifying why the new adjustments you recommend will work.\n"
             return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "function_unreachable")
 
         # ✅ CASE — Success: block covered!
         if coverage_status.get(target_block_line) != "missed":
             # First, we validate the fix by checking that the overall coverage also increased
             new_coverage = self.get_overall_coverage()
-            if new_coverage.get("hit", 0.0) <= current_coverage.get("hit", 0.0):
+            if (new_coverage.get("hit", 0.0) <= current_coverage.get("hit", 0.0) or 
+                new_coverage.get("total", 0.0) <= current_coverage.get("total", 0.0)):
                 logger.info(
                     "[INFO] Target block covered but overall coverage decreased."
                 )
                 user_prompt = (
-                    "The proposed modification covered the target block but decreased the overall coverage.\n"
+                    "The proposed modification covered the target block but decreased the overall coverage or the overall reachable code.\n"
                     "Your changes have been reverted." 
                     "Investigate and determine why the change led to decreased coverage.\n"
                     "If it cannot be avoided, do not propose any modification."
                 )
+                if attempts > 0:
+                    user_prompt += "Please carefully review why the latest update to the harness or Makefile did not work. In your analysis, explain why the previous adjustments failed, identify the resulting coverage gaps, and propose a refined solution, justifying why the new adjustments you recommend will work.\n"
                 return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "overall_coverage_decreased")
 
             # Else, the fix is valid and should be accepted
@@ -358,6 +363,8 @@ class CoverageDebugger(AIAgent, Generable):
             f"{json.dumps(coverage_status, indent=2)}\n"
             "Your proposed changes have been reverted. Please update harness or Makefile to cover the target block line.\n"
         )
+        if attempts > 0:
+            user_prompt += "Please carefully review why the latest update to the harness or Makefile did not work. In your analysis, explain why the previous adjustments failed, identify the resulting coverage gaps, and propose a refined solution, justifying why the new adjustments you recommend will work.\n"
         return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "block_not_covered")
 
     def generate(self) -> bool:

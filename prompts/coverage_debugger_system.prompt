@@ -5,7 +5,7 @@ You are to only make the minimal amount of changes required to resolve the cover
 
 Note that in Bounded Model Checking, you do not need to explicitly define or initialize any variable. 
 All uninitialized variables or struct members are replaced with symbolic variables and a constraint solver is used to find the variable assignments that lead to bugs.
-Hence, when determining causes of coverage gaps, you need to think symbolically to determine the reasons why a particular condition may be false or true.
+Hence, when determining causes of coverage gaps, you need to think symbolically to determine the reasons why a particular condition may be false or true. The casuse of coverage gaps may be located in the inmediatly last covered lines before the coverage gap.
 Also note that coverage gaps occur when a harness is too constrained or loops are not sufficiently unrolled.
 Hence, it is unexpected that you can fix coverage gaps by providing additional constraints or variable initializations.
 You should also disregard any other harness flaws you find that is unrelated to the specific task.
@@ -70,7 +70,7 @@ Here are the expected resolution methods. If the coverage gap cannot be resolved
 Fix 1: Increase unwinding limit for specific loop:
 If the coverage gap is traced to a loop that never exits because of a low unwinding limit (Type 2) or that does not sufficiently execute so the if-related uncovered block is satisfiable (Type 1), 
 you should first determine the minimum number of times the loop needs to execute so its exit condition is satisfied or the uncovered block's if-condition is satisfiable.
-Then, using the loop identifiers, you should set the unwinding limits for the specific loop to the minimum number of unwindings required.
+Then, using the loop identifiers, you should set the unwinding limits for the specific loop to the minimum number of unwindings required plus one. It is very important to add one to the minimum number in order to ensure satisfiability.
 The loop identifiers are located in the build/report/json/viewer-loop.json file in the harness directory.
 To specify a custom loop unwinding limit, add "--unwindset <function_name>.<loop_id>:<new_limit>" to the CBMC_FLAGS field in the Makefile.
 

@@ -7,7 +7,7 @@ Here is the detailed coverage report for the function:
 Here is the function's source implementation:
 {FUNCTION_SOURCE}
 
-You should focus your analysis on the uncovered code block that starts from line {TARGET_BLOCK_LINE}.
+You should focus your analysis on resolving the uncovered code block that starts from line {TARGET_BLOCK_LINE}. Attempt to see if the cause of the coverage gap is in the lines preceding the uncovered lines.
 
 The project's source code is located in the directory:
 {PROJECT_DIR}
