@@ -121,6 +121,52 @@ def find_function_calls(cursor, entry_point_name):
 
     return results
 
+def analyze_file(file_path, entry_point, extra_args=[]):
+    index = clang.cindex.Index.create()
+    
+    # We don't have compilation flags, so we rely on heuristic parsing.
+    # might need to add some basic includes or defines if parsing fails badly.
+    try:
+        tu = index.parse(file_path, args=extra_args)
+    except Exception as e:
+        print(f"Error parsing file: {e}", file=sys.stderr)
+        return []
+        
+    if not tu:
+         print("Error: Failed to create TranslationUnit", file=sys.stderr)
+         return []
+
+    results = find_function_calls(tu.cursor, entry_point)
+    
+    # Post-process to add call_id
+    # Sort results by containing_function to count order
+    # Note: results are generally in traversal order.
+    
+    # We need to group by containing_function and assign incremental IDs
+    # Map: function_name -> count
+    func_counters = {}
+    
+    final_output = []
+    for r in results:
+        func_name = r["containing_function"]
+        if func_name not in func_counters:
+            func_counters[func_name] = 0
+        func_counters[func_name] += 1
+        
+        order_num = func_counters[func_name]
+        call_id = f"{func_name}.function_pointer_call.{order_num}"
+        
+        final_output.append({
+            "function_name": r["containing_function"],
+            "line_number": r["line"],
+            "line_content": r["line_content"],
+            "call_sequence": r["path"],
+            "call_id": call_id,
+            "callee_name": r["callee_name"]
+        })
+        
+    return final_output
+
 def main():
     if len(sys.argv) < 3:
         print("Usage: python3 find-function-pointers.py <file_path> <entry_point> [clang_args...]")
@@ -130,36 +176,9 @@ def main():
     entry_point = sys.argv[2]
     extra_args = sys.argv[3:]
 
-    index = clang.cindex.Index.create()
-    
-    # We don't have compilation flags, so we rely on heuristic parsing.
-    # might need to add some basic includes or defines if parsing fails badly.
-    try:
-        tu = index.parse(file_path, args=extra_args)
-    except Exception as e:
-        print(f"Error parsing file: {e}", file=sys.stderr)
-        sys.exit(1)
-        
-    if not tu:
-         print("Error: Failed to create TranslationUnit", file=sys.stderr)
-         sys.exit(1)
+    results = analyze_file(file_path, entry_point, extra_args)
 
-    results = find_function_calls(tu.cursor, entry_point)
-    
-    # Clean up output to match requirements exactly
-    # Requirement: "each json entry contains the function name and line number of the function pointer call, and the call sequences (a -> b ->c)"
-    # My result has "function" (name of called ptr var?), "line", "path".
-    
-    final_output = []
-    for r in results:
-        final_output.append({
-            "function_name": r["containing_function"],
-            "line_number": r["line"],
-            "line_content": r["line_content"],
-            "call_sequence": r["path"]
-        })
-
-    print(json.dumps(final_output, indent=2))
+    print(json.dumps(results, indent=2))
 
 if __name__ == "__main__":
     main()

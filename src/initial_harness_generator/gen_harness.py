@@ -125,6 +125,19 @@ class InitialHarnessGenerator(AIAgent, Generable):
             return
         logger.info(f'Copied Makefile.include to {dest_path}')
 
+        # Copy general-stubs.c to harness parent directory
+        src_stubs_path = os.path.join('makefiles', 'general-stubs.c')
+        dest_stubs_path = os.path.join(os.path.dirname(self.harness_dir), 'general-stubs.c')
+        if os.path.exists(dest_stubs_path):
+            logger.info(f'general-stubs.c already exists at {dest_stubs_path}, skipping copy.')
+            return
+        copy_cmd = f"cp {src_stubs_path} {dest_stubs_path}"
+        copy_results = self.project_container.execute(copy_cmd, workdir='/')
+        if copy_results.get('exit_code', -1) != 0:
+            logger.error(f'Failed to copy general-stubs.c: {copy_results.get("stderr", "")}')
+            return
+        logger.info(f'Copied general-stubs.c to {dest_stubs_path}')
+
     def setup_initial_makefile(self, initial_configs):
 
         harness_relative_root = self.get_backward_path(self.root_dir, self.harness_dir)
@@ -181,7 +194,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
             attempts += 1
             llm_response, llm_data = self.llm.chat_llm(system_prompt, user_prompt, HarnessResponse, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
 
-            if not llm_response:
+            if not llm_response or not isinstance(llm_response, HarnessResponse):
                 self.log_task_attempt("harness_generation", attempts, llm_data, "invalid_response")
                 user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n" 
             else:

@@ -10,6 +10,9 @@ H_ENTRY = {H_ENTRY}
 # Extra CBMC flags to be passed during CBMC analysis
 H_CBMCFLAGS = --nondet-static --unwind 2 # Rest to be filled in by LLM
 
+# goto-instrument flags to replace function pointers with models
+FUNCTION_POINTER_REPL = \
+
 # Env vars, filled in by LLM
 H_DEF = {H_DEF}
 
@@ -21,6 +24,10 @@ H_INC = -I$(ROOT) \
         -I$(ROOT)/cpu/native/include/  \
         -I$(ROOT)/drivers/include/ \
 
-# Include our special build file
 MAKE_INCLUDE_PATH ?= ..
+
+# Extra function model files to be linked into the harness
+LINK = $(MAKE_INCLUDE_PATH)/general-stubs.c
+
+# Include our special build file
 include $(MAKE_INCLUDE_PATH)/Makefile.include

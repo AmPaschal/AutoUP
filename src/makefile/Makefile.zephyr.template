@@ -10,6 +10,9 @@ H_ENTRY = {H_ENTRY}
 # Extra CBMC flags to be passed during CBMC analysis
 H_CBMCFLAGS = --nondet-static --unwind 2 # Rest to be filled in by LLM
 
+# goto-instrument flags to replace function pointers with models
+FUNCTION_POINTER_REPL = \
+
 # Env vars, filled in by LLM
 H_DEF = -DCONFIG_BT_CTLR_SUBVERSION_NUMBER=0xFFFF -DCONFIG_BT_BUF_ACL_TX_COUNT=1 \
         -DCONFIG_BT_CTLR_LLCP_TX_PER_CONN_TX_CTRL_BUF_NUM_MAX=1 -DCONFIG_BT_CTLR_LLCP_CONN=1 -DCONFIG_BT_CTLR_LLCP_COMMON_TX_CTRL_BUF_NUM=1 \
@@ -42,6 +45,10 @@ H_INC = \
 	-I$(ROOT)/zephyr/boards/native/common/irq \
 
 
-# Include our special build file
 MAKE_INCLUDE_PATH ?= ..
+
+# Extra function model files to be linked into the harness
+LINK = $(MAKE_INCLUDE_PATH)/general-stubs.c
+
+# Include our special build file
 include $(MAKE_INCLUDE_PATH)/Makefile.include

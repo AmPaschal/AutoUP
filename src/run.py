@@ -20,6 +20,7 @@ from debugger.debugger import ProofDebugger
 from commons.docker_tool import ProjectContainer
 from logger import init_logging, setup_logger
 from commons.metric_summary import process_metrics
+from src.stub_generator.handle_function_pointers import FunctionPointerHandler
 from stub_generator.gen_function_stubs import StubGenerator
 from commons.models import Generable
 from validator.precondition_validator import PreconditionValidator
@@ -36,13 +37,13 @@ def get_parser():
     )
     parser.add_argument(
         "mode",
-        choices=["harness", "debugger", "function-stubs", "coverage", "precondition", "all"],
+        choices=["harness", "debugger", "function-stubs", "function-pointers", "coverage", "precondition", "all"],
         help=(
             "Execution mode: "
             "'harness' to generate harness/makefile, "
             "'debugger' to run proof debugger, "
             "'function-stubs' to run function stub generator, "
-            "'function-stubs' to run function stub generator, "
+            "'function-pointers' to run function pointer handler, "
             "'coverage' to run coverage debugger, "
             "'precondition' to run precondition validator, or "
             "'all' to run all 'harness', 'debugger' and 'coverage' modes sequentially."
@@ -108,6 +109,11 @@ def process_mode(args):
         ))
     if args.mode in ["function-stubs", "all"]:
         agents.append(StubGenerator(
+            args=args,
+            project_container=project_container
+        ))
+    if args.mode in ["function-pointers", "all"]:
+        agents.append(FunctionPointerHandler(
             args=args,
             project_container=project_container
         ))

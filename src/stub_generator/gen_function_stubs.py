@@ -282,7 +282,7 @@ class StubGenerator(AIAgent, Generable):
                                                            call_function=self.handle_tool_calls, 
                                                            conversation_history=conversation)
 
-            if not llm_response:
+            if not llm_response or not isinstance(llm_response, HarnessResponse):
                 user_prompt = "The LLM did not return a valid response. Please try again and provide response in the correct format.\n" 
                 attempts += 1
                 continue
@@ -292,7 +292,7 @@ class StubGenerator(AIAgent, Generable):
             self.save_harness(llm_response.harness_code)
 
             # Now, try to build the harness using make
-            make_results = self.run_make(compile_only=False)
+            make_results = self.run_make(compile_only=True)
             
             status_code = make_results.get('status', Status.ERROR)
 
