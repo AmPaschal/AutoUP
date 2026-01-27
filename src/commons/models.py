@@ -77,6 +77,12 @@ class LLM(ABC):
             except Exception as err:
                 logger.warning('LLM API Error when responding (attempt %d): %s',
                                 attempt, err)
+                
+                if "RateLimitError" in str(type(err)):
+                    logger.warning("Rate Limit hit. Sleeping for 60 seconds to reset quota...")
+                    time.sleep(60)
+                    continue
+                
                 tb = traceback.extract_tb(err.__traceback__)
                 if (not self._is_retryable_error(err, api_errs, tb) or
                     attempt == self._max_attempts):
@@ -102,6 +108,10 @@ class LiteLLM(LLM):
         call_function: Optional[Callable] = None,
         conversation_history: Optional[list] = None
     ):
+
+        #ENABLE PARAMETER DROPPING
+        litellm.drop_params = True
+
         # Start with the initial user input
         new_message = {'role': 'user', 'content': input_messages}
 
@@ -132,22 +142,36 @@ class LiteLLM(LLM):
                         messages=[{"role": "system", "content": system_messages}] + input_list,
                         response_format=output_format,
                         tool_choice="auto",
-                        reasoning="low",
+                        reasoning_effort="low",
                         tools=llm_tools,
                         temperature=1.0,
+                        api_base="http://localhost:11434",
+                        extra_body={
+                            "options": {
+                                "num_ctx": 131072
+                            }
+                        }
                     ),
                     [pydantic_core._pydantic_core.ValidationError]
                 )
             except Exception as e:
                 logger.error(f"Unexpected error from LLM: {e}")
                 return None, {}
-
+            logger.info(f"LLM raw response: {client_response}")
             # Update token usage
             if client_response.usage:
                 token_usage["input_tokens"] += client_response.usage.prompt_tokens
-                token_usage["cached_tokens"] += client_response.usage.prompt_tokens_details.cached_tokens or 0
+                
+                # Safe check for cached tokens (input)
+                if hasattr(client_response.usage, "prompt_tokens_details") and client_response.usage.prompt_tokens_details:
+                    token_usage["cached_tokens"] += getattr(client_response.usage.prompt_tokens_details, "cached_tokens", 0)
+
                 token_usage["output_tokens"] += client_response.usage.completion_tokens
-                token_usage["reasoning_tokens"] += client_response.usage.completion_tokens_details.reasoning_tokens or 0
+                
+                # Safe check for reasoning tokens (output)
+                if hasattr(client_response.usage, "completion_tokens_details") and client_response.usage.completion_tokens_details:
+                    token_usage["reasoning_tokens"] += getattr(client_response.usage.completion_tokens_details, "reasoning_tokens", 0)
+
                 token_usage["total_tokens"] += client_response.usage.total_tokens
 
             # Find function calls
@@ -156,6 +180,9 @@ class LiteLLM(LLM):
             if not function_calls:
                 # No function calls left → we’re done
                 break
+            
+            # Append the Assistant's message (containing the tool calls) ONCE
+            input_list.append(client_response.choices[0].message)
 
             # Handle each function call and add results back to input_list
             for item in function_calls:
@@ -164,7 +191,7 @@ class LiteLLM(LLM):
                     raise ValueError("call_function must be provided when tools are used.")
                 function_result = call_function(item.function.name, item.function.arguments)
                 function_calls_count += 1
-                input_list.append(client_response.choices[0].message)
+                
                 input_list.append({
                     "role": "tool",
                     "tool_call_id": item.id,
@@ -172,8 +199,12 @@ class LiteLLM(LLM):
                 })
                 print("Tool call id responded: ", item.id)
 
-        print(client_response.choices[0].message.content)
-        parsed_output =output_format.model_validate(json.loads(client_response.choices[0].message.content))
+        logger.info(client_response.choices[0].message.content)
+        try:
+            parsed_output =output_format.model_validate(json.loads(client_response.choices[0].message.content))
+        except Exception as e:
+            logger.error(f"Parsing LLM response failed.")
+            return None, {}
         parsed_output_dict = parsed_output.model_dump_json(indent=2) if parsed_output else {}
         logger.info(f"LLM Response:\n{parsed_output_dict}")
 
@@ -228,7 +259,7 @@ class GPT(LLM):
             try:
                 client_response: ParsedResponse = self.with_retry_on_error(
                     lambda: self.client.responses.parse(
-                        model="gpt-5",
+                        model=self.name,
                         instructions=system_messages,
                         input=input_list,
                         text_format=output_format,

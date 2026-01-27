@@ -3,11 +3,11 @@ import os
 import time
 import subprocess
 from abc import ABC
-from typing import Any, Callable, Type
+from typing import Any, Callable, Optional, Type
 
 import tiktoken
 
-from commons.docker_tool import ProjectContainer
+from commons.project_container import ProjectContainer
 from logger import setup_logger
 from commons.utils import Status
 from commons.models import GPT, LiteLLM
@@ -107,7 +107,7 @@ class AIAgent(ABC):
         try:
             logger.info(f"Running command: {cmd}")
             result = self.project_container.execute(cmd)
-            return self.truncate_result_custom(result, cmd, max_input_tokens=10000, model='gpt-5')
+            return self.truncate_result_custom(result, cmd, max_input_tokens=10000, model=self.args.llm_model)
         except subprocess.CalledProcessError as e:
             print(f"Command failed with error:\n{e.stderr}")
             return None
@@ -189,18 +189,27 @@ class AIAgent(ABC):
             tool_response = self.run_bash_command(cmd)
         elif tool_name == "run_cscope_command":
             command = function_args.get("command", "")
+            #ensure command starts with cscope
+            if not command.strip().startswith("cscope"):
+                command = f"cscope {command}"
             tool_response = self.run_bash_command(command)
         elif tool_name == "get_condition_satisfiability":
             function_name = function_args.get("function_name", "")
             line_number = function_args.get("line_number", -1)
             tool_response = self.handle_condition_retrieval_tool(function_name, line_number)
         else:
+            error_message = f"Error: Unknown tool '{tool_name}'. Please check the available tools and try again."
+            logger.warning(error_message)
+            return error_message
+        '''
+        else:
             raise ValueError(f"Unknown function call: {tool_name}")
+        '''
         
         logger.info(f"Function call response:\n {tool_response}")
         return str(tool_response)
 
-    def log_task_attempt(self, task_id, attempt_number, llm_data, error):
+    def log_task_attempt(self, task_id, attempt_number, llm_data, error, make_result=None):
         if not self.metrics_file:
             return
         
@@ -211,7 +220,8 @@ class AIAgent(ABC):
             "attempt_number": attempt_number,
             "llm_data": llm_data,
             "error": error,
-            "timestamp": time.time()
+            "timestamp": time.time(),
+            "make_result": make_result,
         }
 
         with open(self.metrics_file, 'a') as f:
@@ -231,7 +241,7 @@ class AIAgent(ABC):
         with open(self.metrics_file, 'a') as f:
             f.write(json.dumps(log_entry) + "\n")
 
-    def log_task_result(self, task_id, success: bool, total_attempts: int, data: dict|None = None):
+    def log_task_result(self, task_id, success: bool, total_attempts: int, data: Optional[dict] = None):
         if not self.metrics_file:
             return
         
@@ -271,8 +281,10 @@ class AIAgent(ABC):
 
     def execute_command(self, cmd: str, workdir: str, timeout: int) -> dict:
         try:
+            start = time.perf_counter()
             result = self.project_container.execute(cmd, workdir=workdir, timeout=timeout)
-            
+            end = time.perf_counter()
+            result['time'] = end - start
             if result.get('exit_code', -1) == 124:
                 logger.error(f"Command '{cmd}' timed out.")
                 result['stdout'] += "[TIMEOUT]"
@@ -292,44 +304,48 @@ class AIAgent(ABC):
         return [
             {
                 "type": "function",
-                "name": "run_bash_command",
-                "description": "Run a command-line command to search the repo for relevant information, and return the output",
-                "strict": True,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "reason": {
-                            "type": "string",
-                            "description": "The reason for running the command"
+                "function": {  # <--- NESTING ADDED HERE
+                    "name": "run_bash_command",
+                    "description": "Run a command-line command to search the repo for relevant information, and return the output",
+                    "strict": True,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "reason": {
+                                "type": "string",
+                                "description": "The reason for running the command"
+                            },
+                            "cmd": {
+                                "type": "string",
+                                "description": "A bash command-line command to run"
+                            }
                         },
-                        "cmd": {
-                            "type": "string",
-                            "description": "A bash command-line command to run"
-                        }
-                    },
-                    "required": ["reason", "cmd"],
-                    "additionalProperties": False
+                        "required": ["reason", "cmd"],
+                        "additionalProperties": False
+                    }
                 }
             },
             {
                 "type": "function",
-                "name": "run_cscope_command",
-                "description": "Run a cscope command to search for type and function definitions, cross-references, and file paths.",
-                "strict": True,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "reason": {
-                            "type": "string",
-                            "description": "The reason for running the command"
+                "function": {  # <--- NESTING ADDED HERE
+                    "name": "run_cscope_command",
+                    "description": "Run a cscope command to search for type and function definitions, cross-references, and file paths.",
+                    "strict": True,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "reason": {
+                                "type": "string",
+                                "description": "The reason for running the command"
+                            },
+                            "command": {
+                                "type": "string",
+                                "description": "A cscope command to run"
+                            }
                         },
-                        "command": {
-                            "type": "string",
-                            "description": "A cscope command to run"
-                        }
-                    },
-                    "required": ["reason", "command"],
-                    "additionalProperties": False
+                        "required": ["reason", "command"],
+                        "additionalProperties": False
+                    }
                 }
             }
         ]
@@ -338,27 +354,29 @@ class AIAgent(ABC):
         coverage_tools = [
             {
                 "type": "function",
-                "name": "get_condition_satisfiability",
-                "description": "Retrieve the status and satisfiability of conditions present in a specific IF statement.",
-                "strict": True,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "reason": {
-                            "type": "string",
-                            "description": "The reason for executing this tool"
+                "function": {  # <--- NESTING ADDED HERE
+                    "name": "get_condition_satisfiability",
+                    "description": "Retrieve the status and satisfiability of conditions present in a specific IF statement.",
+                    "strict": True,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "reason": {
+                                "type": "string",
+                                "description": "The reason for executing this tool"
+                            },
+                            "function_name": {
+                                "type": "string",
+                                "description": "The name of the function containing the condition"
+                            },
+                            "line_number": {
+                                "type": "integer",
+                                "description": "The line number containing the condition in the source code"
+                            }
                         },
-                        "function_name": {
-                            "type": "string",
-                            "description": "The name of the function containing the condition"
-                        },
-                        "line_number": {
-                            "type": "integer",
-                            "description": "The line number containing the condition in the source code"
-                        }
-                    },
-                    "required": ["reason", "function_name", "line_number"],
-                    "additionalProperties": False
+                        "required": ["reason", "function_name", "line_number"],
+                        "additionalProperties": False
+                    }
                 }
             }
         ]

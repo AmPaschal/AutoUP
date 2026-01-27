@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from src.commons.metric_summary import process_metrics
+from metric_summary import process_metrics
 
 logging.basicConfig(
     level=logging.INFO,

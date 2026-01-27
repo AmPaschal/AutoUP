@@ -1,7 +1,7 @@
 python3 src/run.py debugger \
---root_dir=/home/rcalvome/Documents/AutoUp/framework/RIOT \
+--root_dir=/scratch/gautschi/rcalvome/RIOT \
 --target_function_name=_receive \
---harness_path=/home/rcalvome/Documents/AutoUp/framework/RIOT/cbmc/harness_gen_tests_4/_receive \
+--harness_path=/scratch/gautschi/rcalvome/RIOT/cbmc/_receive \
 --target_file_path=sys/net/gnrc/network_layer/ipv6/gnrc_ipv6.c \
---log_file=logs/2025-11-13_19-34/_receive.log \
---metrics_file=metrics/2025-11-13_19-34/_receive.jsonl
+--log_file=/scratch/gautschi/rcalvome/output/logs/_receive.log \
+--metrics_file=/scratch/gautschi/rcalvome/output/metrics/_receive.jsonl
