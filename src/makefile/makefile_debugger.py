@@ -134,16 +134,16 @@ class MakefileDebugger(AIAgent, Generable):
 
             if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:
                 logger.info("Makefile successfully generated and compilation succeeded.")
-                self.log_task_attempt("makefile_debugger", attempts, llm_data, "")
+                self.log_task_attempt("makefile_debugger", attempts, llm_data, "", make_result=make_results)
                 status = Status.SUCCESS
                 break
             elif status_code == Status.FAILURE:
                 logger.info("Make command failed; reprompting LLM with make results.")
                 system_prompt, user_prompt = self.prepare_prompt(make_results)
-                self.log_task_attempt("makefile_debugger", attempts, llm_data, "compilation_error")
+                self.log_task_attempt("makefile_debugger", attempts, llm_data, "compilation_error", make_result=make_results)
             else:
                 logger.error("Make command failed to run.")
-                self.log_task_attempt("makefile_debugger", attempts, llm_data, "make_error")
+                self.log_task_attempt("makefile_debugger", attempts, llm_data, "make_error", make_result=make_results)
                 status = status_code
                 break
 
