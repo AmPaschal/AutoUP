@@ -28,6 +28,7 @@ def collect_compilation_statuses(input_directory: Path) -> list[str]:
     for log_file in input_directory.glob("*.log"):
         compilation_status = None
         with log_file.open("r") as f:
+            # TODO: INITIAL HARNESS GENERATION IS TRUE
             compilation_status = "Agent 'ProofDebugger' succeed" in f.read()
             compilation_statuses.append(compilation_status)
     logger.info("Compilation statuses collected from %i files...", len(compilation_statuses))
@@ -259,7 +260,7 @@ def main():
     compilation_statuses = collect_compilation_statuses(input_directory)
 
     #(2) Complete verification within a fixed time budget,
-    # TODO:
+    # TODO: Function pointer handler agent results
     
     #(3) Achieve high code coverage of the target unit,
     final_coverage = collect_final_coverage(input_directory)
@@ -268,6 +269,7 @@ def main():
     #(4) Resolve all reported verification errors via refined models,
     final_error = collect_final_error(input_directory)
     error_histogram_table = histogram_final_errors(final_error, output_directory)
+    # TODO: (initial - final) / initial
 
     #(5) false-positivivity rate per proof.
     # TODO: TBD
