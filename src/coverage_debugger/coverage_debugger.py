@@ -128,7 +128,7 @@ class CoverageDebugger(AIAgent, Generable):
 
 
     def run_make(self):
-        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=900)
+        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=1500)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results
@@ -326,12 +326,14 @@ class CoverageDebugger(AIAgent, Generable):
         if coverage_status.get(target_block_line) != "missed":
             # First, we validate the fix by checking that the overall coverage also increased
             new_coverage = self.get_overall_coverage()
-            if new_coverage.get("hit", 0.0) <= current_coverage.get("hit", 0.0):
+            if new_coverage.get("hit", 0.0) <= current_coverage.get("hit", 0.0) or new_coverage.get("total", 0.0) < current_coverage.get("total", 0.0):
                 logger.info(
-                    "[INFO] Target block covered but overall coverage decreased."
+                    "[INFO] Target block covered but overall reachable code or coverage decreased."
                 )
                 user_prompt = (
-                    "The proposed modification covered the target block but decreased the overall coverage.\n"
+                    "The proposed modification covered the target block but decreased the overall reachable and hit code.\n"
+                    f"initial coverage: {json.dumps(current_coverage, indent=2)}\n"
+                    f"new coverage: {json.dumps(new_coverage, indent=2)}\n"
                     "Your changes have been reverted." 
                     "Investigate and determine why the change led to decreased coverage.\n"
                     "If it cannot be avoided, do not propose any modification."
