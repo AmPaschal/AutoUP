@@ -1,6 +1,7 @@
 """ Debugger class"""
 
 # System
+from typing import Optional
 from pathlib import Path
 import subprocess
 import os
@@ -128,9 +129,8 @@ class ProofDebugger(AIAgent, Generable):
         overall_coverage = viewer_coverage.get("overall_coverage", {})
 
         return overall_coverage
-    
+
     def generate_fix_programmatically(self, error: CBMCError, current_coverage: dict) -> bool:
-            
         """Generate the fix of a given error using programmatic handler"""
         updated_harness = self.programmatic_handler.analyze(error)
         if not updated_harness:
@@ -140,18 +140,23 @@ class ProofDebugger(AIAgent, Generable):
         make_result = self.run_make()
         if make_result.get("status") != Status.SUCCESS:
             logger.error("Make command failed after programmatic fix.")
+            self.log_task_attempt(error.error_id, None, None, error="make_failed_programmatic", make_result=make_result)
             return False
         if not self.__is_error_covered(error):
             logger.error("Error not covered after programmatic fix.")
+            self.log_task_attempt(error.error_id, None, None, error="error_not_covered_programmatic", make_result=make_result)
             return False
         new_coverage = self.get_overall_coverage()
         if new_coverage.get("hit", 0.0) < current_coverage.get("hit", 0.0):
             logger.error("Overall coverage decreased after programmatic fix.")
+            self.log_task_attempt(error.error_id, None, None, error="overall_coverage_decreased_programmatic", make_result=make_result)
             return False
         if not self.__is_error_solved(error):
             logger.error("Error not solved after programmatic fix.")
+            self.log_task_attempt(error.error_id, None, None, error="error_not_fixed_programmatic", make_result=make_result)
             return False
         logger.info("Error resolved programmatically!")
+        self.log_task_attempt(error.error_id, None, None, make_result=make_result)
         return True
 
     def create_error_trace_file(self, error: CBMCError):
@@ -239,10 +244,10 @@ class ProofDebugger(AIAgent, Generable):
             make_result = self.run_make()
             if make_result.get("status") == Status.ERROR:
                 logger.error("[ERROR] Make command failed to execute.")
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_invocation_failed")
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_invocation_failed", make_result=make_result)
                 break
             if make_result.get("status") == Status.FAILURE:
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_failed")
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_failed", make_result=make_result)
                 # Let's use the makefile debugger to fix this error
                 makefile_debugger = MakefileDebugger(
                     args=self.args,
@@ -255,32 +260,32 @@ class ProofDebugger(AIAgent, Generable):
                 make_result = self.run_make()
             if make_result.get("status") == Status.TIMEOUT:
                 logger.error("[ERROR] Make command timed out.")
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_timeout")
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_timeout", make_result=make_result)
                 break
             if error_covered_initially and not self.__is_error_covered(error):
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_covered")
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_covered", make_result=make_result)
                 cause_of_failure = {"reason": "error_not_covered"}
                 continue
             new_coverage = self.get_overall_coverage()
             if new_coverage.get("hit", 0.0) < current_coverage.get("hit", 0.0) or new_coverage.get("percentage", 0.0) < current_coverage.get("percentage", 0.0):
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="overall_coverage_decreased")
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="overall_coverage_decreased", make_result=make_result)
                 cause_of_failure = {"reason": "overall_coverage_decreased"}
                 continue
             if not self.__is_error_solved(error):
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_fixed")
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_fixed", make_result=make_result)
                 cause_of_failure = {"reason": "error_not_fixed"}
                 continue
             logger.info("Error resolved! Validating proposed preconditions...")
             self.validate_preconditions(error, tag, output.analysis)
             logger.info("Preconditions validated!")
-            self.log_task_attempt(error.error_id, attempt, chat_data, error=None)
+            self.log_task_attempt(error.error_id, attempt, chat_data, error=None, make_result=make_result)
             self.log_task_result(error.error_id, True, attempt)
             logger.info(f"[INFO] Current Overall Coverage: {json.dumps(new_coverage, indent=2)}")
             return True, new_coverage
         self.log_task_result(error.error_id, False, attempt)
         logger.info("Error not resolved...")
         return False, current_coverage
-    
+
     def __update_harness(self, harness_content: str):
         with open(self.harness_file_path, "w+", encoding="utf-8") as f:
             f.write(harness_content)
@@ -372,7 +377,7 @@ class ProofDebugger(AIAgent, Generable):
 
     
 # TODO: Refactor Error Handling
-    def __pop_error(self, error_report: ErrorReport, errors_to_skip: set) -> CBMCError | None:  
+    def __pop_error(self, error_report: ErrorReport, errors_to_skip: set) -> Optional[CBMCError]:
         
         error = error_report.get_next_error(errors_to_skip)
         if error[2] is None:

@@ -1,0 +1,2 @@
+source_file,function_name
+/home/rcalvome/Documents/AutoUp/framework/RIOT/sys/psa_crypto/psa_crypto.c,psa_builtin_generate_random

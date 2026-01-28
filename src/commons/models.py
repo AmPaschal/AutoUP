@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import os
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import pydantic_core
 import tiktoken
 import json
@@ -8,7 +8,8 @@ import openai
 import random
 import time
 import traceback
-from typing import Any, Callable, Optional, Type
+import hashlib
+from typing import Any, Callable, Optional, Type, List, Dict
 from openai.types.responses.parsed_response import ParsedResponse
 import litellm
 from litellm import ModelResponse
@@ -77,6 +78,12 @@ class LLM(ABC):
             except Exception as err:
                 logger.warning('LLM API Error when responding (attempt %d): %s',
                                 attempt, err)
+                
+                if "RateLimitError" in str(type(err)):
+                    logger.warning("Rate Limit hit. Sleeping for 60 seconds to reset quota...")
+                    time.sleep(60)
+                    continue
+                
                 tb = traceback.extract_tb(err.__traceback__)
                 if (not self._is_retryable_error(err, api_errs, tb) or
                     attempt == self._max_attempts):
@@ -86,6 +93,24 @@ class LLM(ABC):
                     raise err
                 self._delay_for_retry(attempt_count=attempt)
         return None
+
+class RunBashCommand(BaseModel):
+    reason: str = Field(..., description="The reason for running the command")
+    cmd: str = Field(..., description="A bash command-line command to run")
+
+
+def pydantic_to_openai_tool(model: type[BaseModel], *, name: str, description: str) -> Dict[str, Any]:
+    schema = model.model_json_schema()
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": schema,
+        },
+    }
+    
+
 
 class LiteLLM(LLM):
     """LLM implementation using LiteLLM"""
@@ -102,6 +127,18 @@ class LiteLLM(LLM):
         call_function: Optional[Callable] = None,
         conversation_history: Optional[list] = None
     ):
+
+        litellm.api_base = "http://localhost:11434"
+        litellm.api_key = "ollama"
+        
+        tools = [
+            pydantic_to_openai_tool(
+                RunBashCommand,
+                name="run_bash_command",
+                description="Run a bash command and return the output",
+            )
+        ]
+        
         # Start with the initial user input
         new_message = {'role': 'user', 'content': input_messages}
 
@@ -132,8 +169,8 @@ class LiteLLM(LLM):
                         messages=[{"role": "system", "content": system_messages}] + input_list,
                         response_format=output_format,
                         tool_choice="auto",
-                        reasoning="low",
-                        tools=llm_tools,
+                        reasoning_effort="low",
+                        tools=tools,
                         temperature=1.0,
                     ),
                     [pydantic_core._pydantic_core.ValidationError]
@@ -141,39 +178,60 @@ class LiteLLM(LLM):
             except Exception as e:
                 logger.error(f"Unexpected error from LLM: {e}")
                 return None, {}
-
+            logger.info(f"LLM raw response: {client_response}")
             # Update token usage
             if client_response.usage:
                 token_usage["input_tokens"] += client_response.usage.prompt_tokens
-                token_usage["cached_tokens"] += client_response.usage.prompt_tokens_details.cached_tokens or 0
+                
+                # Safe check for cached tokens (input)
+                if hasattr(client_response.usage, "prompt_tokens_details") and client_response.usage.prompt_tokens_details:
+                    token_usage["cached_tokens"] += getattr(client_response.usage.prompt_tokens_details, "cached_tokens", 0)
+
                 token_usage["output_tokens"] += client_response.usage.completion_tokens
-                token_usage["reasoning_tokens"] += client_response.usage.completion_tokens_details.reasoning_tokens or 0
+                
+                # Safe check for reasoning tokens (output)
+                if hasattr(client_response.usage, "completion_tokens_details") and client_response.usage.completion_tokens_details:
+                    token_usage["reasoning_tokens"] += getattr(client_response.usage.completion_tokens_details, "reasoning_tokens", 0)
+
                 token_usage["total_tokens"] += client_response.usage.total_tokens
 
             # Find function calls
-            function_calls = client_response.choices[0].message["tool_calls"] or []
-        
+            msg = client_response["choices"][0]["message"]
+            function_calls = _extract_tool_calls(msg)
+            #function_calls = client_response.choices[0].message["tool_calls"] or []
+            logger.info(function_calls)
             if not function_calls:
                 # No function calls left → we’re done
                 break
+            
+            # Append the Assistant's message (containing the tool calls) ONCE
+            input_list.append(msg)
+            logger.info(msg)    
 
             # Handle each function call and add results back to input_list
             for item in function_calls:
-                print("Functions to call: ", item.id)
+                logger.info("Functions to call: ", item.id)
                 if call_function is None:
                     raise ValueError("call_function must be provided when tools are used.")
-                function_result = call_function(item.function.name, item.function.arguments)
+                name = item.get("name") or ""
+                args_str = item.get("arguments") or "{}"
+                args = json.loads(args_str)
+                function_result = call_function(name, args)
                 function_calls_count += 1
-                input_list.append(client_response.choices[0].message)
+                
                 input_list.append({
                     "role": "tool",
                     "tool_call_id": item.id,
+                    "name": name,
                     "content": function_result,
                 })
-                print("Tool call id responded: ", item.id)
+                logger.info("Tool call id responded: ", item.id)
 
-        print(client_response.choices[0].message.content)
-        parsed_output =output_format.model_validate(json.loads(client_response.choices[0].message.content))
+        try:
+            parsed_output =output_format.model_validate(json.loads(client_response.choices[0].message.content))
+        except Exception as e:
+            logger.error(f"Parsing LLM response failed.")
+            return None, {}
         parsed_output_dict = parsed_output.model_dump_json(indent=2) if parsed_output else {}
         logger.info(f"LLM Response:\n{parsed_output_dict}")
 
@@ -228,7 +286,7 @@ class GPT(LLM):
             try:
                 client_response: ParsedResponse = self.with_retry_on_error(
                     lambda: self.client.responses.parse(
-                        model="gpt-5",
+                        model=self.name,
                         instructions=system_messages,
                         input=input_list,
                         text_format=output_format,
