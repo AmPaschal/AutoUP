@@ -319,7 +319,10 @@ class ProofDebugger(AIAgent, Generable):
             
             user_prompt = self.__get_prompt("no_previous_user")
             user_prompt = user_prompt.replace("{message}", error.msg)
-            user_prompt = user_prompt.replace("{error_file}", error.file)
+            if error.is_built_in:
+                user_prompt = user_prompt.replace("{error_file}", "<builtin-library-strcpy>")
+            else:
+                user_prompt = user_prompt.replace("{error_file}", error.file)
             user_prompt = user_prompt.replace("{error_function}", error.func)
             user_prompt = user_prompt.replace("{error_line}", str(error.line))
             user_prompt = user_prompt.replace("{harness_dir}", self.harness_dir) 
