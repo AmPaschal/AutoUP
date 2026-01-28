@@ -128,6 +128,81 @@ class ProofDebugger(AIAgent, Generable):
         overall_coverage = viewer_coverage.get("overall_coverage", {})
 
         return overall_coverage
+
+    def get_property_count(self, property_file_path: str = None) -> int:
+        """Get the number of memory safety properties from viewer-property.json.
+        
+        Args:
+            property_file_path: Optional path to property file. If None, uses default location.
+            
+        Returns:
+            Number of properties in the file, or -1 if file not found/error.
+        """
+        if property_file_path is None:
+            property_file_path = os.path.join(self.harness_dir, "build/report/json/viewer-property.json")
+        
+        if not os.path.exists(property_file_path):
+            logger.error(f"[ERROR] Property report not found: {property_file_path}")
+            return -1
+
+        try:
+            with open(property_file_path, "r") as f:
+                property_data = json.load(f)
+            
+            properties = property_data.get("viewer-property", {}).get("properties", {})
+            return len(properties)
+        except Exception as e:
+            logger.error(f"[ERROR] Failed to read property file: {e}")
+            return -1
+
+    def get_properties_diff(self, tag: str) -> tuple[list[str], str]:
+        """Compare current properties with backed-up properties to find removed ones.
+        
+        Args:
+            tag: The backup tag used when create_backup was called.
+            
+        Returns:
+            Tuple of (list of removed property IDs, diff output string)
+        """
+        current_property_path = os.path.join(self.harness_dir, "build/report/json/viewer-property.json")
+        backup_property_path = os.path.join(self.harness_dir, f"build_backup.{tag}/report/json/viewer-property.json")
+        
+        removed_properties = []
+        diff_output = ""
+        
+        if not os.path.exists(backup_property_path):
+            logger.error(f"[ERROR] Backup property file not found: {backup_property_path}")
+            return removed_properties, diff_output
+        
+        if not os.path.exists(current_property_path):
+            logger.error(f"[ERROR] Current property file not found: {current_property_path}")
+            return removed_properties, diff_output
+        
+        # Use diff command to compare property files
+        diff_command = f"diff {backup_property_path} {current_property_path}"
+        diff_result = self.execute_command(diff_command, workdir=self.harness_dir, timeout=60)
+        
+        logger.info(f"Diff stdout:\n {diff_result.get('stdout', '')}")
+        logger.info(f"Diff stderr:\n {diff_result.get('stderr', '')}")
+        
+        diff_output = diff_result.get("stdout", "")
+        
+        # Extract removed properties from the backup file that aren't in current
+        # Lines starting with "< " in diff output indicate content removed from backup
+        try:
+            with open(backup_property_path, "r") as f:
+                backup_data = json.load(f)
+            with open(current_property_path, "r") as f:
+                current_data = json.load(f)
+            
+            backup_properties = set(backup_data.get("viewer-property", {}).get("properties", {}).keys())
+            current_properties = set(current_data.get("viewer-property", {}).get("properties", {}).keys())
+            
+            removed_properties = list(backup_properties - current_properties)
+        except Exception as e:
+            logger.error(f"[ERROR] Failed to extract removed properties: {e}")
+        
+        return removed_properties, diff_output
     
     def generate_fix_programmatically(self, error: CBMCError, current_coverage: dict) -> bool:
             
@@ -205,6 +280,10 @@ class ProofDebugger(AIAgent, Generable):
         attempt = 0
 
         self.create_error_trace_file(error)
+        
+        # Track initial property count for validation
+        initial_property_count = self.get_property_count()
+        logger.info(f"Initial property count: {initial_property_count}")
 
         while attempt < self.__max_attempts:
             attempt += 1
@@ -227,7 +306,7 @@ class ProofDebugger(AIAgent, Generable):
                 call_function=self.handle_tool_calls,
                 conversation_history=conversation_history,
             )
-            if not output:
+            if not output or not isinstance(output, ModelOutput):
                 logger.error("[ERROR] No valid response from LLM.")
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="no_valid_response")
                 break
@@ -265,6 +344,20 @@ class ProofDebugger(AIAgent, Generable):
             if new_coverage.get("hit", 0.0) < current_coverage.get("hit", 0.0) or new_coverage.get("percentage", 0.0) < current_coverage.get("percentage", 0.0):
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="overall_coverage_decreased")
                 cause_of_failure = {"reason": "overall_coverage_decreased"}
+                continue
+            # Property count validation: ensure LLM didn't remove functions that reduce properties
+            new_property_count = self.get_property_count()
+            if new_property_count >= 0 and initial_property_count >= 0 and new_property_count < initial_property_count:
+                logger.error(f"[ERROR] Property count reduced from {initial_property_count} to {new_property_count}")
+                removed_properties, diff_output = self.get_properties_diff(tag)
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="properties_reduced")
+                cause_of_failure = {
+                    "reason": "properties_reduced",
+                    "initial_count": initial_property_count,
+                    "new_count": new_property_count,
+                    "removed_properties": removed_properties,
+                    "diff": diff_output
+                }
                 continue
             if not self.__is_error_solved(error):
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_fixed")
@@ -363,12 +456,34 @@ class ProofDebugger(AIAgent, Generable):
                     "{variables}", json.dumps(error.vars, indent=4)
                 )
             return user_prompt
+        if cause_of_failure["reason"] == "properties_reduced":
+            logger.info("Reason: properties_reduced")
+            user_prompt = self.__get_prompt("properties_reduced")
+            initial_count = cause_of_failure.get("initial_count", 0)
+            new_count = cause_of_failure.get("new_count", 0)
+            removed_properties = cause_of_failure.get("removed_properties", [])
+            diff = cause_of_failure.get("diff", "")
+            
+            user_prompt = user_prompt.replace("{initial_count}", str(initial_count))
+            user_prompt = user_prompt.replace("{new_count}", str(new_count))
+            user_prompt = user_prompt.replace("{removed_count}", str(initial_count - new_count))
+            
+            # Format removed properties as a bullet list
+            if removed_properties:
+                props_text = "\n".join(f"  - {prop}" for prop in removed_properties[:20])
+                if len(removed_properties) > 20:
+                    props_text += f"\n  ... and {len(removed_properties) - 20} more"
+            else:
+                props_text = "  (Unable to determine specific removed properties)"
+            user_prompt = user_prompt.replace("{removed_properties}", props_text)
+            user_prompt = user_prompt.replace("{diff}", diff)
+            return user_prompt
         raise ValueError(
             f"Unknown cause_of_failure reason: {cause_of_failure['reason']}",
         )
 
     def run_make(self):
-        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=900)
+        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=1500)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results

@@ -188,6 +188,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
 
         conversation = []   
         harness_generated = False
+        agent_result = {"compilation_status": False}
 
         while user_prompt and attempts <= self._max_attempts:
 
@@ -207,6 +208,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
 
         if not harness_generated:
             logger.error("Failed to generate initial harness within max attempts.")
+            self.log_agent_result(agent_result)
             return False
 
         # Then generate initial Makefile
@@ -226,6 +228,8 @@ class InitialHarnessGenerator(AIAgent, Generable):
                                 project_container=self.project_container
                             )
         status = makefile_debugger.generate()
+        agent_result["compilation_status"] = status
+        self.log_agent_result(agent_result)
 
         self.save_status('harness')
         return status

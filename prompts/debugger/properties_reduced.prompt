@@ -1,0 +1,22 @@
+Your last change was ILLEGAL because it reduced the number of memory safety properties being verified.
+
+This happened because your harness update caused functions or code paths to be removed or stubbed out, which eliminated {initial_count} - {new_count} = {removed_count} memory safety properties that were previously being checked.
+
+The following properties were removed:
+{removed_properties}
+
+{diff}
+
+Your change most likely stubbed or replaced a function that was being called from the target function. This is NOT allowed because it reduces the verification scope.
+
+Try to address the original error WITHOUT:
+1. Stubbing out or replacing any functions that are called from the target function
+2. Removing any function calls
+3. Making changes that would prevent previously verified code paths from being reached
+
+Instead:
+1. Add preconditions that constrain inputs to prevent the error
+2. Ensure all original function calls are preserved
+3. Maintain the same verification scope as before
+
+Provide your response in the specified schema format with an updated_harness that addresses the error while preserving all memory safety properties.

@@ -1,0 +1,42 @@
+Below are details about loops that have loop unwinding failures in the current CBMC verification.
+
+## Loops with Unwinding Failures
+
+The following loops exceeded their unwinding limit during verification:
+
+{LOOPS_WITH_FAILURES}
+
+## Loop Source Code
+
+Here is the source code around each loop:
+
+{LOOP_SOURCES}
+
+## Current Makefile
+
+{CURRENT_MAKEFILE}
+
+## Current Harness
+
+Review this harness for `__CPROVER_assume` preconditions that may define bounds on allocation sizes:
+
+{CURRENT_HARNESS}
+
+## Project Information
+
+- Project directory: {PROJECT_DIR}
+- Harness directory: {HARNESS_DIR}
+
+## Your Task
+
+1. Analyze each loop with an unwinding failure
+2. Determine if it has iteration-dependent memory operations
+3. Calculate the minimum iterations needed to access invalid memory
+4. Check `__CPROVER_assume` statements for allocation bounds
+5. Provide an updated Makefile with appropriate `--unwindset` flags
+
+Remember:
+- Only set unwindset for loops with genuine vulnerability potential
+- Skip loops without iteration-dependent memory operations
+- Skip unbounded allocations without a lower bound precondition
+- Use the minimum necessary unwind value
