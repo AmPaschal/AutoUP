@@ -44,3 +44,4 @@ From: ubuntu:22.04
 
 %files
     container/Makefile.include /makefiles/Makefile.include
+    container/general-stubs.c /makefiles/general-stubs.c
