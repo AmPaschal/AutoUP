@@ -21,6 +21,8 @@ from debugger.debugger import ProofDebugger
 from commons.docker_tool import ProjectContainer
 from logger import init_logging, setup_logger
 from commons.metric_summary import process_metrics
+from stub_generator.handle_function_pointers import FunctionPointerHandler
+from vuln_aware_refiner.vuln_aware_refiner import VulnAwareRefiner
 from stub_generator.gen_function_stubs import StubGenerator
 from commons.models import Generable
 from validator.precondition_validator import PreconditionValidator
@@ -37,14 +39,15 @@ def get_parser():
     )
     parser.add_argument(
         "mode",
-        choices=["harness", "debugger", "function-stubs", "coverage", "precondition", "all"],
+        choices=["harness", "debugger", "function-stubs", "function-pointers", "coverage", "vuln-aware", "precondition", "all"],
         help=(
             "Execution mode: "
             "'harness' to generate harness/makefile, "
             "'debugger' to run proof debugger, "
             "'function-stubs' to run function stub generator, "
-            "'function-stubs' to run function stub generator, "
+            "'function-pointers' to run function pointer handler, "
             "'coverage' to run coverage debugger, "
+            "'vuln-aware' to run vulnerability-aware harness refiner, "
             "'precondition' to run precondition validator, or "
             "'all' to run all 'harness', 'debugger' and 'coverage' modes sequentially."
         )
@@ -102,13 +105,28 @@ def process_mode(args):
             args=args,
             project_container=project_container
         ))
+    if args.mode in ["makefile"]:
+        agents.append(MakefileDebugger(
+            args=args,
+            project_container=project_container
+        ))
     if args.mode in ["function-stubs", "all"]:
         agents.append(StubGenerator(
             args=args,
             project_container=project_container
         ))
+    if args.mode in ["function-pointers", "all"]:
+        agents.append(FunctionPointerHandler(
+            args=args,
+            project_container=project_container
+        ))
     if args.mode in ["coverage", "all"]:
         agents.append(CoverageDebugger(
+            args=args,
+            project_container=project_container
+        ))
+    if args.mode in ["vuln-aware", "all"]:
+        agents.append(VulnAwareRefiner(
             args=args,
             project_container=project_container
         ))

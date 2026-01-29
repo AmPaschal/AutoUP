@@ -73,3 +73,23 @@ class PreconditionValidatorResponse(BaseModel):
                 v.to_dict() for v in self.validation_result
             ]
         }
+
+class VulnAwareRefinerResponse(BaseModel):
+    """
+    Response model for the VulnAwareRefiner agent.
+    
+    The LLM analyzes loops with unwinding failures and returns:
+    - analysis: Detailed analysis of iteration-dependent memory operations
+    - num_loop_unwindings_set: Number of custom loop unwindings to set or increase
+    - updated_makefile: Complete Makefile with appropriate --unwindset flags
+    """
+    analysis: str
+    num_loop_unwindings_set: int
+    updated_makefile: str
+
+    def to_dict(self):
+        return {
+            "analysis": self.analysis,
+            "num_loop_unwindings_set": self.num_loop_unwindings_set,
+            "updated_makefile": self.updated_makefile
+        }

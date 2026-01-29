@@ -86,6 +86,7 @@ def main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("-f", "--file", help="Path to a single C file")
     group.add_argument("-d", "--directory", help="Path to a directory to recursively search for C files")
+    group.add_argument("-tf", "--txtfile", help="Path to a text file containing full paths of C files, one per line")
     parser.add_argument("-o", "--output", default="root_functions.csv", help="Output CSV file name (default: root_functions.csv)")
 
     args = parser.parse_args()
@@ -103,6 +104,12 @@ def main():
             sys.exit(1)
         # Find all .c files recursively
         files_to_process = glob.glob(os.path.join(args.directory, '**', '*.c'), recursive=True)
+    elif args.txtfile:
+        if not os.path.isfile(args.txtfile):
+            print(f"Error: File '{args.txtfile}' not found.", file=sys.stderr)
+            sys.exit(1)
+        with open(args.txtfile, 'r') as f:
+            files_to_process = [line.strip() for line in f if line.strip()]
         
     output_csv = args.output
     print(f"Processing {len(files_to_process)} files... Output will be in '{output_csv}'")

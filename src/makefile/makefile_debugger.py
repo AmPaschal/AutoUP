@@ -28,7 +28,7 @@ class MakefileDebugger(AIAgent, Generable):
             project_container
         )
         
-        self._max_attempts = 10
+        self._max_attempts = 30
 
     def get_coverage_dict(self, json_path: str) -> dict:
         with open(json_path, "r") as f:
@@ -64,6 +64,102 @@ class MakefileDebugger(AIAgent, Generable):
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results
+    
+    def validate_linked_target(self) -> bool:
+
+        goto_file = os.path.join(self.harness_dir, "build", f"{self.target_function}.goto")
+        if not os.path.exists(goto_file):
+            logger.error(f"GOTO file not found: {goto_file}")
+            return False
+
+        goto_symbols_result = self.execute_command(
+            f"goto-instrument --show-symbol-table {goto_file} --json-ui",
+            workdir=self.harness_dir,
+            timeout=60,
+        )
+        if goto_symbols_result["exit_code"] != 0:
+            logger.error("Failed to get symbol table from GOTO binary.")
+            return False
+
+        try:
+            goto_symbols = json.loads(goto_symbols_result["stdout"])
+        except Exception as e:
+            logger.error(f"Failed to parse goto-instrument JSON output: {e}")
+            return False
+
+        if len(goto_symbols) != 3 or "symbolTable" not in goto_symbols[2]:
+            logger.error("Unexpected format of goto symbols output.")
+            return False
+
+        goto_symbols_dict = goto_symbols[2].get("symbolTable", {})
+        if not goto_symbols_dict or self.target_function not in goto_symbols_dict:
+            logger.error(f"Target function {self.target_function} not found in GOTO binary.")
+            return False
+
+        target_function_location = (
+            goto_symbols_dict.get(self.target_function, {})
+            .get("location", {})
+            .get("namedSub", {})
+        )
+
+        file_rel = target_function_location.get("file", {}).get("id")
+        wd = target_function_location.get("working_directory", {}).get("id")
+
+        if not file_rel or not wd:
+            logger.error(
+                f"Missing location info for {self.target_function}: "
+                f"file={file_rel!r}, working_directory={wd!r}"
+            )
+            return False
+
+        # file_rel is relative to wd (and may contain ../../..), so normalize to an absolute path
+        referenced_full_path = os.path.realpath(os.path.abspath(os.path.join(wd, file_rel)))
+        expected_full_path = os.path.realpath(os.path.abspath(self.target_file_path))
+
+        if referenced_full_path != expected_full_path:
+            logger.error(
+                "Linked target file mismatch.\n"
+                f"  expected:   {expected_full_path}\n"
+                f"  referenced: {referenced_full_path}\n"
+                f"  (wd={wd}, rel={file_rel})"
+            )
+            return False
+
+        return True
+    
+    def validate_called_target(self) -> bool:
+        """
+        Validates that the harness calls the target function by checking the
+        reachable call graph output contains: 'harness -> <target_function>'.
+        """
+        goto_path = os.path.join("build", f"{self.target_function}.goto")
+
+        callgraph_result = self.execute_command(
+            f"goto-instrument --reachable-call-graph {goto_path}",
+            workdir=self.harness_dir,
+            timeout=60,
+        )
+        if callgraph_result["exit_code"] != 0:
+            logger.error(
+                "Failed to compute reachable call graph.\n"
+                f"cmd: goto-instrument --reachable-call-graph {goto_path}\n"
+                f"stderr: {callgraph_result.get('stderr', '')}"
+            )
+            return False
+
+        stdout = callgraph_result.get("stdout", "")
+        needle = f"harness -> {self.target_function}"
+
+        for line in stdout.splitlines():
+            if line.strip() == needle:
+                return True
+
+        logger.error(
+            f"Call graph does not contain expected edge '{needle}'.\n"
+        )
+        return False
+
+
 
     def prepare_prompt(self, make_results):
         # Create the system prompt
@@ -118,10 +214,16 @@ class MakefileDebugger(AIAgent, Generable):
 
             llm_response, llm_data = self.llm.chat_llm(system_prompt, user_prompt, MakefileFields, llm_tools=tools, call_function=self.handle_tool_calls, conversation_history=conversation)
 
-            if not llm_response:
+            if not llm_response or not isinstance(llm_response, MakefileFields):
                 user_prompt = "The LLM did not return a valid response. Please provide a response using the expected format.\n"
                 self.log_task_attempt("makefile_generation", attempts, llm_data, "invalid_response")
                 continue
+
+            if not llm_response.updated_makefile and not llm_response.updated_harness:
+                logger.error("The LLM gave up and decided it cannot resolve this error.")
+                self.log_task_attempt("makefile_debugger", attempts, llm_data, "no_modifications")
+                status = Status.ERROR
+                break
 
             if llm_response.updated_makefile:
                 self.update_makefile(llm_response.updated_makefile)
@@ -132,20 +234,34 @@ class MakefileDebugger(AIAgent, Generable):
 
             status_code = make_results.get('status', Status.ERROR)
 
-            if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:
-                logger.info("Makefile successfully generated and compilation succeeded.")
-                self.log_task_attempt("makefile_debugger", attempts, llm_data, "", make_result=make_results)
-                status = Status.SUCCESS
-                break
-            elif status_code == Status.FAILURE:
+            if status_code == Status.FAILURE:
                 logger.info("Make command failed; reprompting LLM with make results.")
                 system_prompt, user_prompt = self.prepare_prompt(make_results)
                 self.log_task_attempt("makefile_debugger", attempts, llm_data, "compilation_error", make_result=make_results)
-            else:
-                logger.error("Make command failed to run.")
+                continue
+            elif status_code == Status.ERROR or status_code == Status.TIMEOUT or make_results.get('exit_code', -1) != 0:
+                logger.error("An error or timeout occurred when running make.")
                 self.log_task_attempt("makefile_debugger", attempts, llm_data, "make_error", make_result=make_results)
                 status = status_code
                 break
+
+            logger.info("Makefile successfully generated and compilation succeeded.")
+
+            if not self.validate_linked_target() or not self.validate_called_target():
+                logger.error("The target function is not linked in the compiled binary.")
+                user_prompt = f"""
+                The generated harness does not call the function {self.target_function} in the file {self.target_file_path}. 
+                Please, update the harness to ensure the correct function is called.\n
+                """
+                self.log_task_attempt("makefile_debugger", attempts, llm_data, "target_not_linked")
+                continue
+
+            if status_code == Status.SUCCESS:
+                
+                self.log_task_attempt("makefile_debugger", attempts, llm_data, "")
+                status = Status.SUCCESS
+                break
+            
 
             attempts += 1  
 

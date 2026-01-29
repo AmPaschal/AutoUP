@@ -263,14 +263,14 @@ class StubGenerator(AIAgent, Generable):
         attempts = 0
 
         tag = uuid.uuid4().hex[:4].upper()
-        self.save_harness(tag)
+        self.create_backup(tag)
 
         logger.info(f'System Prompt:\n{system_prompt}')
 
         conversation = []
 
         stubs_to_generate = len(functions_to_stub)
-        agent_result = {"stubs_to_generate": stubs_to_generate, "generation_status": False}
+        agent_result = {"stubs_to_generate": stubs_to_generate, "verification_status": False}
         while user_prompt and attempts < self._max_attempts:
             logger.info(f'User Prompt:\n{user_prompt}')
 
@@ -282,7 +282,7 @@ class StubGenerator(AIAgent, Generable):
                                                            call_function=self.handle_tool_calls, 
                                                            conversation_history=conversation)
 
-            if not llm_response:
+            if not llm_response or not isinstance(llm_response, HarnessResponse):
                 user_prompt = "The LLM did not return a valid response. Please try again and provide response in the correct format.\n" 
                 attempts += 1
                 continue
@@ -298,7 +298,7 @@ class StubGenerator(AIAgent, Generable):
 
             if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:
                 logger.info("Generated harness builds succeeded.")
-                agent_result["generation_status"] = True
+                agent_result["verification_status"] = True
                 break    
             elif status_code == Status.FAILURE:
                 logger.info("Make command failed; reprompting LLM with make results.")
@@ -319,11 +319,16 @@ class StubGenerator(AIAgent, Generable):
                 logger.error("Make command failed to run.")
                 break
 
-        
-        logger.error("Failed to generate compilable harness after maximum attempts.")
+        if attempts >= self._max_attempts:  
+            logger.error("Failed to generate compilable harness after maximum attempts.")
+
+        if agent_result.get("verification_status", False):
+            self.discard_backup(tag)
+        else:
+            self.restore_backup(tag)
 
         self.log_agent_result(agent_result)
         self.save_status('stubs')
-        return agent_result.get("generation_status", False)
+        return True
         
         

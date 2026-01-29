@@ -110,8 +110,13 @@ $(ENTRY)_harness.goto: $(ENTRY)_harness.c $(H_GENERATE_HEADER) generate_headers
 	$(GOTO_CC) -c $(EXTRA_GENERATED_COMPILER_ARGS) -o build/$@ $(INC) $(CFLAGS) $(ENTRY)_harness.c
 
 # Link harness and linked sources
-$(ENTRY)1.goto: $(ENTRY)_harness.goto $(OOS_OBJS)
+$(ENTRY)0.goto: $(ENTRY)_harness.goto $(OOS_OBJS)
 	$(GOTO_CC) -o build/$@ --function harness build/$(ENTRY)_harness.goto $(addprefix build/gotos/,$(notdir $(OOS_OBJS)))
+
+# Replace function pointers
+$(ENTRY)1.goto: $(ENTRY)0.goto
+	$(GOTO_INSTRUMENT) $(FUNCTION_POINTER_REPL) build/$^ build/$@ \
+		> build/reports/$(ENTRY)1.txt 2>&1
 
 # Add CBMC stub library
 $(ENTRY)2.goto: $(ENTRY)1.goto
