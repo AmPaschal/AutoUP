@@ -25,12 +25,17 @@ def collect_compilation_statuses(input_directory: Path) -> list[str]:
     """ Collect compilation statuses from all jsonl files in the input directory """
     logger.info("Collecting compilation statuses from %s", input_directory)
     compilation_statuses = []
-    for log_file in input_directory.glob("*.log"):
-        compilation_status = None
-        with log_file.open("r") as f:
-            # TODO: INITIAL HARNESS GENERATION IS TRUE
-            compilation_status = "Agent 'ProofDebugger' succeed" in f.read()
-            compilation_statuses.append(compilation_status)
+    for jsonl_file in input_directory.glob("*.jsonl"):
+        with jsonl_file.open("r") as f:
+            compilation_status = False
+            for line in f:
+                data = json.loads(line.strip())
+                if "type" in data and data["type"] == "agent_result":
+                    compilation_status = data.get("data", {}).get("compilation_status", None)
+            if compilation_status is not None and compilation_status:
+                compilation_statuses.append(True)
+            else:
+                compilation_statuses.append(False)
     logger.info("Compilation statuses collected from %i files...", len(compilation_statuses))
     return compilation_statuses
 
@@ -43,7 +48,7 @@ def collect_token_counts(input_directory: Path) -> list[int]:
             result = {}
             for line in f:
                 data = json.loads(line.strip())
-                if data["type"] == "task_attempt":
+                if "type" in data and data["type"] == "task_attempt":
                     token_usage = data.get("llm_data", {}).get("token_usage", {})
                     if len(token_usage) > 0:
                         if data["agent_name"] not in result:
@@ -78,12 +83,32 @@ def collect_final_coverage(input_directory: Path) -> list[float]:
         with jsonl_file.open("r") as f:
             for line in f:
                 data = json.loads(line.strip())
-                if data["type"] == "agent_result" and data["agent_name"] == "debugger":
+                if (
+                    "type" in data and
+                    data["type"] == "agent_result" and
+                    data["agent_name"] == "debugger"
+                ):
                     last_coverage = data.get("data", {}).get("debugger_final_coverage", {}).get("percentage", None)
         if last_coverage is not None:
             final_coverage.append(last_coverage)
     logger.info("Final coverage collected from %i files...", len(final_coverage))
     return final_coverage
+
+def collect_generation_time(input_directory: Path) -> list[float]:
+    """ Collect generation time from all jsonl files in the input directory """
+    logger.info("Collecting generation time from %s", input_directory)
+    generation_times = []
+    for jsonl_file in input_directory.glob("*.jsonl"):
+        generation_time = 0
+        with jsonl_file.open("r") as f:
+            for line in f:
+                data = json.loads(line.strip())
+                if "agent_name" in data and "elapsed_time" in data:
+                    generation_time += data.get("elapsed_time", 0)
+        if generation_time > 0:
+            generation_times.append(generation_time)
+    logger.info("Generation times collected from %i files...", len(generation_times))
+    return generation_times
 
 def collect_final_error(input_directory: Path) -> list[float]:
     """ Collect final error from all jsonl files in the input directory """
@@ -94,12 +119,36 @@ def collect_final_error(input_directory: Path) -> list[float]:
         with jsonl_file.open("r") as f:
             for line in f:
                 data = json.loads(line.strip())
-                if data["type"] == "agent_result" and data["agent_name"] == "debugger":
-                    last_error = data.get("data", {}).get("final_errors", None)
+                if (
+                    "type" in data and
+                    data["type"] == "agent_result" and
+                    data["agent_name"] == "debugger"
+                ):
+                    initial = data.get("data", {}).get("initial_errors", None)
+                    final = data.get("data", {}).get("final_errors", None)
+                    last_error = (initial - final) / initial if initial else 0
         if last_error is not None:
             final_error.append(last_error)
     logger.info("Final error collected from %i files...", len(final_error))
     return final_error
+
+def collect_verification(input_directory: Path) -> list[float]:
+    """ Collect verification statuses from all jsonl files in the input directory """
+    logger.info("Collecting verification statuses from %s", input_directory)
+    verification_statuses = []
+    for jsonl_file in input_directory.glob("*.jsonl"):
+        verification_status = False
+        with jsonl_file.open("r") as f:
+            for line in f:
+                data = json.loads(line.strip())
+                if "type" in data and data["type"] == "agent_result" and data["agent_name"] == "FunctionPointerHandler":
+                    verification_status = data.get("data", {}).get("verification_status", None)
+        if verification_status is not None and verification_status:
+            verification_statuses.append(True)
+        else:
+            verification_statuses.append(False)
+    logger.info("Verification statuses collected from %i files...", len(verification_statuses))
+    return verification_statuses
 
 def histogram_final_coverage(final_coverage: list[float], output_directory: Path) -> list[tuple[str, int]]:
     """ Generate histogram of verification time of final harnesses """
@@ -235,6 +284,35 @@ def histogram_final_verification_time(final_verification_time: list[float | str]
 
     logger.info("Histogram saved to %s", output_path)
 
+def histogram_generation_time(generation_time: list[float], output_directory: Path) -> list[tuple[str, int]]:
+    """ Generate histogram of generation time of final harnesses """
+    logger.info("Generating histogram of generation time in %s", output_directory)
+
+    if len(generation_time) == 0:
+        logger.warning("No generation time data provided, skipping histogram generation.")
+        return []
+
+    num_bins = math.ceil(math.sqrt(len(generation_time)))
+
+    plt.figure()
+    plt.hist(generation_time, bins=num_bins)
+    plt.xlabel("Generation Time (seconds)")
+    plt.ylabel("Count")
+    plt.title("Histogram of Generation Time")
+    plt.grid(True, axis="y", linestyle="--", alpha=0.5)
+
+    output_path = output_directory / "generation_time_histogram.png"
+    plt.savefig(output_path)
+    plt.close()
+
+    logger.info("Histogram saved to %s", output_path)
+    counts, bin_edges = np.histogram(generation_time, bins=num_bins)
+    table = []
+    for idx, count in enumerate(counts):
+        interval = f"{bin_edges[idx]:.2f}-{bin_edges[idx + 1]:.2f}"
+        table.append((interval, int(count)))
+    return table
+
 def main():
     """ Entry point"""
     parser = argparse.ArgumentParser(description="Generate final reports from output folder.")
@@ -260,7 +338,8 @@ def main():
     compilation_statuses = collect_compilation_statuses(input_directory)
 
     #(2) Complete verification within a fixed time budget,
-    # TODO: Function pointer handler agent results
+    final_verification = collect_verification(input_directory)
+
     
     #(3) Achieve high code coverage of the target unit,
     final_coverage = collect_final_coverage(input_directory)
@@ -269,13 +348,13 @@ def main():
     #(4) Resolve all reported verification errors via refined models,
     final_error = collect_final_error(input_directory)
     error_histogram_table = histogram_final_errors(final_error, output_directory)
-    # TODO: (initial - final) / initial
 
     #(5) false-positivivity rate per proof.
     # TODO: TBD
 
     #(1) generation time,
-    # TODO: 
+    generation_time = collect_generation_time(input_directory)
+    generation_time_table = histogram_generation_time(generation_time, output_directory)
 
     #(2) API usage costs.
     final_token_counts = collect_token_counts(input_directory)
@@ -294,25 +373,34 @@ def main():
         summary_file.write("\n")
 
         summary_file.write("(2) Complete verification within a fixed time budget,\n")
+        final_verification_success = len([x for x in final_verification if x])
+        summary_file.write(f"Success: {final_verification_success}/{len(final_verification)}")
         summary_file.write("\n")
 
         summary_file.write("(3) Achieve high code coverage of the target unit,\n")
         count_coverage_90 = len([x for x in final_coverage if x > 0.9])
         summary_file.write(f"Coverage > 90%: {count_coverage_90}/{len(final_coverage)}")
         summary_file.write(" = ")
-        summary_file.write(f"{(count_coverage_90 / len(final_coverage)) * 100}%")
+        if len(final_coverage) > 0:
+            summary_file.write(f"{(count_coverage_90 / len(final_coverage)) * 100}%")
+        else:
+            summary_file.write("N/A")
         summary_file.write("\n")
 
         summary_file.write("(4) Resolve all reported verification errors via refined models,\n")
-        summary_file.write(f"Zero error: {final_error_0}/{len(final_error)}")
-        summary_file.write(" = ")
-        summary_file.write(f"{(final_error_0 / len(final_error)) * 100}%")
+        if len(final_error) > 0:
+            summary_file.write(f"Zero error: {final_error_0}/{len(final_error)}")
+            summary_file.write(" = ")
+            summary_file.write(f"{(final_error_0 / len(final_error)) * 100}%")
+        else:
+            summary_file.write("N/A")
         summary_file.write("\n")
 
         summary_file.write("(5) false-positivivity rate per proof.\n")
         summary_file.write("TODO: TBD\n")
 
         summary_file.write("(1) generation time,\n")
+        summary_file.write(f"Average generation time: {sum(generation_time) / len(generation_time):.2f} seconds\n")
         summary_file.write("\n")
 
         summary_file.write("(2) API usage costs.\n")
