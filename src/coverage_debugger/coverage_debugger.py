@@ -11,6 +11,7 @@ from agent import AIAgent
 from commons.models import GPT, Generable
 from makefile.output_models import CoverageDebuggerResponse
 from commons.utils import Status
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -270,7 +271,7 @@ class CoverageDebugger(AIAgent, Generable):
 
         return percentage_increase
 
-    def validate_llm_response(self, llm_response: CoverageDebuggerResponse|None, function_entry: dict, target_block_line: str, attempts: int, current_coverage: dict):
+    def validate_llm_response(self, llm_response: Optional[CoverageDebuggerResponse], function_entry: dict, target_block_line: str, attempts: int, current_coverage: dict):
 
         # CASE 1 — LLM returned no valid response
         if not llm_response:

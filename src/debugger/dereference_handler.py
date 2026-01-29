@@ -1,6 +1,7 @@
 """Dereference handler"""
 
 # System
+from typing import Optional
 import re
 import os
 
@@ -14,7 +15,7 @@ logger = setup_logger(__name__)
 class DerefereneErrorHandler(ErrorHandler):
     """Handle programatically dereferences to a NULL"""
 
-    def do_analysis(self, error: str, steps: list) -> tuple[str, int] | None:
+    def do_analysis(self, error: str, steps: list) -> Optional[tuple[str, int]]:
         """Implements the specific analysis to a error"""
         suggestion_line = 0
         result = self.__locate_error_and_variable_name(error, steps)
@@ -48,7 +49,7 @@ class DerefereneErrorHandler(ErrorHandler):
         self,
         error_id: str,
         steps: list,
-    ) -> tuple[int, str] | None:
+    ) -> Optional[tuple[int, str]]:
         """Locate the step where the error ocurred"""
         for index, step in reversed(list(enumerate(steps))):
             if "detail" in step and "property" in step["detail"]:
@@ -67,7 +68,7 @@ class DerefereneErrorHandler(ErrorHandler):
                         return index, match_result.group(1)
         return None
 
-    def __handle_parameter_assignment(self, steps: list, step_index: int) -> tuple[int, str] | None:
+    def __handle_parameter_assignment(self, steps: list, step_index: int) -> Optional[tuple[int, str]]:
         """Handle function call"""
         index = 0
         while steps[step_index]["kind"] != "function-call":
@@ -81,7 +82,7 @@ class DerefereneErrorHandler(ErrorHandler):
             return None
         return step_index, variable_name
 
-    def __handle_variable_assignment(self, steps: list, step_index: int) -> tuple[int, str, bool] | None:
+    def __handle_variable_assignment(self, steps: list, step_index: int) -> Optional[tuple[int, str, bool]]:
         """Get the new variable to track"""
         file_path = steps[step_index]["location"]["file"]
         line_number = steps[step_index]["location"]["line"]
@@ -107,7 +108,7 @@ class DerefereneErrorHandler(ErrorHandler):
         argument_index: int,
         file_path: str,
         line_number: int,
-    ) -> str | None:
+    ) -> Optional[str]:
         """ Get the name of an argument given a function"""
         with open(os.path.join(self.root_dir, file_path), "r", encoding="utf-8") as file:
             line = file.readlines()[line_number - 1]

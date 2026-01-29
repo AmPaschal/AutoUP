@@ -2,6 +2,7 @@
 
 # System
 from abc import ABC, abstractmethod
+from typing import Optional
 import json
 import os
 
@@ -24,7 +25,7 @@ class ErrorHandler(ABC):
         )
         self.harness_file_path = harness_file_path
 
-    def analyze(self, error: CBMCError) -> str | None:
+    def analyze(self, error: CBMCError) -> Optional[str]:
         """Analyze the given error"""
         steps = self.__load_steps(error.error_id)
         result = self.do_analysis(error.error_id, steps)
@@ -34,7 +35,7 @@ class ErrorHandler(ABC):
         return self.__update_harness_content(variable, line)
 
     @abstractmethod
-    def do_analysis(self, error: str, steps: list) -> tuple[str, int] | None:
+    def do_analysis(self, error: str, steps: list) -> Optional[tuple[str, int]]:
         """Implements the specific analysis to a error"""
 
     def __load_steps(self, error_id: str) -> list:
