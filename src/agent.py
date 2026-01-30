@@ -272,7 +272,7 @@ class AIAgent(ABC):
     def execute_command(self, cmd: str, workdir: str, timeout: int) -> dict:
         try:
             result = self.project_container.execute(cmd, workdir=workdir, timeout=timeout)
-
+            
             if result.get('exit_code', -1) == 124:
                 logger.error(f"Command '{cmd}' timed out.")
                 result['stdout'] += "[TIMEOUT]"
