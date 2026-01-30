@@ -1,11 +1,61 @@
 #!/usr/bin/env python3
 import sys
 import json
+import re
+import shutil
+import subprocess
+import os
 import clang.cindex
 from clang.cindex import CursorKind, TypeKind
 
 def get_diagnostics(translation_unit):
     return [d.spelling for d in translation_unit.diagnostics]
+
+def get_clang_resource_dir():
+    """
+    Attempt to find the Clang resource directory containing standard headers
+    like stddef.h, stdarg.h, etc.
+    """
+    # 1. Try asking the clang executable if it's in the PATH
+    clang_exe = shutil.which('clang')
+    if clang_exe:
+        try:
+            # Run: clang -print-resource-dir
+            result = subprocess.run(
+                [clang_exe, '-print-resource-dir'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            resource_dir = result.stdout.strip()
+            if resource_dir and os.path.isdir(resource_dir):
+                include_dir = os.path.join(resource_dir, 'include')
+                if os.path.isdir(include_dir):
+                    return include_dir
+        except Exception:
+            pass
+            
+    # 2. As a fallback, look in common locations if the executable approach failed
+    # (e.g. if we are running in an environment where clang binary isn't the same as libclang)
+    # The user observed /usr/lib/clang/10.0.0/include/ exists in their environment
+    base_search_paths = [
+        '/usr/lib/clang',
+        '/usr/local/lib/clang'
+    ]
+    
+    for base in base_search_paths:
+        if os.path.isdir(base):
+            # Sort versions descending to pick the newest
+            try:
+                versions = sorted(os.listdir(base), reverse=True)
+                for v in versions:
+                    include_path = os.path.join(base, v, 'include')
+                    if os.path.isdir(include_path):
+                         return include_path
+            except OSError:
+                continue
+                
+    return None
 
 def find_function_calls(cursor, entry_point_name):
     # Map: Function Name -> Cursor
@@ -60,6 +110,7 @@ def find_function_calls(cursor, entry_point_name):
                 # or None if it's a complex expression.
                 
                 is_indirect = False
+                heuristic_reason = None
                 callee_name = node.spelling
                 
                 # Heuristic: 
@@ -74,6 +125,7 @@ def find_function_calls(cursor, entry_point_name):
                 if ref:
                     if ref.kind != CursorKind.FUNCTION_DECL:
                         is_indirect = True
+                        heuristic_reason = "ref_not_func"
                 else:
                     # Look at children to find the callee expression
                     children = list(node.get_children())
@@ -81,6 +133,13 @@ def find_function_calls(cursor, entry_point_name):
                         callee = children[0]
                         if callee.kind in (CursorKind.MEMBER_REF_EXPR, CursorKind.ARRAY_SUBSCRIPT_EXPR):
                             is_indirect = True
+                            heuristic_reason = "syntax"
+                        elif callee.kind == CursorKind.UNEXPOSED_EXPR and not node.spelling:
+                            # Heuristic: If it's UNEXPOSED and has no name, it's likely a complex call
+                            # (like ptr->func) that failed full parsing due to missing headers.
+                            # We treat this as indirect.
+                            is_indirect = True
+                            heuristic_reason = "unexposed_heuristic"
 
                 if is_indirect:
                     # Found a function pointer call
@@ -101,16 +160,57 @@ def find_function_calls(cursor, entry_point_name):
                             line_content = lines[line_idx].strip()
                         else:
                             line_content = ""
+                            
+                        # If callee_name is empty (common with UNEXPOSED_EXPR heuristic), extract it from source
+                        if not callee_name and 'callee' in locals():
+                            # Extract source for the callee expression
+                            start = callee.extent.start
+                            end = callee.extent.end
+                            if start.file and start.file.name == fname:
+                                 # 1-based to 0-based
+                                 s_line = start.line - 1
+                                 s_col = start.column - 1
+                                 e_line = end.line - 1
+                                 e_col = end.column - 1
+                                 
+                                 if s_line == e_line:
+                                     callee_name = lines[s_line][s_col:e_col]
+                                 else:
+                                     # Multi-line expression, just take it all
+                                     # (Simplification: join lines)
+                                     parts = []
+                                     parts.append(lines[s_line][s_col:])
+                                     for k in range(s_line+1, e_line):
+                                         parts.append(lines[k])
+                                     parts.append(lines[e_line][:e_col])
+                                     callee_name = "".join(parts).replace('\n', ' ').strip()
+                                     
+                        # Clean up whitespace
+                        if callee_name:
+                            callee_name = re.sub(r'\s+', '', callee_name)
+                            
+                            # Verification: If we inferred indirect via UNEXPOSED_EXPR heuristic (or just missing ref),
+                            # check if the extracted name actually looks like an indirect call.
+                            # If it's just a simple identifier (e.g. "func_name"), it's likely a direct call
+                            # to an undeclared function, not a function pointer.
+                            if is_indirect and heuristic_reason == "unexposed_heuristic":
+                                # Regular expression for a simple C identifier
+                                if re.match(r'^[a-zA-Z_]\w*$', callee_name):
+                                    # It's a direct call
+                                    is_indirect = False
+                                else:
+                                    pass
                     else:
                         line_content = ""
 
-                    results.append({
-                        "callee_name": callee_name if callee_name else "indirect_call",
-                        "line": node.location.line,
-                        "line_content": line_content,
-                        "path": current_path,
-                        "containing_function": current_func_name
-                    })
+                    if is_indirect:
+                        results.append({
+                            "callee_name": callee_name if callee_name else "indirect_call",
+                            "line": node.location.line,
+                            "line_content": line_content,
+                            "path": current_path,
+                            "containing_function": current_func_name
+                        })
                     
                 else:
                     # Direct call, recurse
@@ -126,8 +226,15 @@ def analyze_file(file_path, entry_point, extra_args=[]):
     
     # We don't have compilation flags, so we rely on heuristic parsing.
     # might need to add some basic includes or defines if parsing fails badly.
+    
+    # helper to inject standard headers
+    resource_include = get_clang_resource_dir()
+    final_args = list(extra_args)
+    if resource_include:
+        final_args.append(f"-I{resource_include}")
+        
     try:
-        tu = index.parse(file_path, args=extra_args)
+        tu = index.parse(file_path, args=final_args)
     except Exception as e:
         print(f"Error parsing file: {e}", file=sys.stderr)
         return []

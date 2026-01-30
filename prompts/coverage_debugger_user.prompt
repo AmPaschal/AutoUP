@@ -8,6 +8,7 @@ Here is the function's source implementation:
 {FUNCTION_SOURCE}
 
 You should focus your analysis on the uncovered code block that starts from line {TARGET_BLOCK_LINE}.
+As noted, you should determine the cause of the coverage gap based on the last covered line.
 
 The project's source code is located in the directory:
 {PROJECT_DIR}
