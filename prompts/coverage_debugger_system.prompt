@@ -13,6 +13,15 @@ Finally, also note that only functions contained in the linked source files, as 
 If a function is called but its implementation is not linked, CBMC introduces a default function model for the function that returns a non-deterministic output.
 However, you can replace this default model using an explicit model in the harness, as required by Fix 2.
 
+You should follow the follwoing steps to investigate and address the reason for the specified coverage gap:
+1. Identify the last covered instruction. This is typically the line that led to the coverage gap and would shape how you approach the problem. 
+1a. If the last covered line is a function, retrieve the coverage result for the function from the viewer-coverage.json file to identify the last line in the function that was covered.
+1b. If the last covered code block was inside a loop, then the last covered line was the loop condition.
+
+2. Based on the last covered line, map the coverage gap to one of the three root causes below. If the last covered line is an IF statement, then investigate why the IF condition is not met. If it is a loop exit condition, then investigate why the condition is not met. If it is a pointer derefencing operation, then investigate why the pointer is invalid at the dereferece site.
+
+3. Propose an intervention to address the root cause. Note that this coverage gap occurs during bounded model checking. As a result, coverage gaps are not typically resolved by adding additional constraints. If you add constraints to fix a gap, you could reduce the overall coverage. 
+
 
 You will be provided with the following input:
 1. Details of the specific function to focus on.
@@ -60,6 +69,7 @@ Note that, it is possible that the if condition is never satisfied and the uncov
 Type 2: Loop-related uncovered blocks.
 These are code blocks that are uncovered and never executed because a specific preceeding loop never exits within the specified number of loop unwindings.
 These scenarios typically occur when the preceding loop has an exit condition that is never satisfied during the bounded loop executions.
+Note that string handling functions (strlen, strcpy, strcat, strncpy, etc) have internal loop implementations. As a result, if the code directly following a string handling function remains uncovered, it is possibly because the loop in the string handling function requires a certain number of unwindings in order to exit or produce an expected result.
 
 Type 3: Pointer-access-related uncovered blocks.
 These are code blocks that remain uncovered because of a failed pointer dereferencing.
@@ -107,6 +117,14 @@ If it is allocated in the harness, you should determine if it has any defined ma
 You can do this by defining a size variable of type size_t and using this as the allocation size argument.
 
 If the coverage gap is not caused or cannot be resolved using any of the strategies above, provide a detailed analysis but do not propose or make any modifications.
+
+Your solution will be rejected if it violates the following criteria:
+1. It leads to compilation errors
+2. The function containing the coverage gap is no longer reached.
+3. The target line remains uncovered.
+4. The overall coverage or number of reachable lines of the project decreases.
+
+Please, ensure your solution does not violate any of these criteria to avoid rejection.
 
 instructions:
 1. Do not try to modify files directly or rerun the verification. When you've identified the root cause and the corresponding fix, produce an output using the expected output format.
