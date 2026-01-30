@@ -116,27 +116,27 @@ class InitialHarnessGenerator(AIAgent, Generable):
         dest_path = os.path.join(os.path.dirname(self.harness_dir), 'Makefile.include')
         if os.path.exists(dest_path):
             logger.info(f'Makefile.include already exists at {dest_path}, skipping copy.')
-            return
-        # Copy inside the container
-        copy_cmd = f"cp {src_path} {dest_path}"
-        copy_results = self.project_container.execute(copy_cmd, workdir='/')
-        if copy_results.get('exit_code', -1) != 0:
-            logger.error(f'Failed to copy Makefile.include: {copy_results.get("stderr", "")}')
-            return
-        logger.info(f'Copied Makefile.include to {dest_path}')
+        else:
+            # Copy inside the container
+            copy_cmd = f"cp {src_path} {dest_path}"
+            copy_results = self.project_container.execute(copy_cmd, workdir='/')
+            if copy_results.get('exit_code', -1) != 0:
+                logger.error(f'Failed to copy Makefile.include: {copy_results.get("stderr", "")}')
+                return
+            logger.info(f'Copied Makefile.include to {dest_path}')
 
         # Copy general-stubs.c to harness parent directory
         src_stubs_path = os.path.join('makefiles', 'general-stubs.c')
         dest_stubs_path = os.path.join(os.path.dirname(self.harness_dir), 'general-stubs.c')
         if os.path.exists(dest_stubs_path):
             logger.info(f'general-stubs.c already exists at {dest_stubs_path}, skipping copy.')
-            return
-        copy_cmd = f"cp {src_stubs_path} {dest_stubs_path}"
-        copy_results = self.project_container.execute(copy_cmd, workdir='/')
-        if copy_results.get('exit_code', -1) != 0:
-            logger.error(f'Failed to copy general-stubs.c: {copy_results.get("stderr", "")}')
-            return
-        logger.info(f'Copied general-stubs.c to {dest_stubs_path}')
+        else:
+            copy_cmd = f"cp {src_stubs_path} {dest_stubs_path}"
+            copy_results = self.project_container.execute(copy_cmd, workdir='/')
+            if copy_results.get('exit_code', -1) != 0:
+                logger.error(f'Failed to copy general-stubs.c: {copy_results.get("stderr", "")}')
+                return
+            logger.info(f'Copied general-stubs.c to {dest_stubs_path}')
 
     def setup_initial_makefile(self, initial_configs):
 
