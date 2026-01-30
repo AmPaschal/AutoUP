@@ -200,7 +200,7 @@ class AIAgent(ABC):
         logger.info(f"Function call response:\n {tool_response}")
         return str(tool_response)
 
-    def log_task_attempt(self, task_id, attempt_number, llm_data, error, make_result=None):
+    def log_task_attempt(self, task_id, attempt_number, llm_data, error):
         if not self.metrics_file:
             return
         
@@ -211,8 +211,7 @@ class AIAgent(ABC):
             "attempt_number": attempt_number,
             "llm_data": llm_data,
             "error": error,
-            "timestamp": time.time(),
-            "make_result": make_result,
+            "timestamp": time.time()
         }
 
         with open(self.metrics_file, 'a') as f:
@@ -272,10 +271,8 @@ class AIAgent(ABC):
 
     def execute_command(self, cmd: str, workdir: str, timeout: int) -> dict:
         try:
-            start = time.perf_counter()
             result = self.project_container.execute(cmd, workdir=workdir, timeout=timeout)
-            end = time.perf_counter()
-            result['time'] = end - start
+
             if result.get('exit_code', -1) == 124:
                 logger.error(f"Command '{cmd}' timed out.")
                 result['stdout'] += "[TIMEOUT]"

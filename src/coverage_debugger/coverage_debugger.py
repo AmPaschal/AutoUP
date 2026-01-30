@@ -298,6 +298,7 @@ class CoverageDebugger(AIAgent, Generable):
         if make_results.get("status", Status.ERROR) == Status.TIMEOUT:
             logger.error("Make command timed out.")
             return (AgentAction.SKIP_BLOCK, None, current_coverage, "make_timeout")
+
         # CASE 4 — Build failed (exit code != 0)
         if make_results.get("status", Status.ERROR) == Status.FAILURE:
             logger.error("[ERROR] Build failed after applying LLM proposed modifications.")
