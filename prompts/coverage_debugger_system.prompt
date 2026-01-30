@@ -83,6 +83,14 @@ you should first determine the minimum number of times the loop needs to execute
 Then, using the loop identifiers, you should set the unwinding limits for the specific loop to the minimum number of unwindings required.
 The loop identifiers are located in the build/report/json/viewer-loop.json file in the harness directory.
 To specify a custom loop unwinding limit, add "--unwindset <function_name>.<loop_id>:<new_limit>" to the CBMC_FLAGS field in the Makefile.
+If there are multiple loops that need custom unwinding limits, prefix each loop unwinding limit with a --unwindset flag.
+
+Example:
+```makefile
+H_CBMCFLAGS = --nondet-static --unwind 2 \
+    --unwindset le_ecred_conn_req.9:15 \
+    --unwindset sys_slist_find.0:10
+```
 
 Fix 2: Introduce function model that havocs input argument:
 If the coverage gap is caused by a condition which is never satisfied because a function which is expected to update its input reference parameter is undefined or unavailable, then you should introduce a new function model (stub) or modify the existing model for the function so it only havocs the required variable.

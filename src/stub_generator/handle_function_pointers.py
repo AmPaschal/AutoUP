@@ -122,7 +122,7 @@ class FunctionPointerHandler(AIAgent, Generable):
     
     def run_make(self, compile_only: bool = True) -> dict:
         make_cmd = "make compile -j4" if compile_only else "make -j4"
-        make_results = self.execute_command(make_cmd, workdir=self.harness_dir, timeout=900)
+        make_results = self.execute_command(make_cmd, workdir=self.harness_dir, timeout=1500)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results
@@ -153,7 +153,10 @@ class FunctionPointerHandler(AIAgent, Generable):
         status = Status.ERROR
 
         stubs_to_generate = len(fp_results)
-        agent_result = {"function_pointers_to_generate": stubs_to_generate, "generation_status": False}
+        agent_result = {
+            "fp_stubs_to_generate": stubs_to_generate, 
+            "verification_status": False,
+            }
         while user_prompt and attempts < self._max_attempts:
             logger.info(f'User Prompt:\n{user_prompt}')
 
@@ -191,7 +194,7 @@ class FunctionPointerHandler(AIAgent, Generable):
             if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:
                 logger.info("Generated harness builds succeeded.")
                 self.log_task_attempt("function_pointer_generation", attempts, llm_data, None)
-                agent_result["generation_status"] = True
+                agent_result["verification_status"] = True
                 status = Status.SUCCESS
                 break    
             elif status_code == Status.FAILURE:
@@ -220,10 +223,10 @@ class FunctionPointerHandler(AIAgent, Generable):
 
         if status == Status.SUCCESS:
             self.discard_backup(tag)
+            self.save_status('fp')
         else:
             self.restore_backup(tag)
 
         self.log_agent_result(agent_result)
-        self.save_status('fp')
-        return agent_result.get("generation_status", False)
+        return agent_result.get("verification_status", False)
         
