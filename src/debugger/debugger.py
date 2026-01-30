@@ -318,10 +318,10 @@ class ProofDebugger(AIAgent, Generable):
             make_result = self.run_make()
             if make_result.get("status") == Status.ERROR:
                 logger.error("[ERROR] Make command failed to execute.")
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_invocation_failed", make_result=make_result)
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_invocation_failed")
                 break
             if make_result.get("status") == Status.FAILURE:
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_failed", make_result=make_result)
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_failed")
                 # Let's use the makefile debugger to fix this error
                 makefile_debugger = MakefileDebugger(
                     args=self.args,
@@ -334,15 +334,15 @@ class ProofDebugger(AIAgent, Generable):
                 make_result = self.run_make()
             if make_result.get("status") == Status.TIMEOUT:
                 logger.error("[ERROR] Make command timed out.")
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_timeout", make_result=make_result)
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_timeout")
                 break
             if error_covered_initially and not self.__is_error_covered(error):
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_covered", make_result=make_result)
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_covered")
                 cause_of_failure = {"reason": "error_not_covered"}
                 continue
             new_coverage = self.get_overall_coverage()
             if new_coverage.get("hit", 0.0) < current_coverage.get("hit", 0.0) or new_coverage.get("percentage", 0.0) < current_coverage.get("percentage", 0.0):
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="overall_coverage_decreased", make_result=make_result)
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="overall_coverage_decreased")
                 cause_of_failure = {"reason": "overall_coverage_decreased"}
                 continue
             # Property count validation: ensure LLM didn't remove functions that reduce properties
@@ -360,13 +360,13 @@ class ProofDebugger(AIAgent, Generable):
                 }
                 continue
             if not self.__is_error_solved(error):
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_fixed", make_result=make_result)
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_fixed")
                 cause_of_failure = {"reason": "error_not_fixed"}
                 continue
             logger.info("Error resolved! Validating proposed preconditions...")
             self.validate_preconditions(error, tag, output.analysis)
             logger.info("Preconditions validated!")
-            self.log_task_attempt(error.error_id, attempt, chat_data, error=None, make_result=make_result)
+            self.log_task_attempt(error.error_id, attempt, chat_data, error=None)
             self.log_task_result(error.error_id, True, attempt)
             logger.info(f"[INFO] Current Overall Coverage: {json.dumps(new_coverage, indent=2)}")
             return True, new_coverage

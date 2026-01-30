@@ -276,14 +276,14 @@ class CoverageDebugger(AIAgent, Generable):
         if not llm_response:
             # An error occurred. We will skip this block 
             logger.error("[ERROR] No valid response from LLM.")
-            return (AgentAction.SKIP_BLOCK, None, current_coverage, "no_llm_response", None)
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "no_llm_response")
 
         # CASE 2 — LLM proposed no modifications
         if not llm_response.proposed_modifications and not llm_response.updated_harness and not llm_response.updated_makefile:
             logging.info(
                 f"No proposed modifications provided by LLM. Marking as skipped."
             )
-            return (AgentAction.SKIP_BLOCK, None, current_coverage, "no_modifications", None)
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "no_modifications")
 
         # Attempt to apply fix
         self.update_proof(llm_response.updated_harness, llm_response.updated_makefile)
@@ -293,11 +293,11 @@ class CoverageDebugger(AIAgent, Generable):
         # CASE 3 — Make failed entirely
         if make_results.get("status", Status.ERROR) in [Status.ERROR]:
             logger.error("Make command failed to run.")
-            return (AgentAction.SKIP_BLOCK, None, current_coverage, "make_invocation_failed", make_results)
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "make_invocation_failed")
 
         if make_results.get("status", Status.ERROR) == Status.TIMEOUT:
             logger.error("Make command timed out.")
-            return (AgentAction.SKIP_BLOCK, None, current_coverage, "make_timeout", make_results)
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "make_timeout")
         # CASE 4 — Build failed (exit code != 0)
         if make_results.get("status", Status.ERROR) == Status.FAILURE:
             logger.error("[ERROR] Build failed after applying LLM proposed modifications.")
@@ -308,7 +308,7 @@ class CoverageDebugger(AIAgent, Generable):
                 f"Stderr:\n{make_results.get('stderr', '')}\n"
                 "Please provide updated harness code or Makefile to fix the issue.\n"
             )
-            return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "build_failed", make_results)
+            return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "build_failed")
 
         coverage_status = self._get_function_coverage_status(function_entry["file"], function_entry["function"])
 
@@ -319,7 +319,7 @@ class CoverageDebugger(AIAgent, Generable):
                 "The target function is no longer reached by the updated harness and was reverted.\n"
                 "Please fix so target function is reached.\n"
             )
-            return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "function_unreachable", make_results)
+            return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "function_unreachable")
 
         # ✅ CASE — Success: block covered!
         if coverage_status.get(target_block_line) != "missed":
@@ -337,16 +337,16 @@ class CoverageDebugger(AIAgent, Generable):
                     "Investigate and determine why the change led to decreased coverage.\n"
                     "If it cannot be avoided, do not propose any modification."
                 )
-                return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "overall_coverage_decreased", make_results)
+                return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "overall_coverage_decreased")
 
             # Else, the fix is valid and should be accepted
             logging.info(f"[INFO] Target block on line {target_block_line} successfully covered.")
-            return (AgentAction.NEXT_BLOCK, None, new_coverage, None, make_results)
+            return (AgentAction.NEXT_BLOCK, None, new_coverage, None)
 
         # CASE 6 — Max attempts exhausted
         if attempts >= self._max_attempts:
             logging.error(f"[INFO] Maximum attempts reached for '{function_entry['function']}'.")
-            return (AgentAction.SKIP_BLOCK, None, current_coverage, "max_attempts_reached", make_results)
+            return (AgentAction.SKIP_BLOCK, None, current_coverage, "max_attempts_reached")
 
         # CASE 7 — Coverage did not improve
         logger.info(
@@ -359,7 +359,7 @@ class CoverageDebugger(AIAgent, Generable):
             f"{json.dumps(coverage_status, indent=2)}\n"
             "Your proposed changes have been reverted. Please update harness or Makefile to cover the target block line.\n"
         )
-        return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "block_not_covered", make_results)
+        return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "block_not_covered")
 
     def generate(self) -> bool:
 
@@ -417,13 +417,13 @@ class CoverageDebugger(AIAgent, Generable):
                 conversation_history=conversation
             )
 
-            llm_result, user_prompt, current_coverage, error_tag, make_result = self.validate_llm_response(
+            llm_result, user_prompt, current_coverage, error_tag = self.validate_llm_response(
                                                                         llm_response, 
                                                                         next_function, 
                                                                         target_block_line, 
                                                                         attempts, 
                                                                         current_coverage)
-            self.log_task_attempt(task_id, attempts, chat_data, error=error_tag, make_result=make_result)
+            self.log_task_attempt(task_id, attempts, chat_data, error=error_tag)
 
             if llm_result == AgentAction.RETRY_BLOCK and attempts < self._max_attempts: 
                 # If an error occurred in the last attempt, the previous function returns a retry_block action instead of skip_block

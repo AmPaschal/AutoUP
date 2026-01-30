@@ -1,6 +1,6 @@
 import enum
 
-class Status(str, enum.Enum):
+class Status(enum.Enum):
     SUCCESS = "SUCCESS"
     FAILURE = "FAILURE"
     TIMEOUT = "TIMEOUT"
