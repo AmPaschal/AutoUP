@@ -7,7 +7,13 @@
 **/backups/**
 **/output-*/
 **/output-*
+**/report-*/
+**/report-*
 logs/
 reports/
 metrics/
 output.log
+tools.sif
+tests/report
+tests/rank
+run_tests.out

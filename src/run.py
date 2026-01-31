@@ -6,6 +6,7 @@ import json
 from typing import Optional
 import argparse
 import signal
+import time
 import uuid
 import os
 
@@ -17,9 +18,11 @@ from coverage_debugger.coverage_debugger import CoverageDebugger
 from makefile.makefile_debugger import MakefileDebugger
 from initial_harness_generator.gen_harness import InitialHarnessGenerator
 from debugger.debugger import ProofDebugger
-from commons.docker_tool import ProjectContainer
+from commons.project_container import ProjectContainer
 from logger import init_logging, setup_logger
 from commons.metric_summary import process_metrics
+from commons.apptainer_tool import ApptainerProjectContainer
+from commons.docker_tool import DockerProjectContainer
 from stub_generator.handle_function_pointers import FunctionPointerHandler
 from vuln_aware_refiner.vuln_aware_refiner import VulnAwareRefiner
 from stub_generator.gen_function_stubs import StubGenerator
@@ -80,6 +83,12 @@ def get_parser():
         help="Path where metrics file should be saved."
     )
     parser.add_argument(
+        "--container_engine",
+        choices=["docker", "apptainer"],
+        default="docker",
+        help="Container engine to use (default: docker).",
+    )
+    parser.add_argument(
         "--llm_model",
         default="gpt-5",
         help="LLM model to use (default: gpt-5)"
@@ -134,10 +143,17 @@ def process_mode(args):
             args=args,
             project_container=project_container
         ))
-        
 
     for agent in agents:
+        start_time = time.perf_counter()
         result = agent.generate()
+        elapsed_time = time.perf_counter() - start_time
+        with open(args.metrics_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "agent_name": agent.__class__.__name__,
+                "elapsed_time": elapsed_time
+            }))
+            f.write("\n")
         if not result:
             logger.error("Agent '%s' failed. Aborting.", str(agent))
             return
@@ -186,12 +202,18 @@ def main():
     if openai_api_key is None:
         raise EnvironmentError("No OpenAI API key found")
 
-    container_name = f"autoup_{uuid.uuid4().hex[:8]}"
-    project_container = ProjectContainer(
-        dockerfile_path="docker/tools.Dockerfile",
-        host_dir=args.root_dir,
-        container_name=container_name
-    )
+    if args.container_engine == "apptainer":
+        project_container = ApptainerProjectContainer(
+            apptainer_def_path="container/tools.def",
+            host_dir=args.root_dir
+        )
+    else:
+        container_name = f"autoup_{uuid.uuid4().hex[:8]}"
+        project_container = DockerProjectContainer(
+            dockerfile_path="container/tools.Dockerfile",
+            host_dir=args.root_dir,
+            container_name=container_name
+        )
     try:
         project_container.initialize()
     except Exception as e:
