@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+from typing import Optional
 import uuid
 from enum import Enum
 
@@ -233,10 +234,10 @@ class VulnAwareRefiner(AIAgent, Generable):
     
     def validate_llm_response(
         self,
-        llm_response: VulnAwareRefinerResponse | None,
+        llm_response: Optional[VulnAwareRefinerResponse],
         attempts: int,
         initial_coverage: dict
-    ) -> tuple[AgentAction, str | None, dict, str | None]:
+    ) -> tuple[AgentAction, Optional[str], dict, Optional[str]]:
         """
         Validate the LLM response and apply changes.
         

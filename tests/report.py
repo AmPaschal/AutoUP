@@ -8,6 +8,7 @@ import logging
 import json
 import math
 import re
+from typing import Optional
 
 # Utils
 import matplotlib.pyplot as plt
@@ -68,7 +69,7 @@ def collect_token_counts(input_directory: Path) -> list[int]:
     logger.info("Token counts collected from %i files...", len(token_counts))
     return token_counts
 
-def collect_final_verification_time(input_directory: Path) -> list[float | str]:
+def collect_final_verification_time(input_directory: Path) -> list[Optional[float]]:
     """ Collect final verification time from all jsonl files in the input directory """
     logger.info("Collecting final verification time from %s", input_directory)
     for jsonl_file in input_directory.glob("*.jsonl"):
@@ -260,7 +261,7 @@ def histogram_final_errors(final_error: list[float], output_directory: Path) -> 
         table.append((interval, int(count)))
     return table
 
-def histogram_final_verification_time(final_verification_time: list[float | str], output_directory: Path):
+def histogram_final_verification_time(final_verification_time: list[Optional[float]], output_directory: Path):
     """ Generate histogram of verification time of final harnesses """
     logger.info("Generating histogram of final verification time in %s", output_directory)
 
