@@ -60,7 +60,7 @@ class MakefileDebugger(AIAgent, Generable):
 
     def run_make(self, compile_only: bool = True) -> dict:
         make_cmd = "make compile -j4" if compile_only else "make -j4"
-        make_results = self.execute_command(make_cmd, workdir=self.harness_dir, timeout=600)
+        make_results = self.execute_command(make_cmd, workdir=self.harness_dir, timeout=1800)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results

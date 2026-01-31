@@ -484,7 +484,7 @@ class ProofDebugger(AIAgent, Generable):
         )
 
     def run_make(self):
-        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=1500)
+        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=1800)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         return make_results
