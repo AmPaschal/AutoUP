@@ -10,6 +10,7 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import time
 
 from metric_summary import process_metrics
 
@@ -126,7 +127,8 @@ def run_proof_command(entry, args, output_root):
         "--container_engine=apptainer"
     ]
 
-    logger.info(f"Starting experiment: {src_file_name}, function: {function_name}")
+    ts = time.time()
+    logger.info(f"[{ts}] Starting experiment: {src_file_name}, function: {function_name}")
 
     try:
         with open(log_file, "w") as f:
@@ -135,7 +137,8 @@ def run_proof_command(entry, args, output_root):
     except Exception as e:
         status = Status.ERROR
 
-    logger.info(f"Finished experiment: {src_file_name}, function: {function_name}, status: {status}")
+    te = time.time()
+    logger.info(f"[{te}] Finished experiment: {src_file_name}, function: {function_name}, status: {status}")
 
     # Check log file for success message
     if args.mode == "harness":
