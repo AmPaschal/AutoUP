@@ -417,7 +417,7 @@ class VulnAwareRefiner(AIAgent, Generable):
                 self.log_task_result(task_id, True, attempts)
                 user_prompt = None
                 success_status = True
-                agent_result["num_loops_increased"] += llm_response.num_new_loop_unwindings
+                agent_result["num_loops_increased"] += llm_response.num_loop_unwindings_set
             elif action == AgentAction.TERMINATE:
                 self.restore_backup(tag)
                 self.discard_backup(tag)
