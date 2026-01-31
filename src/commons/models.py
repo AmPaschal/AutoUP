@@ -228,12 +228,12 @@ class GPT(LLM):
             try:
                 client_response: ParsedResponse = self.with_retry_on_error(
                     lambda: self.client.responses.parse(
-                        model="gpt-5",
+                        model=self.name,
                         instructions=system_messages,
                         input=input_list,
                         text_format=output_format,
                         tool_choice="auto",
-                        reasoning={"effort": "low"},
+                        reasoning={"effort": "medium"},
                         tools=llm_tools,
                         temperature=1.0,
                     ),

@@ -127,13 +127,6 @@ class CoverageDebugger(AIAgent, Generable):
         logger.info("[INFO] No uncovered functions remaining.")
         return None, None, None
 
-
-    def run_make(self):
-        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=1500)
-        logger.info('Stdout:\n' + make_results.get('stdout', ''))
-        logger.info('Stderr:\n' + make_results.get('stderr', ''))
-        return make_results
-
     def extract_function_cli_awk(self, file_path, line_coverage):
         """
         Extract function lines using awk, preserving original line numbers.

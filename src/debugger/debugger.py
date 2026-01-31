@@ -482,13 +482,6 @@ class ProofDebugger(AIAgent, Generable):
         raise ValueError(
             f"Unknown cause_of_failure reason: {cause_of_failure['reason']}",
         )
-
-    def run_make(self):
-        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=1500)
-        logger.info('Stdout:\n' + make_results.get('stdout', ''))
-        logger.info('Stderr:\n' + make_results.get('stderr', ''))
-        return make_results
-
     
 # TODO: Refactor Error Handling
     def __pop_error(self, error_report: ErrorReport, errors_to_skip: set) -> Optional[CBMCError]:

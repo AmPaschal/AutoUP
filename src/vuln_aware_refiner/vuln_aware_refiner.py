@@ -230,15 +230,7 @@ class VulnAwareRefiner(AIAgent, Generable):
         user_prompt = user_prompt.replace("{HARNESS_DIR}", self.harness_dir)
 
         return system_prompt, user_prompt
-
-    def run_make(self) -> dict:
-        """Run make command and return results."""
-        logger.info("[INFO] Running make command...")
-        make_results = self.execute_command("make -j4", workdir=self.harness_dir, timeout=1500)
-        logger.info('Stdout:\n' + make_results.get('stdout', ''))
-        logger.info('Stderr:\n' + make_results.get('stderr', ''))
-        return make_results
-
+    
     def validate_llm_response(
         self,
         llm_response: VulnAwareRefinerResponse | None,
