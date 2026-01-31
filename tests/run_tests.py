@@ -126,6 +126,7 @@ def run_proof_command(entry, args, output_root):
         "--container_engine=apptainer"
     ]
 
+    logger.info(f"Starting experiment: {src_file_name}, function: {function_name}")
 
     try:
         with open(log_file, "w") as f:
@@ -133,6 +134,8 @@ def run_proof_command(entry, args, output_root):
         status = Status.SUCCESS if process.returncode == 0 else Status.FAILURE
     except Exception as e:
         status = Status.ERROR
+
+    logger.info(f"Finished experiment: {src_file_name}, function: {function_name}, status: {status}")
 
     # Check log file for success message
     if args.mode == "harness":
