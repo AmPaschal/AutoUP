@@ -327,7 +327,8 @@ class CoverageDebugger(AIAgent, Generable):
         if coverage_status.get(target_block_line) != "missed":
             # First, we validate the fix by checking that the overall coverage also increased
             new_coverage = self.get_overall_coverage()
-            if new_coverage.get("hit", 0.0) <= current_coverage.get("hit", 0.0) or new_coverage.get("total", 0.0) < current_coverage.get("total", 0.0):
+            if (new_coverage.get("hit", 0.0) <= current_coverage.get("hit", 0.0) or 
+                new_coverage.get("total", 0.0) < current_coverage.get("total", 0.0)):
                 logger.info(
                     "[INFO] Target block covered but overall reachable code or coverage decreased."
                 )
@@ -430,6 +431,14 @@ class CoverageDebugger(AIAgent, Generable):
             if llm_result == AgentAction.RETRY_BLOCK and attempts < self._max_attempts: 
                 # If an error occurred in the last attempt, the previous function returns a retry_block action instead of skip_block
                 self.restore_backup(tag)
+                prompt_prefix = f"""
+                Your previous attempt to fix the coverage issue did not succeed.
+                You should first analyze the error message below and determine why it was not accepted.
+                In your analysis, explain why the proposed modification failed and how your current proposal is different and will address the issue.
+                \n\n
+                """
+                if user_prompt:
+                    user_prompt = prompt_prefix + user_prompt
             elif llm_result == AgentAction.SKIP_BLOCK or attempts >= self._max_attempts:
                 self.restore_backup(tag)
                 self.discard_backup(tag)

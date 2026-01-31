@@ -130,9 +130,13 @@ class FunctionPointerHandler(AIAgent, Generable):
     def generate(self) -> bool:
 
         h_def_args = self.get_h_def_entries()
+        h_inc_args = self.get_h_inc_entries()
+        
+        # Combine all extra args for clang parsing
+        extra_args = h_def_args + h_inc_args
         
         logger.info(f"Analyzing file: {self.target_file_path} for entry point: {self.target_function}")
-        fp_results = analyze_file(self.target_file_path, self.target_function, h_def_args)
+        fp_results = analyze_file(self.target_file_path, self.target_function, extra_args)
         
         if not fp_results:
             logger.info("No function pointers found.")

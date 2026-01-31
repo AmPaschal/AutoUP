@@ -40,11 +40,11 @@ void *memmove(void *dest, const void *src, size_t n)
         if (__builtin_constant_p(n)) {
             char src_n[n];
             __CPROVER_array_copy(src_n, (char *)src);
-            __CPROVER_array_replace((char *)dst, src_n);
+            __CPROVER_array_replace((char *)dest, src_n);
         } else {
             size_t index;
             __CPROVER_assume(index < n);
-            ((uint8_t *)dst)[index] = nondet_uint8_t();
+            ((uint8_t *)dest)[index] = nondet_uint8_t();
         }
         
     }
