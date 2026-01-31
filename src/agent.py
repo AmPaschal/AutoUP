@@ -107,7 +107,7 @@ class AIAgent(ABC):
         try:
             logger.info(f"Running command: {cmd}")
             result = self.project_container.execute(cmd)
-            return self.truncate_result_custom(result, cmd, max_input_tokens=10000, model='gpt-5')
+            return self.truncate_result_custom(result, cmd, max_input_tokens=10000, model=self.args.llm_model)
         except subprocess.CalledProcessError as e:
             print(f"Command failed with error:\n{e.stderr}")
             return None
@@ -267,6 +267,16 @@ class AIAgent(ABC):
         with open(self.harness_file_path, 'r') as file:
             harness_content = file.read()
         return harness_content
+
+    
+
+    def run_make(self, compile_only: bool = False) -> dict:
+        logger.info("[INFO] Running make command...")
+        make_cmd = "make compile -j3" if compile_only else "make -j3"
+        make_results = self.execute_command(make_cmd, workdir=self.harness_dir, timeout=1800)
+        logger.info('Stdout:\n' + make_results.get('stdout', ''))
+        logger.info('Stderr:\n' + make_results.get('stderr', ''))
+        return make_results
 
 
     def execute_command(self, cmd: str, workdir: str, timeout: int) -> dict:

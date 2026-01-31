@@ -9,6 +9,7 @@ from commons.models import GPT, Generable
 from makefile.output_models import HarnessResponse
 from logger import setup_logger
 from makefile.makefile_debugger import MakefileDebugger
+from commons.utils import Status
 
 logger = setup_logger(__name__)
 class InitialHarnessGenerator(AIAgent, Generable):
@@ -188,7 +189,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
 
         conversation = []   
         harness_generated = False
-        agent_result = {"compilation_status": False}
+        agent_result = {"compilation_status": False, "verification_status": False}
 
         while user_prompt and attempts <= self._max_attempts:
 
@@ -229,6 +230,16 @@ class InitialHarnessGenerator(AIAgent, Generable):
                             )
         status = makefile_debugger.generate()
         agent_result["compilation_status"] = status
+        if status:
+            logger.info("Initial harness compiles. Checking verification...")
+            make_results = self.run_make(compile_only=False)
+            
+            status_code = make_results.get('status', Status.ERROR)
+
+            if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:
+                agent_result["verification_status"] = True
+                logger.info("Initial harness verification succeeded.")
+
         self.log_agent_result(agent_result)
 
         self.save_status('harness')
