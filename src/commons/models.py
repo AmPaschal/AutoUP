@@ -228,7 +228,7 @@ class GPT(LLM):
             try:
                 client_response: ParsedResponse = self.with_retry_on_error(
                     lambda: self.client.responses.parse(
-                        model="gpt-5",
+                        model="gpt-5.2",
                         instructions=system_messages,
                         input=input_list,
                         text_format=output_format,
