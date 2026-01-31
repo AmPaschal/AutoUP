@@ -3,7 +3,7 @@
 
 #SBATCH --account=davisjam
 #SBATCH --nodes=1
-#SBATCH --ntasks=80
+#SBATCH --ntasks=40
 #SBATCH --partition=cpu
 #SBATCH --mem=160G
 #SBATCH --qos=standby
