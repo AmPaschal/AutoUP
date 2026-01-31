@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from src.commons.metric_summary import process_metrics
+from metric_summary import process_metrics
 
 logging.basicConfig(
     level=logging.INFO,
@@ -122,7 +122,8 @@ def run_proof_command(entry, args, output_root):
         "--root_dir", str(base_dir),
         "--harness_path", str(proof_dir),
         "--target_file_path", str(src_file),
-        "--metrics_file", str(metrics_file)
+        "--metrics_file", str(metrics_file),
+        "--container_engine=apptainer"
     ]
 
 
