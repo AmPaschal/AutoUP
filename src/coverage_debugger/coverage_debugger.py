@@ -363,7 +363,8 @@ class CoverageDebugger(AIAgent, Generable):
 
         make_results = self.run_make()
 
-        if make_results.get("status", Status.ERROR) != Status.SUCCESS:
+        if (make_results.get("status", Status.ERROR) != Status.SUCCESS or 
+            make_results.get("exit_code", -1) != 0 or not self.validate_verification_report()):
             logger.error("Make command failed to run.")
             self.log_agent_result({"initial_coverage": None, "final_coverage": None})
             return False

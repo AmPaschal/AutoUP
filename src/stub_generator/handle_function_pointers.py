@@ -188,7 +188,7 @@ class FunctionPointerHandler(AIAgent, Generable):
             
             status_code = make_results.get('status', Status.ERROR)
 
-            if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:
+            if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0 and self.validate_verification_report():
                 logger.info("Generated harness builds succeeded.")
                 self.log_task_attempt("function_pointer_generation", attempts, llm_data, None)
                 agent_result["verification_status"] = True

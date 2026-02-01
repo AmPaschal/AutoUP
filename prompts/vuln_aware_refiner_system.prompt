@@ -5,45 +5,27 @@ Your task is to analyze loops that have loop unwinding failures and determine ap
 
 In CBMC, loops are unrolled a bounded number of times during verification. When a loop requires more iterations than the specified bound, an "unwinding failure" occurs. This can mask potential vulnerabilities that only manifest after a certain number of iterations.
 
-Your goal is to identify loops with iteration-dependent memory operations and determine the **minimum number of loop iterations** required to access invalid memory, which could expose buffer overflow or out-of-bounds access vulnerabilities.
+Your goal is to identify loops with iteration-dependent memory operations and follow the specified process to determine the **minimum number of loop iterations** required to access invalid memory, which could expose buffer overflow or out-of-bounds access vulnerabilities.
 
 ## Iteration-Dependent Memory Operations
 
-An iteration-dependent memory operation is a memory access within a loop where the memory location depends on the loop iterator. Examples:
+An iteration-dependent memory operation is a memory access within a loop where the memory location depends on the loop iterator. We will focus on only memory operations involving static arrays and string handling functions.
 
 1. **Static Array Access**: `array[i]` where `i` is the loop iterator
-   - Min iterations = `array_size + 1` to access out of bounds
+   - Step 1: Identify the size of the static array.
+   - Step 2: Check if the size of the array is controlled by a config in the makefile. If it is, modify the value of the config in the Makefile to 1.
+   - Step 3: Identify the maximum number of bytes that can be written to the static array in each loop iteration. If this is not fixed, not deterministic or depends on an arbitrary value, then do not perform any additional unwinding.
+   - Step 4: Compute the loop unwinding limit using the formular ((array_size/max_write_size per iteraton) + 1). You must add one to make the loop iteration write to invalid memory.
 
-2. **Dynamic Array/Buffer Access**: Buffer allocated with malloc/calloc accessed with iterator
-   - Min iterations = `allocation_size + 1`
-
-3. **Pointer Arithmetic**: `ptr + i * sizeof(type)` or similar
-
-4. String handling functions: `strcpy`, `strlen`, `strncpy`, `strcat`, `strncat`, `strncasecmp`, etc.
+2. String handling functions (`strcpy`, `strcat`, etc) with static array destination:
    - CBMC implements these functions using a loop on the input string, until a null terminator is found or n iterations is reached.
-   - The minimum loop iterations required will depend on the minimum length of the src or dest string, plus 1.
-   - For strlen, if the length of the string is unknown, the minimum loop iterations required will either be 20 or depend on how the produced length is used.
-   - strcat has two loops, with the first iterating over the dest and the second over the src. The minimum loop iterations required will depend on the minimum length of the corresponding string, if it is known.
-
-## Handling Unbounded Allocations
-
-For dynamically allocated buffers with no fixed size:
-
-1. Check if there is a `__CPROVER_assume` precondition on the size variable in the harness
-2. If the precondition sets a **minimum size (lower bound)**, use `lower_bound + 1` iterations
-3. If there is **NO lower bound**, skip this loop - the lower bound will be 0 during verification and the general unwind of 2 will be sufficient
-
-Example precondition with lower bound:
-```c
-__CPROVER_assume(buf_size >= 10 && buf_size <= 100);
-// Lower bound is 10, so min iterations = 11
-```
-
-Example without lower bound (skip):
-```c
-__CPROVER_assume(buf_size <= 100);
-// No lower bound - skip this loop
-```
+   - Follow these steps to determine the loop unwinding limits for the internal loops in these function.
+   - Step 1: Determine the size of the destination buffer. If this is not a static or fixed-size array, skip this loop.
+   - Step 2: Check if the size of the destination buffer is controlled by a config in the makefile. If it is, modify the value of the config to 10.
+   - Step 3: Increase the loop unwinding limits of the corresponding string handling function to the destination_size + 1.
+      - For strcpy, the loop id is typically strcpy.unwind.0
+      - Strcat has two loops, the first iterating over the destination to find its null byte and the second copying over the source byte-by-byte to the destination. You should set the loop unwinding limit to the second loop (typically strcat.unwind.1).
+      - For strlen, only increase its internal loop if its return variable is used to copy data into a fixed size buffer. In such case, unroll it to the size of the fixed size buffer + 1.
 
 ## Makefile Update Format
 

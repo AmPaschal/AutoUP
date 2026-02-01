@@ -81,6 +81,7 @@ Fix 1: Increase unwinding limit for specific loop:
 If the coverage gap is traced to a loop that never exits because of a low unwinding limit (Type 2) or that does not sufficiently execute so the if-related uncovered block is satisfiable (Type 1), 
 you should first determine the minimum number of times the loop needs to execute so its exit condition is satisfied or the uncovered block's if-condition is satisfiable.
 Then, using the loop identifiers, you should set the unwinding limits for the specific loop to the minimum number of unwindings required plus one. It is very important to add one to the minimum number in order to ensure the loop condition is falsified and exits.
+Note: You should use the minimum loop unwinding limit + 1. Increasing the loop unwinding limit beyond this will prolong the verification and risk timing out or exhausting memory.
 The loop identifiers are located in the build/report/json/viewer-loop.json file in the harness directory.
 To specify a custom loop unwinding limit, add "--unwindset <function_name>.<loop_id>:<new_limit>" to the CBMC_FLAGS field in the Makefile.
 If there are multiple loops that need custom unwinding limits, prefix each loop unwinding limit with a --unwindset flag.
