@@ -268,11 +268,18 @@ class AIAgent(ABC):
             harness_content = file.read()
         return harness_content
 
-    
+    def validate_verification_report(self) -> bool: 
+        # Check if the build/report/json directory exists
+        json_report_dir = os.path.join(self.harness_dir, "build", "report", "json")
+        html_report_dir = os.path.join(self.harness_dir, "build", "report", "html")
+        if not os.path.exists(json_report_dir) or not os.path.exists(html_report_dir):
+            logger.error(f"[ERROR] Verification report directory not found: {json_report_dir} or {html_report_dir}")
+            return False
+        return True
 
     def run_make(self, compile_only: bool = False) -> dict:
         logger.info("[INFO] Running make command...")
-        make_cmd = "make compile -j3" if compile_only else "make -j3"
+        make_cmd = "make compile -j3" if compile_only else "make clean && make -j3"
         make_results = self.execute_command(make_cmd, workdir=self.harness_dir, timeout=1800)
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))

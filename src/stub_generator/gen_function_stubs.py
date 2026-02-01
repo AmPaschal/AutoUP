@@ -289,7 +289,7 @@ class StubGenerator(AIAgent, Generable):
             
             status_code = make_results.get('status', Status.ERROR)
 
-            if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0:
+            if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0 and self.validate_verification_report():
                 logger.info("Generated harness builds succeeded.")
                 agent_result["verification_status"] = True
                 break    

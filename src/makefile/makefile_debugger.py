@@ -226,12 +226,12 @@ class MakefileDebugger(AIAgent, Generable):
 
             status_code = make_results.get('status', Status.ERROR)
 
-            if status_code == Status.FAILURE:
+            if status_code == Status.FAILURE or make_results.get('exit_code', -1) != 0:
                 logger.info("Make command failed; reprompting LLM with make results.")
                 system_prompt, user_prompt = self.prepare_prompt(make_results)
                 self.log_task_attempt("makefile_debugger", attempts, llm_data, "compilation_error")
                 continue
-            elif status_code == Status.ERROR or status_code == Status.TIMEOUT or make_results.get('exit_code', -1) != 0:
+            elif status_code == Status.ERROR or status_code == Status.TIMEOUT:
                 logger.error("An error or timeout occurred when running make.")
                 self.log_task_attempt("makefile_debugger", attempts, llm_data, "make_error")
                 status = status_code

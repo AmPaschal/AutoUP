@@ -50,7 +50,9 @@ class ProofDebugger(AIAgent, Generable):
     def generate(self) -> bool:
         """Iterates over errors"""
         make_result = self.run_make()
-        if make_result["status"] != Status.SUCCESS:
+        if (make_result.get("status", Status.ERROR) != Status.SUCCESS or 
+            make_result.get("exit_code", -1) != 0 or not self.validate_verification_report()):
+
             logger.error("Initial proof does not build successfully.")
             self.log_agent_result({
                 "initial_errors": None,

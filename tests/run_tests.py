@@ -13,7 +13,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import time
 import uuid
 
-from metric_summary import process_metrics
+from tests.metric_summary import process_metrics
 
 logging.basicConfig(
     level=logging.INFO,
@@ -125,7 +125,7 @@ def run_proof_command(entry, args, output_root):
         "--harness_path", str(proof_dir),
         "--target_file_path", str(src_file),
         "--metrics_file", str(metrics_file),
-        "--container_engine=apptainer"
+        "--container_engine", args.container_engine
     ]
 
     exp_id = uuid.uuid4().hex[:8].upper()
@@ -159,10 +159,16 @@ def main():
     parser = argparse.ArgumentParser(description="Run proofs for CBMC makefiles.")
     parser.add_argument("input_file", help="Path to file containing source files and target functions")
     parser.add_argument("-p", "--proof_dir", required=True, help="directory containing CBMC proofs")
-    parser.add_argument("-m", "--mode", choices=["harness", "debugger", "coverage", "function-stubs", "precondition", "all"], default="harness", help="Execution mode")
+    parser.add_argument("-m", "--mode", choices=["harness", "debugger", "coverage", "vuln-aware", "function-stubs", "precondition", "all"], default="harness", help="Execution mode")
     parser.add_argument("-b", "--base_dir", default="../RIOT", help="Base project directory (default: ../RIOT)")
     parser.add_argument("-o", "--output", help="Directory to store logs (default: output-${timestamp})")
     parser.add_argument("-j", "--jobs", type=int, default=10, help="Number of parallel jobs")
+    parser.add_argument(
+        "--container_engine",
+        choices=["docker", "apptainer"],
+        default="docker",
+        help="Container engine to use (default: docker).",
+    )
     args = parser.parse_args()
 
     # Determine output directory
