@@ -31,7 +31,9 @@ def collect_compilation_statuses(input_directory: Path) -> list[str]:
             compilation_status = False
             for line in f:
                 data = json.loads(line.strip())
-                if "type" in data and data["type"] == "agent_result":
+                if ("type" in data and data["type"] == "agent_result" and
+                    data["agent_name"] == "InitialHarnessGenerator" and
+                    compilation_status is not None):
                     compilation_status = data.get("data", {}).get("compilation_status", None)
             if compilation_status is not None and compilation_status:
                 compilation_statuses.append(True)
@@ -142,7 +144,9 @@ def collect_verification(input_directory: Path) -> list[float]:
         with jsonl_file.open("r") as f:
             for line in f:
                 data = json.loads(line.strip())
-                if "type" in data and data["type"] == "agent_result" and data["agent_name"] == "FunctionPointerHandler":
+                if ("type" in data and data["type"] == "agent_result" and
+                    data["agent_name"] == "InitialHarnessGenerator" and
+                    verification_status is not None):
                     verification_status = data.get("data", {}).get("verification_status", None)
         if verification_status is not None and verification_status:
             verification_statuses.append(True)
@@ -370,22 +374,18 @@ def main():
         compilation_statuses_success = len([x for x in compilation_statuses if x])
         summary_file.write(f"Success: {compilation_statuses_success}/{len(compilation_statuses)}")
         summary_file.write(" = ")
-        summary_file.write(f"{(compilation_statuses_success / len(compilation_statuses)) * 100}%")
+        summary_file.write(f"{(compilation_statuses_success / len(compilation_statuses)) * 100:.2f}%")
         summary_file.write("\n")
 
         summary_file.write("(2) Complete verification within a fixed time budget,\n")
         final_verification_success = len([x for x in final_verification if x])
         summary_file.write(f"Success: {final_verification_success}/{len(final_verification)}")
+        summary_file.write(" = ")
+        summary_file.write(f"{(final_verification_success / len(final_verification)) * 100:.2f}%")
         summary_file.write("\n")
 
         summary_file.write("(3) Achieve high code coverage of the target unit,\n")
-        count_coverage_90 = len([x for x in final_coverage if x > 0.9])
-        summary_file.write(f"Coverage > 90%: {count_coverage_90}/{len(final_coverage)}")
-        summary_file.write(" = ")
-        if len(final_coverage) > 0:
-            summary_file.write(f"{(count_coverage_90 / len(final_coverage)) * 100}%")
-        else:
-            summary_file.write("N/A")
+        summary_file.write(f"Average Coverage: {np.mean(final_coverage) * 100:.2f}%")
         summary_file.write("\n")
 
         summary_file.write("(4) Resolve all reported verification errors via refined models,\n")
@@ -401,32 +401,42 @@ def main():
         summary_file.write("TODO: TBD\n")
 
         summary_file.write("(1) generation time,\n")
-        summary_file.write(f"Average generation time: {sum(generation_time) / len(generation_time):.2f} seconds\n")
+        summary_file.write(f"Average generation time: {sum(generation_time) / len(generation_time) / 60:.2f} min\n")
         summary_file.write("\n")
 
         summary_file.write("(2) API usage costs.\n")
         final_price = 0
-        for agent_entry in plot_token_usage_table:
-            for agent_name, totals in agent_entry.items():
-                summary_file.write(f"-> {agent_name}\n")
-                price_per_million = {
-                    "input_tokens": 1.750,
-                    "cached_tokens": 0.175,
-                    "output_tokens": 14.000,
-                }
-                total_price = 0.0
-                for token_type, token_total in totals.items():
-                    price = price_per_million.get(token_type)
-                    if price is None:
-                        continue
-                    cost = (token_total / 1_000_000) * price
-                    total_price += cost
-                    summary_file.write(f"\t{token_type} count: {token_total}\n")
-                    summary_file.write(f"\t{token_type} price: ${cost:.6f}\n")
-                summary_file.write(f"\ttotal_price: ${total_price:.6f}\n")
-                final_price += total_price
-        summary_file.write(f"\nOverall API usage cost: ${final_price:.6f}\n")
-        summary_file.write("\n")
+        agent_token_results = {}
+        for entry in final_token_counts:
+            for agent_name, tokens in entry.items():
+                if agent_name not in agent_token_results:
+                    agent_token_results[agent_name] = {}
+                for token_type, token_amount in tokens.items():
+                    if token_type not in agent_token_results[agent_name]:
+                        agent_token_results[agent_name][token_type] = 0
+                    agent_token_results[agent_name][token_type] += token_amount
+        for agent_name, totals in agent_token_results.items():
+            summary_file.write(f"-> {agent_name}\n")
+            input_tokens = 0
+            cached_tokens = 0
+            output_tokens = 0
+            for token_type, token_amount in totals.items():
+                if token_type == "input_tokens":
+                    input_tokens += token_amount
+                elif token_type == "cached_tokens":
+                    cached_tokens += token_amount
+                    input_tokens -= token_amount
+                elif token_type in["output_tokens"]:
+                    output_tokens += token_amount
+            final_price += input_tokens * 1.750 / 1000000
+            final_price += cached_tokens * 0.175 / 1000000
+            final_price += output_tokens * 14.000 / 1000000
+            summary_file.write(f"input token amount: {input_tokens} cost: ${input_tokens * 1.750 / 1000000 :.2f}\n")
+            summary_file.write(f"cached token amount: {cached_tokens} cost: ${cached_tokens * 0.175 / 1000000 :.2f}\n")
+            summary_file.write(f"output token amount: {output_tokens} cost: ${output_tokens * 14.000 / 1000000 :.2f}\n")
+            summary_file.write("\n")
+            
+        summary_file.write(f"OVERALL TOTAL COST: ${final_price :.2f}")
 
 
 
