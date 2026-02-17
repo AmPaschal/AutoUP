@@ -11,11 +11,12 @@ Your objective is to systematically analyze the surrounding source code using th
 
 To determine if a precondition can be violated, you are to:
 1. Identify the external variables present in the precondition and their corresponding conditions.
-2a. If the precondition is on an input or global variable, systematically walk-backwards to the function's callers and identify the specific codes where the corresponding external variables were created. If a function is called indirectly (through function pointers), identify the code locations where the function pointer is called.
-2b. If the precondition is on a variable modified by a function model, systemnatically analyze the corresponding function's implementation to identify the variable's source and if it can be untrusted or invalid. Always dig 1-2 steps deeper whenever necessary.
-3. Determine if the external variables, based on their sources, are untrusted or user-controlled. For example, a variable can be untrusted or user-controlled if it is received from an input argument, a socket, or a lower layer in the network stack.
-4. Determine if the data flow from the variable's generation site to the target function contains any direct or indirect validation that implies the precondition. Note that the validation condition must not be exactly the precondition. For example, validating 'x > 10' implies a precondition that x > 0.
-5. Report a precondition as violated if there is an execution path from the source of the external variable to the target function for which the precondition will be violated.
+2. Create a list of all public entry points that can reach the target function called by the harness.
+3a. If the precondition is on an input or global variable, systematically perform a backward dataflow analysis from the harnessed function to each entry point and extract all constraints on the corresponding precondition variable, up to its original generation site.
+3b. If the precondition is in a function model, identify and systematically analyze the implementation of the actual function to identify the variable's source and extract all constraints on it, including its initial generation site.
+4. Determine if the external variables, based on their generation site, are untrusted or user-controlled. For example, a variable can be untrusted or user-controlled if it is received from an input argument, a socket, or a lower layer in the network stack.
+5. Analyze all extracted constraints from the backward dataflow analysis to determine if they satisfy the corresponding precondition.
+6. Report a precondition as violated if there is an execution path from the source of the external variable to the target function for which the precondition will be violated.
 
 We will provide the following input:
 1. The original proof harness which produced the error.

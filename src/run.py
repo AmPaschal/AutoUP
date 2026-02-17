@@ -233,8 +233,12 @@ def main():
 def cleanup(signum, _frame):
     """ Clean up container """
     print(f"Caught signal {signum}, cleaning up container...")
-    if project_container:
-        project_container.terminate()
+    try:
+        if project_container:
+            project_container.terminate()
+    finally:
+        exit(0)
+
 
 
 if __name__ == "__main__":
