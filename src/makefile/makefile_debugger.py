@@ -187,6 +187,11 @@ class MakefileDebugger(AIAgent, Generable):
         # Next, we build and see if it succeeds
         make_results = self.run_make(compile_only=True)
 
+        if (make_results.get('status', Status.ERROR) == Status.SUCCESS and 
+            make_results.get('exit_code', -1) == 0):
+            logger.info("Compilation successful. No need to debug.")
+            return True
+
         attempts = 1
 
         system_prompt, user_prompt = self.prepare_prompt(make_results)
