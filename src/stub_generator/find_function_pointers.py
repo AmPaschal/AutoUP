@@ -274,14 +274,89 @@ def analyze_file(file_path, entry_point, extra_args=[]):
         
     return final_output
 
+
+def get_makefile_list_var(makefile_content, var_name):
+    """Extract a list of values from a multi-line makefile variable."""
+    lines = makefile_content.splitlines()
+    values = []
+    inside_var = False
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Check for start of variable
+        if not inside_var:
+            # Matches VAR = ... or VAR += ... or VAR ?= ...
+            if re.match(rf'^{var_name}\s*[\?\+]?=', stripped):
+                inside_var = True
+                # Extract content after =
+                part = re.split(r'[\?\+]?=', stripped, 1)[1].strip()
+                if part:
+                    # Handle backslash at end
+                    if part.endswith('\\'):
+                        part = part[:-1].strip()
+                    values.extend(part.split())
+                    # If line didn't end with \, then variable def ends
+                    if not stripped.endswith('\\'):
+                        inside_var = False
+            continue
+        
+        # Inside variable
+        if inside_var:
+            part = stripped
+            # Check for continuation
+            is_continuation = part.endswith('\\')
+            if is_continuation:
+                part = part[:-1].strip()
+            
+            if part:
+                values.extend(part.split())
+            
+            if not is_continuation:
+                inside_var = False
+                
+    return values
+
+
+
+def get_makefile_var(makefile_content, var_name):
+    """Simple extraction of a variable value from makefile content."""
+    # Handles VAR ?= val or VAR = val
+    match = re.search(rf'^{var_name}\s*\??=\s*(.*)', makefile_content, re.MULTILINE)
+    if match:
+        return match.group(1).strip()
+    return None
+
+def get_h_def_entries(makefile_content):
+    return get_makefile_list_var(makefile_content, "H_DEF")
+
+def expand_vars(flags, root_path):
+    """Expand $(ROOT) in flags."""
+    return [f.replace("$(ROOT)", root_path).replace("${ROOT}", root_path) for f in flags]
+
+def get_h_inc_entries(makefile_content):
+    # Determine ROOT
+    root_val = get_makefile_var(makefile_content, "ROOT")
+
+    # Extract H_INC
+    flags = get_makefile_list_var(makefile_content, "H_INC")
+    return expand_vars(flags, root_val)
+
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python3 find-function-pointers.py <file_path> <entry_point> [clang_args...]")
+        print("Usage: python3 find-function-pointers.py <file_path> <entry_point> <makefile_path>")
         sys.exit(1)
 
     file_path = sys.argv[1]
     entry_point = sys.argv[2]
-    extra_args = sys.argv[3:]
+    makefile_path = sys.argv[3]
+
+    with open(makefile_path, 'r') as f:
+        makefile_content = f.read()
+    
+    h_inc_args = get_h_inc_entries(makefile_content)
+    h_def_args = get_h_def_entries(makefile_content)
+    extra_args = h_inc_args + h_def_args
 
     results = analyze_file(file_path, entry_point, extra_args)
 
