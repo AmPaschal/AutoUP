@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 # AutoUP
 from coverage_debugger.coverage_debugger import CoverageDebugger
 from makefile.makefile_debugger import MakefileDebugger
+from makefile_generator.makefile_generator import MakefileGenerator
 from initial_harness_generator.gen_harness import InitialHarnessGenerator
 from debugger.debugger import ProofDebugger
 from commons.project_container import ProjectContainer
@@ -41,7 +42,7 @@ def get_parser():
     )
     parser.add_argument(
         "mode",
-        choices=["harness", "debugger", "function-stubs", "function-pointers", "coverage", "vuln-aware", "precondition", "all"],
+        choices=["harness", "debugger", "function-stubs", "function-pointers", "coverage", "vuln-aware", "precondition", "makefile-gen", "all"],
         help=(
             "Execution mode: "
             "'harness' to generate harness/makefile, "
@@ -50,7 +51,8 @@ def get_parser():
             "'function-pointers' to run function pointer handler, "
             "'coverage' to run coverage debugger, "
             "'vuln-aware' to run vulnerability-aware harness refiner, "
-            "'precondition' to run precondition validator, or "
+            "'precondition' to run precondition validator, "
+            "'makefile-gen' to run standalone makefile generator, or "
             "'all' to run all 'harness', 'debugger' and 'coverage' modes sequentially."
         )
     )
@@ -115,6 +117,11 @@ def process_mode(args):
         ))
     if args.mode in ["makefile"]:
         agents.append(MakefileDebugger(
+            args=args,
+            project_container=project_container
+        ))
+    if args.mode in ["makefile-gen"]:
+        agents.append(MakefileGenerator(
             args=args,
             project_container=project_container
         ))
@@ -235,6 +242,7 @@ def cleanup(signum, _frame):
     print(f"Caught signal {signum}, cleaning up container...")
     if project_container:
         project_container.terminate()
+    exit(-signum)
 
 
 if __name__ == "__main__":

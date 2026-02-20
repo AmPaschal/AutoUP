@@ -14,8 +14,10 @@ RUN apt update && apt install -y \
     libc6-dev \
     universal-ctags \
     cscope \
+    sudo \
     bash-completion \
     lsb-release && \
+    echo "ALL ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     add-apt-repository ppa:deadsnakes/ppa && \
     apt update && apt install -y \
     python3.11 \

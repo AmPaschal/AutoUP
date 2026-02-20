@@ -1,0 +1,8 @@
+Below is the current Makefile template for compiling a CBMC proof harness for the target function '{TARGET_FUNC}':
+{MAKEFILE_CONTENT}
+
+Here is the current proof harness:
+{HARNESS_CONTENT}
+
+The harness directory is: {HARNESS_DIR}
+The project root directory is: {PROJECT_DIR}

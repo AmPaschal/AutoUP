@@ -143,6 +143,13 @@ class DockerProjectContainer(ProjectContainer):
         )
         logger.info(f"[+] Container '{self.container_name}' is running.")
 
+        uid = os.getuid()
+        gid = os.getgid()
+        user_name = "autoup_user"
+        setup_user_cmd = f"getent passwd {uid} || (getent group {gid} || groupadd -g {gid} {user_name}; useradd -u {uid} -g {gid} -s /bin/bash {user_name})"
+        self.container.exec_run(["bash", "-c", setup_user_cmd], user="0:0")
+
+
     def initialize_tools(self):
         """Initialize tools inside the container, if necessary."""
 

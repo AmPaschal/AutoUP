@@ -8,7 +8,7 @@ from agent import AIAgent
 from commons.models import GPT, Generable
 from makefile.output_models import HarnessResponse
 from logger import setup_logger
-from makefile.makefile_debugger import MakefileDebugger
+from makefile_generator.makefile_generator import MakefileGenerator
 from commons.utils import Status
 
 logger = setup_logger(__name__)
@@ -143,7 +143,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
 
         harness_relative_root = self.get_backward_path(self.root_dir, self.harness_dir)
 
-        with open('src/makefile/Makefile.template', 'r') as file:
+        with open('src/makefile/Makefile.zephyr.template', 'r') as file:
             makefile = file.read()
 
         makefile = makefile.replace('{ROOT}', str(harness_relative_root))
@@ -224,11 +224,11 @@ class InitialHarnessGenerator(AIAgent, Generable):
         self.update_makefile(makefile)   
 
         # Now, we try to resolve all the make errors
-        makefile_debugger = MakefileDebugger(
+        makefile_generator = MakefileGenerator(
                                 args=self.args,
                                 project_container=self.project_container
                             )
-        status = makefile_debugger.generate()
+        status = makefile_generator.generate()
         agent_result["compilation_status"] = status
         if status:
             logger.info("Initial harness compiles. Checking verification...")
