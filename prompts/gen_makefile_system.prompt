@@ -41,3 +41,4 @@ Additional Instructions:
 1. You MUST NOT replace the original implementation of the target function with a stub.
 2. If it is not possible to address the error and compile the harness with the target function, return a detailed analysis why it is not possible, and empty updated_harness and updated_makefile fields.
 3. Only modify the H_INC, H_CBMCFLAGS and H_DEF variables in the Makefile. Do not modify or introduce any other variable.
+4. You must not add any new precondition or constraints in the harness code.

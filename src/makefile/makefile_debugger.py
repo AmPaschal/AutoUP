@@ -57,101 +57,6 @@ class MakefileDebugger(AIAgent, Generable):
             print(f"Reachable functions:\n{reachable_dict}")
 
     
-    def validate_linked_target(self) -> bool:
-
-        goto_file = os.path.join(self.harness_dir, "build", f"{self.target_function}.goto")
-        if not os.path.exists(goto_file):
-            logger.error(f"GOTO file not found: {goto_file}")
-            return False
-
-        goto_symbols_result = self.execute_command(
-            f"goto-instrument --show-symbol-table {goto_file} --json-ui",
-            workdir=self.harness_dir,
-            timeout=60,
-        )
-        if goto_symbols_result["exit_code"] != 0:
-            logger.error("Failed to get symbol table from GOTO binary.")
-            return False
-
-        try:
-            goto_symbols = json.loads(goto_symbols_result["stdout"])
-        except Exception as e:
-            logger.error(f"Failed to parse goto-instrument JSON output: {e}")
-            return False
-
-        if len(goto_symbols) != 3 or "symbolTable" not in goto_symbols[2]:
-            logger.error("Unexpected format of goto symbols output.")
-            return False
-
-        goto_symbols_dict = goto_symbols[2].get("symbolTable", {})
-        if not goto_symbols_dict or self.target_function not in goto_symbols_dict:
-            logger.error(f"Target function {self.target_function} not found in GOTO binary.")
-            return False
-
-        target_function_location = (
-            goto_symbols_dict.get(self.target_function, {})
-            .get("location", {})
-            .get("namedSub", {})
-        )
-
-        file_rel = target_function_location.get("file", {}).get("id")
-        wd = target_function_location.get("working_directory", {}).get("id")
-
-        if not file_rel or not wd:
-            logger.error(
-                f"Missing location info for {self.target_function}: "
-                f"file={file_rel!r}, working_directory={wd!r}"
-            )
-            return False
-
-        # file_rel is relative to wd (and may contain ../../..), so normalize to an absolute path
-        referenced_full_path = os.path.realpath(os.path.abspath(os.path.join(wd, file_rel)))
-        expected_full_path = os.path.realpath(os.path.abspath(self.target_file_path))
-
-        if referenced_full_path != expected_full_path:
-            logger.error(
-                "Linked target file mismatch.\n"
-                f"  expected:   {expected_full_path}\n"
-                f"  referenced: {referenced_full_path}\n"
-                f"  (wd={wd}, rel={file_rel})"
-            )
-            return False
-
-        return True
-    
-    def validate_called_target(self) -> bool:
-        """
-        Validates that the harness calls the target function by checking the
-        reachable call graph output contains: 'harness -> <target_function>'.
-        """
-        goto_path = os.path.join("build", f"{self.target_function}.goto")
-
-        callgraph_result = self.execute_command(
-            f"goto-instrument --reachable-call-graph {goto_path}",
-            workdir=self.harness_dir,
-            timeout=60,
-        )
-        if callgraph_result["exit_code"] != 0:
-            logger.error(
-                "Failed to compute reachable call graph.\n"
-                f"cmd: goto-instrument --reachable-call-graph {goto_path}\n"
-                f"stderr: {callgraph_result.get('stderr', '')}"
-            )
-            return False
-
-        stdout = callgraph_result.get("stdout", "")
-        needle = f"harness -> {self.target_function}"
-
-        for line in stdout.splitlines():
-            if line.strip() == needle:
-                return True
-
-        logger.error(
-            f"Call graph does not contain expected edge '{needle}'.\n"
-        )
-        return False
-
-
 
     def prepare_prompt(self, make_results):
         # Create the system prompt
@@ -186,6 +91,11 @@ class MakefileDebugger(AIAgent, Generable):
 
         # Next, we build and see if it succeeds
         make_results = self.run_make(compile_only=True)
+
+        if (make_results.get('status', Status.ERROR) == Status.SUCCESS and 
+            make_results.get('exit_code', -1) == 0):
+            logger.info("Compilation successful. No need to debug.")
+            return True
 
         attempts = 1
 
