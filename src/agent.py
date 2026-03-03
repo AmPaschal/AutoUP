@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 import subprocess
 from abc import ABC
@@ -494,6 +495,53 @@ class AIAgent(ABC):
             return None
 
         return function_coverage
+
+    def get_invalid_unwindset_loop_ids(self) -> list[str]:
+        """
+        Check viewer-result.json for loop IDs used with --unwindset that do not
+        exist in the CBMC goto program.  CBMC emits warnings of the form:
+
+            "loop identifier <id> for non-existent function provided with unwindset"
+
+        Returns a (possibly empty) list of the invalid loop ID strings.
+        """
+        result_path = os.path.join(
+            self.harness_dir, "build", "report", "json", "viewer-result.json"
+        )
+        if not os.path.exists(result_path):
+            logger.warning(f"[WARN] viewer-result.json not found at {result_path}")
+            return []
+
+        try:
+            with open(result_path, "r") as f:
+                result_data = json.load(f)
+        except Exception as e:
+            logger.error(f"[ERROR] Failed to read viewer-result.json: {e}")
+            return []
+
+        warnings = result_data.get("viewer-result", {}).get("warning", [])
+
+        invalid_ids: list[str] = []
+        pattern = re.compile(
+            r"loop identifier (.+?) for non-existent function provided with unwindset"
+        )
+        for warning in warnings:
+            match = pattern.search(warning)
+            if match:
+                invalid_ids.append(match.group(1).strip())
+
+        if invalid_ids:
+            logger.warning(
+                f"[WARN] Detected {len(invalid_ids)} invalid --unwindset loop ID(s): "
+                + ", ".join(invalid_ids)
+            )
+        return invalid_ids
+
+    def get_loop_json_path(self) -> str:
+        """Return the absolute path to the viewer-loop.json file."""
+        return os.path.join(
+            self.harness_dir, "build", "report", "json", "viewer-loop.json"
+        )
 
     def save_status(self, tag: str):
         harness_tagged_path = os.path.join(

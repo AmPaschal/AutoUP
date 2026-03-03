@@ -305,6 +305,29 @@ class CoverageDebugger(AIAgent, Generable):
             )
             return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "build_failed")
 
+        # CASE 4b — Build succeeded but CBMC reported invalid --unwindset loop IDs
+        invalid_loop_ids = self.get_invalid_unwindset_loop_ids()
+        if invalid_loop_ids:
+            logger.warning(
+                f"[WARN] Invalid --unwindset loop IDs detected: {invalid_loop_ids}. Prompting LLM to fix."
+            )
+            loop_json_path = self.get_loop_json_path()
+            user_prompt = (
+                "The updated Makefile contains one or more invalid loop IDs in the --unwindset flag.\n"
+                "CBMC reported the following loop IDs as non-existent:\n"
+                + "\n".join(f"  - {lid}" for lid in invalid_loop_ids)
+                + "\n\n"
+                "These loop IDs do not correspond to any loop in the CBMC goto program, "
+                "so the unwind limits have no effect.\n\n"
+                "To find the correct loop IDs, read the file:\n"
+                f"  {loop_json_path}\n\n"
+                "It contains a 'loops' dictionary whose keys are the valid loop IDs "
+                "(e.g., 'strcpy.0', not 'strcpy.unwind.0').\n"
+                "Please update the Makefile to use only valid loop IDs in --unwindset."
+            )
+            return (AgentAction.RETRY_BLOCK, user_prompt, current_coverage, "invalid_unwindset_loop_ids")
+
+
         coverage_status = self._get_function_coverage_status(function_entry["file"], function_entry["function"])
 
         # CASE 5 — Target function unreachable now
