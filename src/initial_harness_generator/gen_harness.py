@@ -9,6 +9,7 @@ from commons.models import GPT, Generable
 from makefile.output_models import HarnessResponse
 from logger import setup_logger
 from makefile_generator.makefile_generator import MakefileGenerator
+from scope_widener.scope_widener import ScopeWidener
 from commons.utils import Status
 
 logger = setup_logger(__name__)
@@ -232,6 +233,23 @@ class InitialHarnessGenerator(AIAgent, Generable):
         agent_result["compilation_status"] = status
         if status:
             logger.info("Initial harness compiles. Checking verification...")
+
+            # --- Scope widening ---
+            scope_bound = getattr(self.args, "scope_bound", 1)
+            if scope_bound > 1:
+                logger.info(
+                    f"Running scope widening with bound={scope_bound}..."
+                )
+                widener = ScopeWidener(agent=self)
+                widen_ok = widener.widen_scope(scope_bound)
+                if widen_ok:
+                    logger.info("Scope widening succeeded.")
+                else:
+                    logger.warning(
+                        "Scope widening did not fully succeed. "
+                        "Continuing with current compilation state."
+                    )
+
             make_results = self.run_make(compile_only=False)
             
             status_code = make_results.get('status', Status.ERROR)

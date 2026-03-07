@@ -95,6 +95,16 @@ def get_parser():
         default="gpt-5.2",
         help="LLM model to use (default: gpt-5.2)"
     )
+    parser.add_argument(
+        "--scope_bound",
+        type=int,
+        default=1,
+        help=(
+            "Maximum depth for scope widening (default: 1, no widening). "
+            "At k=2, source files defining functions called from the target "
+            "are added to the Makefile LINK. Higher values widen further."
+        ),
+    )
     return parser.parse_args()
 
 
