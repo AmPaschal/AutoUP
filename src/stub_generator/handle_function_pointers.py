@@ -8,7 +8,7 @@ from makefile.output_models import HarnessResponse, MakefileFields
 from commons.utils import Status
 from logger import setup_logger
 from agent import AIAgent
-from stub_generator.find_function_pointers import analyze_file
+from stub_generator.find_function_pointers import analyze_file, analyze_files, get_makefile_list_var, get_makefile_var, expand_vars
 
 logger = setup_logger(__name__)
 
@@ -129,7 +129,36 @@ class FunctionPointerHandler(AIAgent, Generable):
         extra_args = h_def_args + h_inc_args
         
         logger.info(f"Analyzing file: {self.target_file_path} for entry point: {self.target_function}")
-        fp_results = analyze_file(self.target_file_path, self.target_function, extra_args)
+
+        # Get linked source files from Makefile LINK variable for multi-file analysis
+        makefile_content = self.get_makefile()
+        root_val = self.get_makefile_var(makefile_content, "ROOT")
+        if not root_val:
+            root_val = self.root_dir
+        if root_val.startswith("."):
+            root_val = os.path.normpath(os.path.join(self.harness_dir, root_val))
+
+        linked_files = []
+        link_entries = get_makefile_list_var(makefile_content, "LINK")
+        for entry in link_entries:
+            resolved = entry.replace("$(ROOT)", root_val).replace("${ROOT}", root_val)
+            resolved = resolved.replace(
+                "$(MAKE_INCLUDE_PATH)",
+                os.path.dirname(self.harness_dir),
+            )
+            resolved = os.path.normpath(resolved)
+            if resolved.endswith(".c"):
+                if not os.path.isabs(resolved):
+                    resolved = os.path.normpath(os.path.join(self.harness_dir, resolved))
+                if os.path.exists(resolved):
+                    linked_files.append(resolved)
+
+        if linked_files:
+            logger.info(f"Multi-file analysis with {len(linked_files)} linked files.")
+            fp_results = analyze_files(self.target_file_path, self.target_function, linked_files, extra_args)
+        else:
+            logger.info("No linked files found; falling back to single-file analysis.")
+            fp_results = analyze_file(self.target_file_path, self.target_function, extra_args)
         
         if not fp_results:
             logger.info("No function pointers found.")

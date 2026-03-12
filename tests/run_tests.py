@@ -125,6 +125,7 @@ def run_proof_command(entry, args, output_root):
         "--harness_path", str(proof_dir),
         "--target_file_path", str(src_file),
         "--metrics_file", str(metrics_file),
+        "--scope_bound", str(args.scope_bound),
         "--container_engine", args.container_engine
     ]
 
@@ -163,6 +164,7 @@ def main():
     parser.add_argument("-b", "--base_dir", default="../RIOT", help="Base project directory (default: ../RIOT)")
     parser.add_argument("-o", "--output", help="Directory to store logs (default: output-${timestamp})")
     parser.add_argument("-j", "--jobs", type=int, default=10, help="Number of parallel jobs")
+    parser.add_argument("-s", "--scope_bound", type=int, default=1, help="Depth of verification scope")
     parser.add_argument(
         "--container_engine",
         choices=["docker", "apptainer"],

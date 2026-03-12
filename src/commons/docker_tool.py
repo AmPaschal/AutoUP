@@ -166,7 +166,7 @@ class DockerProjectContainer(ProjectContainer):
         try:
             with lock:
                 logger.info("[+] Acquired cscope lock; initializing database...")
-                cscope_init = self.execute("cscope -Rbqk")
+                cscope_init = self.execute("cscope -Rbqk", timeout=300)
                 if cscope_init["exit_code"] == 0:
                     logger.info("[+] cscope database initialized successfully.")
                 else:

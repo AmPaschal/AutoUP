@@ -92,7 +92,7 @@ def get_parser():
     )
     parser.add_argument(
         "--llm_model",
-        default="gpt-5.2",
+        default="gpt-5.3",
         help="LLM model to use (default: gpt-5.2)"
     )
     parser.add_argument(
@@ -140,7 +140,6 @@ def process_mode(args):
             args=args,
             project_container=project_container
         ))
-    if args.mode in ["function-pointers", "all"]:
         agents.append(FunctionPointerHandler(
             args=args,
             project_container=project_container

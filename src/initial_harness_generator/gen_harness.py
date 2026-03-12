@@ -140,11 +140,25 @@ class InitialHarnessGenerator(AIAgent, Generable):
                 return
             logger.info(f'Copied general-stubs.c to {dest_stubs_path}')
 
+        # Copy zephyr-stubs.c to harness parent directory
+        src_stubs_path = os.path.join('makefiles', 'zephyr-stubs.c')
+        dest_stubs_path = os.path.join(os.path.dirname(self.harness_dir), 'zephyr-stubs.c')
+        if os.path.exists(dest_stubs_path):
+            logger.info(f'general-stubs.c already exists at {dest_stubs_path}, skipping copy.')
+        else:
+            copy_cmd = f"cp {src_stubs_path} {dest_stubs_path}"
+            copy_results = self.project_container.execute(copy_cmd, workdir='/')
+            if copy_results.get('exit_code', -1) != 0:
+                logger.error(f'Failed to copy zephyr-stubs.c: {copy_results.get("stderr", "")}')
+                return
+            logger.info(f'Copied zephyr-stubs.c to {dest_stubs_path}')
+
+
     def setup_initial_makefile(self, initial_configs):
 
         harness_relative_root = self.get_backward_path(self.root_dir, self.harness_dir)
 
-        with open('src/makefile/Makefile.zephyr.template', 'r') as file:
+        with open('src/makefile/Makefile.template', 'r') as file:
             makefile = file.read()
 
         makefile = makefile.replace('{ROOT}', str(harness_relative_root))

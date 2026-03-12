@@ -17,12 +17,7 @@ FUNCTION_POINTER_REPL = \
 H_DEF = {H_DEF}
 
 # LLM should add more to this
-H_INC = -I$(ROOT) \
-        -I$(ROOT)/sys/include/  \
-        -I$(ROOT)/core/lib/include/  \
-        -I$(ROOT)/core/include/  \
-        -I$(ROOT)/cpu/native/include/  \
-        -I$(ROOT)/drivers/include/ \
+H_INC = -I$(ROOT) 
 
 MAKE_INCLUDE_PATH ?= ..
 

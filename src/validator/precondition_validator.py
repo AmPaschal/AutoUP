@@ -50,6 +50,7 @@ class PreconditionValidator(AIAgent, Generable):
         with open("prompts/precondition_validator_user.prompt", "r") as f:
             user_prompt = f.read()
 
+        user_prompt = user_prompt.replace("{TARGET_FUNCTION}", self.target_function)
         user_prompt = user_prompt.replace("{ORIGINAL_HARNESS}", self.get_harness())
         user_prompt = user_prompt.replace("{ERROR_SUMMARY}", error.msg)
         user_prompt = user_prompt.replace("{ERROR_FILE}", error.file if error.file else "Unknown")
