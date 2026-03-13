@@ -77,8 +77,6 @@ def convert_c_struct_to_json(struct_str):
         parsed = json.loads(json_str)
         return parsed
     except json.JSONDecodeError as e:
-        print(f"Conversion failed: {e}")
-        print(f"Current JSON string: {json_str}")
         return None
 
 def get_error_cluster(error_msg):

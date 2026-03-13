@@ -80,3 +80,4 @@ class ModelOutput(BaseModel):
     analysis: str
     fix_recomendation: str
     updated_harness: str
+    updated_makefile: Optional[str] = None

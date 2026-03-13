@@ -92,7 +92,7 @@ def get_parser():
     )
     parser.add_argument(
         "--llm_model",
-        default="gpt-5.3",
+        default="gpt-5.3-codex",
         help="LLM model to use (default: gpt-5.2)"
     )
     parser.add_argument(

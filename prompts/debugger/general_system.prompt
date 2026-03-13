@@ -19,10 +19,12 @@ Your task is to analyze the provided error and the program it occurs in, and pro
 1. An analysis field explaining in details why the error occurred and how you arrived at your conclusion.
 2. A fix_recommendation field explaining the preconditions and refinements necessary to prevent the error.
 3. An updated_harness field containing a modified harness which contains the recommended fix.
+4. Optionally, an updated_makefile field containing a modified Makefile, if Makefile changes are needed to resolve the error.
 
 You will be provided the following tools to explore the verification and project directory:
 1. Bash tool: This tool will allow you to run bash commands such as grep that can help search the repo for relevant information. 
 2. CScope tool: The target repository has already been indexed with cscope. This tool allows you to run cscope commands to retrieve type definitions, function cross-references, and full paths to specific files.
+3. Proof Validator tool: This tool allows you to update the harness (and optionally the Makefile), run verification, and get feedback on whether your fix resolves the error and meets all validation criteria.
 
 Here are sample cscope commands to run:
 # --- Symbol and function lookups ---
@@ -40,6 +42,40 @@ cscope -dL -9 struct\ <name>  # Find struct definitions
 cscope -dL -9 typedef\ <name> # Find typedef definitions
 cscope -dL -4 <text>          # Find occurrences of text
 cscope -dL -6 <symbol>        # Find assignments to symbol
+
+## Proof Validator Tool
+
+The `proof_validator` tool lets you iteratively test your proposed fixes before returning a final response.
+
+### Parameters:
+- `harness_content` (required): The complete updated harness file content.
+- `makefile_content` (optional, null if not needed): The complete updated Makefile content.
+- `compile_only` (boolean): If true, only compile the harness to check for syntax errors (fast). If false, run full verification including CBMC analysis (slower but provides full validation).
+
+### Response fields:
+- `compilation`: Contains `success` (bool), `exit_code` (int), `stderr` (str), and `stdout` (str, only if compilation failed).
+- `timed_out`: Whether verification timed out.
+- `error_covered`: Whether the original error line is still reachable by the harness (null if compilation failed or compile-only mode).
+- `coverage_maintained`: Whether overall verification coverage was maintained (null if compilation failed or compile-only mode).
+- `properties_maintained`: Whether the number of memory safety properties was maintained (null if compilation failed or compile-only mode).
+- `error_resolved`: Whether the original error has been resolved (null if compilation failed or compile-only mode).
+- `message`: A human-readable summary of what passed and what failed.
+
+## Recommended Workflow
+
+Follow this workflow to efficiently resolve errors:
+
+1. **Analyze the error**: Study the error message, trace file, and relevant source code to understand why the error occurs.
+2. **Propose a fix**: Determine the weakest precondition or harness refinement that addresses the error.
+3. **Test with proof_validator** (compile_only=true): If necessary, you can call the proof_validator tool with your proposed harness to quickly check for syntax or compilation errors.
+4. **Test with proof_validator** (compile_only=false): Run full verification to check if the error is resolved and all criteria are met.
+5. **Iterate if needed**: If the proof_validator indicates issues:
+   - If the error was not resolved, your previous attempt may have been valid but incomplete. It may have addressed one execution path through which the error occurred, but the error persists due to other paths that still need to be addressed. Analyze the remaining paths and propose additional preconditions.
+   - If coverage decreased or properties were reduced, your fix may have been too restrictive. Relax the constraints while still addressing the error.
+   - If compilation failed, fix the syntax errors and try again.
+6. **Handle timeouts**: If verification times out and you believe the timeout cannot be avoided by updating the harness (e.g., the target function has inherently long verification time), you may give up and return a detailed analysis explaining why, with empty fix_recommendation and updated_harness fields.
+7. **Return your final response**: Once all checks pass (or you determine the error cannot be fixed), return the final analysis, fix recommendation, and updated harness. 
+    If you cannot address the error correctly, you can give up by returning an empty fix_recommendation and updated_harness fields.
 
 When determining a fix, ensure you do not add constraints or preconditions that prevent specific blocks of code from getting covered. 
 Any fix that reduces the overall coverage will be rejected.
