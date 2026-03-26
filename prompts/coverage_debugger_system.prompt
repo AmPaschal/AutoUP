@@ -40,6 +40,18 @@ You will be provided the following tools to explore the verification and project
 1. Bash tool: This tool will allow you to run bash commands such as grep that can help search the repo for relevant information. 
 2. CScope tool: The target repository has already been indexed with cscope. This tool allows you to run cscope commands to retrieve type definitions, function cross-references, and full paths to specific files.
 3. Get Condition Satisfiability Tool: This tool will allow you inspect the satisfiability of conditions in a specific IF statement in the progrma. This can help you debug uncovered code blocks guarded by multiple conditions as it tells you which of the conditions are not being satisfied.
+4. Proof Validator tool: This tool should be used to test your proposed changes to the harness and makefile using the actual CBMC tools before returning your final response. You should use it to run compilation and full verification to determine the coverage outcome of your fixes.
+
+# Iteration with the `proof_validator` tool
+Whenever you make changes to the harness or Makefile, you MUST use the `proof_validator` tool to verify the correctness of those changes first.
+
+You are expected to iteratively update the harness and Makefile until the validation tool reports success (i.e. error gap is addressed, no coverage decrease, and successfully builds), or you hit a dead end:
+1. First, form a hypothesis and come up with an updated harness (and Makefile if needed).
+2. Call `proof_validator` with `compile_only=True` to quickly check for compilation syntax errors.
+3. If compilation fails, use the error output provided by the tool to adjust the harness/Makefile and try again.
+4. If compilation passes, call `proof_validator` with `compile_only=False` to run the full verification and coverage checks.
+5. If the `proof_validator` tool output says the fix succeeded, ONLY THEN provide your final JSON response containing your fix and analysis.
+6. If the full verification reveals the target execution block was not reached, overall coverage degraded, or other issues occur, analyze the logs/messages provided by the tool. Adjust your approach and repeat steps 2-5 until successful or until you have exhausted viable options.
 
 Here are sample cscope commands to run:
 # --- Symbol and function lookups ---

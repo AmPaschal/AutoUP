@@ -14,6 +14,7 @@ The process repeats up to a configurable bound `k`:
 import json
 import os
 import re
+import uuid
 from typing import Dict, List, Optional, Set, Tuple
 
 from logger import setup_logger
@@ -744,6 +745,10 @@ class ScopeWidener:
                 + ", ".join(new_files)
             )
 
+            # Create backup before modifying LINK
+            tag = uuid.uuid4().hex[:4].upper()
+            self.agent.create_backup(tag)
+
             # 4. Update Makefile
             self.add_source_files_to_makefile(new_files)
 
@@ -757,7 +762,11 @@ class ScopeWidener:
                     f"MakefileGenerator could not fix compilation at "
                     f"scope level {current_level}. Aborting widening."
                 )
+                self.agent.restore_backup(tag)
+                self.agent.discard_backup(tag)
                 return False
+
+            self.agent.discard_backup(tag)
 
             logger.info(
                 f"Scope widening level {current_level} succeeded."

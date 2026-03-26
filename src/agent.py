@@ -476,6 +476,47 @@ class AIAgent(ABC):
 
         return [*self.get_tools(), *coverage_tools]
 
+    def _is_harness_file(self, file_path: str) -> bool:
+        """Check if a coverage report file path belongs to the harness directory.
+
+        Coverage report paths are relative to self.root_dir.
+        We resolve them to absolute, then check whether the normalized
+        absolute path starts with the harness directory path.
+        """
+        abs_harness_dir = os.path.normpath(os.path.abspath(self.harness_dir))
+
+        if os.path.isabs(file_path):
+            abs_file = os.path.normpath(file_path)
+        else:
+            abs_file = os.path.normpath(os.path.join(self.root_dir, file_path))
+
+        return abs_file.startswith(abs_harness_dir + os.sep) or abs_file == abs_harness_dir
+
+    def get_overall_coverage(self):
+        """Get overall coverage excluding files in the harness directory."""
+        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
+        if not os.path.exists(coverage_report_path):
+            logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
+            return {}
+
+        with open(coverage_report_path, "r") as f:
+            coverage_data = json.load(f)
+
+        viewer_coverage = coverage_data.get("viewer-coverage", {})
+        function_coverage = viewer_coverage.get("function_coverage", {})
+
+        total_hit = 0
+        total_lines = 0
+        for file_path, funcs in function_coverage.items():
+            if self._is_harness_file(file_path):
+                continue
+            for func_name, stats in funcs.items():
+                total_hit += stats.get("hit", 0)
+                total_lines += stats.get("total", 0)
+
+        percentage = total_hit / total_lines if total_lines > 0 else 0.0
+        return {"hit": total_hit, "total": total_lines, "percentage": percentage}
+
     def _get_function_coverage_status(self, file_path, function_name):
         coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
         if not os.path.exists(coverage_report_path):

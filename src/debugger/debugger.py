@@ -48,6 +48,7 @@ class ProofDebugger(AIAgent, Generable):
 
         # Instance attributes for proof_validator tool context
         self._current_error: Optional[CBMCError] = None
+        self._error_covered_initially: bool = False
         self._current_coverage: dict = {}
         self._initial_property_count: int = -1
 
@@ -122,19 +123,6 @@ class ProofDebugger(AIAgent, Generable):
         self.save_status('debugger')
         return True
 
-    def get_overall_coverage(self):
-        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
-        if not os.path.exists(coverage_report_path):
-            logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
-            return {}
-
-        with open(coverage_report_path, "r") as f:
-            coverage_data = json.load(f)
-
-        viewer_coverage = coverage_data.get("viewer-coverage", {})
-        overall_coverage = viewer_coverage.get("overall_coverage", {})
-
-        return overall_coverage
 
     def get_property_count(self, property_file_path: str = None) -> int:
         """Get the number of memory safety properties from viewer-property.json.
@@ -274,8 +262,12 @@ class ProofDebugger(AIAgent, Generable):
         # Use Precondition Validator to validate the preconditions
 
         validation_status = self.validator.validate(error, diff_output, analysis)
-        if validation_status != Status.SUCCESS:
-            logger.error("[ERROR] Precondition validation failed.")
+        if validation_status == Status.ERROR:
+            logger.error("[ERROR] Precondition validation failed due to analysis or runtime errors.")
+            return validation_status
+
+        if validation_status == Status.FAILURE:
+            logger.warning("[WARN] Precondition validation found exploitable violated preconditions.")
             return validation_status
 
         return Status.SUCCESS
@@ -385,7 +377,7 @@ class ProofDebugger(AIAgent, Generable):
         error = self._current_error
 
         # Check error coverage
-        if error:
+        if error and self._error_covered_initially:
             error_covered = self.__is_error_covered(error)
             result["error_covered"] = error_covered
             if not error_covered:
@@ -486,8 +478,8 @@ class ProofDebugger(AIAgent, Generable):
         self._initial_property_count = self.get_property_count()
         logger.info(f"Initial property count: {self._initial_property_count}")
 
-        error_covered_initially = self.__is_error_covered(error)
-        if not error_covered_initially:
+        self._error_covered_initially = self.__is_error_covered(error)
+        if not self._error_covered_initially:
             logger.info("Error not covered initially. Continuing to fix.")
 
         while attempt < self.__max_attempts:
@@ -534,7 +526,7 @@ class ProofDebugger(AIAgent, Generable):
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="make_failed")
                 cause_of_failure = {"reason": "make_failed", "make_output": make_result}
                 continue
-            if error_covered_initially and not self.__is_error_covered(error):
+            if self._error_covered_initially and not self.__is_error_covered(error):
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_covered")
                 cause_of_failure = {"reason": "error_not_covered"}
                 continue
@@ -562,8 +554,13 @@ class ProofDebugger(AIAgent, Generable):
                 cause_of_failure = {"reason": "error_not_fixed"}
                 continue
             logger.info("Error resolved! Validating proposed preconditions...")
-            self.validate_preconditions(error, tag, output.analysis)
-            logger.info("Preconditions validated!")
+            validation_status = self.validate_preconditions(error, tag, output.analysis)
+            if validation_status == Status.SUCCESS:
+                logger.info("Preconditions validated without exploitable violations.")
+            elif validation_status == Status.FAILURE:
+                logger.warning("Precondition validation completed with exploitable violations.")
+            else:
+                logger.error("Precondition validation did not complete successfully.")
             self.log_task_attempt(error.error_id, attempt, chat_data, error=None)
             self.log_task_result(error.error_id, True, attempt)
             logger.info(f"[INFO] Current Overall Coverage: {json.dumps(new_coverage, indent=2)}")
