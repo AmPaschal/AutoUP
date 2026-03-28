@@ -56,7 +56,7 @@ You are to return a list containing your verdict on each precondition in the pro
 1. precondition: The specific precondition you analyzed.
 2. parent_function: 'harness' or the name of the function model that contains the precondition.
 3. violated: true if the precondition can be violated, otherwise false.
-4. violation_type: null when violated is false. When violated is true, you must analyze and classify the violation using the rules below in order:
+4. violation_type: null when violated is false. When violated is true, you must analyze and classify the violation using the rules below in order. If you refined the precondition, you must analyze the refined precondition and select a category for it:
    - data-structure-bound
    - irrelevant
    - incomplete
@@ -64,7 +64,11 @@ You are to return a list containing your verdict on each precondition in the pro
    - angelic-assumption
    - exploitable
 5. reasoning: A concise explanation of why the classification was reached.
-6. detailed_analysis: Mention the specific variables in the precondition, show the variables location in the code where they are generated, show the execution path from the source location to the target function, and contain detailed analysis and source code evidence.
+6. detailed_analysis: Mention the specific variables in the precondition, show the variables location in the code where they are generated, show the execution path from the source location to the target function, and contain detailed analysis and detailed source code evidence. 
+   - If the precondition is always satisfied, you must provide all the paths from the source location to the target function and show how constraints within these paths satisfy the precondition.
+   - If the precondition is violated, you must provide a specific execution path from the source location to the target function where the precondition is violated and show how the constraints within this path cannot sufficiently satisfy the precondition.
+   - If the precondition is violated, you must also provide the reason why a specific violation type was chosen, and why it cannot be categorized under the other violation types.
+   - If you refined the precondition, your analysis must focus on if the refined precondition can be violated and if it is exploitable.
 
 Classification rules:
 - violated=false means the precondition is not violable on any relevant path. In that case, violation_type must be null.

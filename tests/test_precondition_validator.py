@@ -93,6 +93,7 @@ def make_validator(tmp_path, llm):
     validator._error_covered_initially = False
     validator._validated_harness_baseline = None
     validator.last_validation_response = None
+    validator._validation_records = []
     validator.llm = llm
 
     Path(validator.harness_file_path).write_text("original harness", encoding="utf-8")
@@ -272,6 +273,190 @@ class PreconditionValidatorTests(unittest.TestCase):
             "__CPROVER_assume(refined > 0)",
         )
         self.assertNotIn("updated_harness", persisted)
+
+
+    def test_complete_validation_creates_vulnerability_report(self):
+        tmp_path = Path(self._testMethodName)
+        tmp_path.mkdir(exist_ok=True)
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp_path, ignore_errors=True))
+
+        validator = make_validator(
+            tmp_path,
+            DummyLLM(
+                [build_response(build_validation_result(True, ViolationType.EXPLOITABLE))]
+            ),
+        )
+
+        validator.validate(build_error(), "diff", "analysis")
+        validator.complete_validation()
+
+        report_path = tmp_path / "vulnerability-report.json"
+        self.assertTrue(report_path.exists())
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        self.assertEqual(report["summary"]["total_vulnerabilities"], 1)
+        self.assertEqual(report["summary"]["total_exploitable"], 1)
+        self.assertEqual(len(report["vulnerabilities"]), 1)
+
+        vuln = report["vulnerabilities"][0]
+        self.assertEqual(vuln["error_id"], "E1")
+        self.assertEqual(vuln["error_type"], "dereference failure")
+        self.assertEqual(len(vuln["exploitable_preconditions"]), 1)
+        self.assertEqual(
+            vuln["exploitable_preconditions"][0]["precondition"],
+            "__CPROVER_assume(x > 0)",
+        )
+        self.assertIn("reasoning", vuln["exploitable_preconditions"][0])
+
+    def test_vulnerability_report_excludes_non_exploitable(self):
+        tmp_path = Path(self._testMethodName)
+        tmp_path.mkdir(exist_ok=True)
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp_path, ignore_errors=True))
+
+        validator = make_validator(
+            tmp_path,
+            DummyLLM(
+                [build_response(build_validation_result(True, ViolationType.ANGELIC_ASSUMPTION))]
+            ),
+        )
+
+        validator.validate(build_error(), "diff", "analysis")
+        validator.complete_validation()
+
+        report = json.loads(
+            (tmp_path / "vulnerability-report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(report["summary"]["total_vulnerabilities"], 0)
+        self.assertEqual(report["summary"]["total_exploitable"], 0)
+        self.assertEqual(len(report["vulnerabilities"]), 0)
+
+    def test_vulnerability_report_empty_when_no_validations(self):
+        tmp_path = Path(self._testMethodName)
+        tmp_path.mkdir(exist_ok=True)
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp_path, ignore_errors=True))
+
+        validator = make_validator(tmp_path, DummyLLM([]))
+        validator.complete_validation()
+
+        report = json.loads(
+            (tmp_path / "vulnerability-report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(report["summary"]["total_errors_analyzed"], 0)
+        self.assertEqual(report["summary"]["total_vulnerabilities"], 0)
+        self.assertEqual(len(report["vulnerabilities"]), 0)
+
+    def test_vulnerability_report_summary_counts_are_accurate(self):
+        tmp_path = Path(self._testMethodName)
+        tmp_path.mkdir(exist_ok=True)
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp_path, ignore_errors=True))
+
+        # Two exploitable preconditions in one response
+        exploitable_1 = ValidationResult(
+            precondition="__CPROVER_assume(a > 0)",
+            parent_function="harness",
+            violated=True,
+            violation_type=ViolationType.EXPLOITABLE,
+            reasoning="reason1",
+            detailed_analysis="analysis1",
+        )
+        exploitable_2 = ValidationResult(
+            precondition="__CPROVER_assume(b > 0)",
+            parent_function="harness",
+            violated=True,
+            violation_type=ViolationType.EXPLOITABLE,
+            reasoning="reason2",
+            detailed_analysis="analysis2",
+        )
+        response = PreconditionValidatorResponse(
+            preconditions_analyzed=2,
+            validation_result=[exploitable_1, exploitable_2],
+        )
+
+        validator = make_validator(tmp_path, DummyLLM([response]))
+        validator.validate(build_error(), "diff", "analysis")
+        validator.complete_validation()
+
+        report = json.loads(
+            (tmp_path / "vulnerability-report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(report["summary"]["total_errors_analyzed"], 1)
+        self.assertEqual(report["summary"]["total_vulnerabilities"], 1)
+        self.assertEqual(report["summary"]["total_exploitable"], 2)
+        self.assertEqual(len(report["vulnerabilities"][0]["exploitable_preconditions"]), 2)
+
+    def test_vulnerability_report_only_includes_exploitable_from_mixed(self):
+        """When a response has both exploitable and non-exploitable violated
+        preconditions, only exploitable ones appear in the report."""
+        tmp_path = Path(self._testMethodName)
+        tmp_path.mkdir(exist_ok=True)
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp_path, ignore_errors=True))
+
+        exploitable = ValidationResult(
+            precondition="__CPROVER_assume(ptr != NULL)",
+            parent_function="harness",
+            violated=True,
+            violation_type=ViolationType.EXPLOITABLE,
+            reasoning="exploitable reason",
+            detailed_analysis="analysis",
+        )
+        angelic = ValidationResult(
+            precondition="__CPROVER_assume(len > 0)",
+            parent_function="harness",
+            violated=True,
+            violation_type=ViolationType.ANGELIC_ASSUMPTION,
+            reasoning="angelic reason",
+            detailed_analysis="analysis",
+        )
+        not_violated = ValidationResult(
+            precondition="__CPROVER_assume(x == 1)",
+            parent_function="harness",
+            violated=False,
+            violation_type=None,
+            reasoning="not violated",
+            detailed_analysis="analysis",
+        )
+        response = PreconditionValidatorResponse(
+            preconditions_analyzed=3,
+            validation_result=[exploitable, angelic, not_violated],
+        )
+
+        validator = make_validator(tmp_path, DummyLLM([response]))
+        validator.validate(build_error(), "diff", "analysis")
+        validator.complete_validation()
+
+        report = json.loads(
+            (tmp_path / "vulnerability-report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(report["summary"]["total_vulnerabilities"], 1)
+        self.assertEqual(report["summary"]["total_exploitable"], 1)
+        vuln = report["vulnerabilities"][0]
+        self.assertEqual(len(vuln["exploitable_preconditions"]), 1)
+        self.assertEqual(
+            vuln["exploitable_preconditions"][0]["precondition"],
+            "__CPROVER_assume(ptr != NULL)",
+        )
+
+    def test_vulnerability_report_includes_code_location(self):
+        tmp_path = Path(self._testMethodName)
+        tmp_path.mkdir(exist_ok=True)
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp_path, ignore_errors=True))
+
+        validator = make_validator(
+            tmp_path,
+            DummyLLM(
+                [build_response(build_validation_result(True, ViolationType.EXPLOITABLE))]
+            ),
+        )
+
+        validator.validate(build_error(), "diff", "analysis")
+        validator.complete_validation()
+
+        report = json.loads(
+            (tmp_path / "vulnerability-report.json").read_text(encoding="utf-8")
+        )
+        loc = report["vulnerabilities"][0]["code_location"]
+        self.assertEqual(loc["file"], "target.c")
+        self.assertEqual(loc["function"], "target")
+        self.assertEqual(loc["line"], "10")
 
 
 if __name__ == "__main__":

@@ -39,6 +39,7 @@ class PreconditionValidator(AIAgent, Generable):
         self._error_covered_initially: bool = False
         self._validated_harness_baseline: Optional[str] = None
         self.last_validation_response: Optional[PreconditionValidatorResponse] = None
+        self._validation_records: list[dict] = []
 
     def extract_preconditions(self, harness_path):
         """
@@ -506,6 +507,30 @@ class PreconditionValidator(AIAgent, Generable):
             self.log_task_result(task_id, True, attempt, task_result)
             self._apply_summary_counts(summary)
 
+            # Collect exploitable preconditions for the vulnerability report
+            exploitable = [
+                {
+                    "precondition": result.precondition,
+                    "reasoning": result.reasoning,
+                }
+                for result in llm_response.validation_result
+                if result.violated
+                and result.violation_type == ViolationType.EXPLOITABLE
+            ]
+            if exploitable:
+                self._validation_records.append(
+                    {
+                        "error_id": error.error_id,
+                        "error_type": error.msg,
+                        "code_location": {
+                            "file": error.file,
+                            "function": error.func,
+                            "line": error.line,
+                        },
+                        "violated_preconditions": exploitable,
+                    }
+                )
+
             if (
                 summary["violation_counts"].get(ViolationType.EXPLOITABLE.value, 0) > 0
             ):
@@ -523,6 +548,20 @@ class PreconditionValidator(AIAgent, Generable):
         )
         return Status.ERROR
 
+    def _generate_vulnerability_report(self):
+        report = {
+            "summary": {
+                "total_errors_analyzed": self.num_tasks,
+                "total_vulnerabilities": len(self._validation_records),
+            },
+            "vulnerabilities": self._validation_records,
+        }
+
+        report_path = os.path.join(self.harness_dir, "vulnerability-report.json")
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+        logger.info("Vulnerability report written to %s", report_path)
+
     def complete_validation(self):
         agent_result = {
             "validation_tasks": self.num_tasks,
@@ -533,6 +572,7 @@ class PreconditionValidator(AIAgent, Generable):
         }
 
         self.log_agent_result(agent_result)
+        self._generate_vulnerability_report()
 
     def generate(self) -> bool:
         return True
