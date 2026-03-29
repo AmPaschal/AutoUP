@@ -21,6 +21,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def positive_int(value: str) -> int:
+    """Parse a strictly positive integer CLI argument."""
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("value must be at least 1")
+    return parsed
+
+
+def positive_float(value: str) -> float:
+    """Parse a strictly positive float CLI argument."""
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be greater than 0")
+    return parsed
+
 class Status(enum.Enum):
     SUCCESS = "SUCCESS"
     FAILURE = "FAILURE"
@@ -104,19 +120,32 @@ def summarize_metrics_per_agent(metrics_dir: str):
         logger.info(json.dumps(agent_summary, indent=4))
         logger.info("\n\n")
 
-def run_proof_command(entry, args, output_root):
-    """
-    Run the harness command for a single proof/source file pair.
-    Returns a tuple: (source_file_stem, status, success_flag)
-    """
+def build_parser() -> argparse.ArgumentParser:
+    """Create the batch proof runner CLI parser."""
+    parser = argparse.ArgumentParser(description="Run proofs for CBMC makefiles.")
+    parser.add_argument("input_file", help="Path to file containing source files and target functions")
+    parser.add_argument("-p", "--proof_dir", required=True, help="directory containing CBMC proofs")
+    parser.add_argument("-m", "--mode", choices=["harness", "debugger", "coverage", "vuln-aware", "function-stubs", "precondition", "all"], default="harness", help="Execution mode")
+    parser.add_argument("-b", "--base_dir", default="../RIOT", help="Base project directory (default: ../RIOT)")
+    parser.add_argument("-o", "--output", help="Directory to store logs (default: output-${timestamp})")
+    parser.add_argument("-j", "--jobs", type=int, default=10, help="Number of parallel jobs")
+    parser.add_argument("-s", "--scope_bound", type=positive_int, default=None, help="Optional maximum depth of verification scope")
+    parser.add_argument("-st", "--scope_time_budget", type=positive_float, default=None, help="Optional full verification wall-clock budget in minutes for scope widening")
+    parser.add_argument(
+        "--container_engine",
+        choices=["docker", "apptainer"],
+        default="docker",
+        help="Container engine to use (default: docker).",
+    )
+    return parser
+
+
+def build_run_command(entry, args, metrics_file: Path, proof_dir: Path) -> list[str]:
+    """Build the `src/run.py` command for a single proof."""
     base_dir = Path(args.base_dir)
     function_name = entry["function_name"]
     src_file = Path(entry["source_file"])
-    src_file_name = src_file.stem
-    proof_dir = Path(os.path.join(args.proof_dir, src_file_name, function_name))
 
-    log_file = output_root / f"{src_file_name}-{function_name}.log"
-    metrics_file = output_root / f"metrics-{src_file_name}-{function_name}.jsonl"
     cmd = [
         "python", "src/run.py",
         args.mode,
@@ -125,9 +154,31 @@ def run_proof_command(entry, args, output_root):
         "--harness_path", str(proof_dir),
         "--target_file_path", str(src_file),
         "--metrics_file", str(metrics_file),
-        "--scope_bound", str(args.scope_bound),
-        "--container_engine", args.container_engine
+        "--container_engine", args.container_engine,
     ]
+    if getattr(args, "scope_bound", None) is not None:
+        cmd.extend(["--scope_bound", str(args.scope_bound)])
+    if getattr(args, "scope_time_budget", None) is not None:
+        cmd.extend([
+            "--scope_time_budget",
+            str(args.scope_time_budget),
+        ])
+    return cmd
+
+
+def run_proof_command(entry, args, output_root):
+    """
+    Run the harness command for a single proof/source file pair.
+    Returns a tuple: (source_file_stem, status, success_flag)
+    """
+    function_name = entry["function_name"]
+    src_file = Path(entry["source_file"])
+    src_file_name = src_file.stem
+    proof_dir = Path(os.path.join(args.proof_dir, src_file_name, function_name))
+
+    log_file = output_root / f"{src_file_name}-{function_name}.log"
+    metrics_file = output_root / f"metrics-{src_file_name}-{function_name}.jsonl"
+    cmd = build_run_command(entry, args, metrics_file, proof_dir)
 
     exp_id = uuid.uuid4().hex[:8].upper()
 
@@ -157,21 +208,7 @@ def run_proof_command(entry, args, output_root):
     return function_name, proof_dir, status
 
 def main():
-    parser = argparse.ArgumentParser(description="Run proofs for CBMC makefiles.")
-    parser.add_argument("input_file", help="Path to file containing source files and target functions")
-    parser.add_argument("-p", "--proof_dir", required=True, help="directory containing CBMC proofs")
-    parser.add_argument("-m", "--mode", choices=["harness", "debugger", "coverage", "vuln-aware", "function-stubs", "precondition", "all"], default="harness", help="Execution mode")
-    parser.add_argument("-b", "--base_dir", default="../RIOT", help="Base project directory (default: ../RIOT)")
-    parser.add_argument("-o", "--output", help="Directory to store logs (default: output-${timestamp})")
-    parser.add_argument("-j", "--jobs", type=int, default=10, help="Number of parallel jobs")
-    parser.add_argument("-s", "--scope_bound", type=int, default=1, help="Depth of verification scope")
-    parser.add_argument(
-        "--container_engine",
-        choices=["docker", "apptainer"],
-        default="docker",
-        help="Container engine to use (default: docker).",
-    )
-    args = parser.parse_args()
+    args = build_parser().parse_args()
 
     # Determine output directory
     if args.output:

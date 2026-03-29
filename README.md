@@ -43,6 +43,8 @@ python src/run.py
 --target_file_path <target_source>
 --log_file <log_file_name>
 --metrics_file <metrics_file_name>
+[--scope_bound <depth_cap>]
+[--scope_time_budget_minutes <minutes>]
 ```
 
 ### Modes
@@ -78,6 +80,13 @@ harness
 --log_file logfile.txt
 --metrics_file metrics.jsonl > output-coverage-receive.txt 2>&1
 ```
+
+Optional scope widening controls:
+
+- `--scope_bound <k>` sets the maximum widening depth.
+- `--scope_time_budget_minutes <minutes>` widens incrementally while full verification wall-clock time stays within the budget.
+- If both are set, widening stops at the earlier of the time budget or depth cap.
+- If only the time budget is set, widening continues until the budget is exceeded or no more source files can be added.
 
 To automatically fix coverage gaps or generate preconditions fixing errors, replace `harness` with `coverage` or `debugger` respectively.
 To run all the agents sequentially, use the `all` mode.

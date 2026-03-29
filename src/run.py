@@ -35,8 +35,24 @@ from validator.precondition_validator import PreconditionValidator
 project_container: Optional[ProjectContainer] = None
 
 
-def get_parser():
-    """ Create parser for CLI options """
+def positive_int(value: str) -> int:
+    """Parse a strictly positive integer CLI argument."""
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("value must be at least 1")
+    return parsed
+
+
+def positive_float(value: str) -> float:
+    """Parse a strictly positive float CLI argument."""
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be greater than 0")
+    return parsed
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Create the CLI parser."""
     parser = argparse.ArgumentParser(
         description="Tool for harness generation and proof debugging using DockerExecutor."
     )
@@ -97,15 +113,29 @@ def get_parser():
     )
     parser.add_argument(
         "--scope_bound",
-        type=int,
-        default=1,
+        type=positive_int,
+        default=None,
         help=(
-            "Maximum depth for scope widening (default: 1, no widening). "
+            "Optional maximum depth for scope widening. "
             "At k=2, source files defining functions called from the target "
             "are added to the Makefile LINK. Higher values widen further."
         ),
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--scope_time_budget",
+        type=positive_float,
+        default=None,
+        help=(
+            "Optional wall-clock budget in minutes for a full verification "
+            "run at any accepted scope widening level."
+        ),
+    )
+    return parser
+
+
+def get_parser():
+    """Parse CLI options."""
+    return build_parser().parse_args()
 
 
 def process_mode(args):

@@ -5,7 +5,8 @@ Iteratively widens the compilation scope of a CBMC proof harness by
 discovering functions without bodies in the GOTO binary, locating their
 source files, and adding them to the Makefile's LINK variable.
 
-The process repeats up to a configurable bound `k`:
+The process can repeat up to a configurable bound `k` and/or until a
+full verification time budget is exceeded:
   - k=1: only the target file (no widening)
   - k=2: also include files that define functions called from the target
   - k=3: include files for the next layer of callees, etc.
@@ -17,6 +18,7 @@ import re
 import uuid
 from typing import Dict, List, Optional, Set, Tuple
 
+from commons.utils import Status
 from logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -541,40 +543,47 @@ class ScopeWidener:
             new_entries.append(f"$(ROOT)/{rel}")
 
         # Parse existing LINK value (may span multiple lines with '\')
-        # We'll find the LINK line(s) and append to them.
-        link_pattern = re.compile(r"^(LINK\s*=.*)$", re.MULTILINE)
+        # and rebuild the full block to avoid malformed continuations.
+        link_pattern = re.compile(r"^LINK\s*=\s*(.*)$", re.MULTILINE)
         match = link_pattern.search(makefile_content)
 
         if not match:
             # No LINK variable found — append one at the end
-            link_line = "LINK = " + " \\\n      ".join(new_entries)
+            link_line = self._format_link_block(new_entries)
             makefile_content += "\n" + link_line + "\n"
         else:
-            # Find the full extent of the LINK value (possibly multi-line with \)
             link_start = match.start()
-            pos = match.end()
-            line_end = pos  # default if the while-loop body never runs
-            while pos < len(makefile_content):
-                # Check if the current line ends with a backslash (continuation)
-                line_end = makefile_content.find("\n", pos)
-                if line_end == -1:
-                    line_end = len(makefile_content)
-                current_line = makefile_content[pos:line_end]
-                if current_line.rstrip().endswith("\\"):
-                    pos = line_end + 1
-                else:
+            logical_lines = [match.group(1)]
+            first_line_end = makefile_content.find("\n", match.end())
+            if first_line_end == -1:
+                first_line_end = len(makefile_content)
+            link_end = first_line_end
+            cursor = first_line_end + 1
+
+            while cursor < len(makefile_content):
+                if not logical_lines[-1].rstrip().endswith("\\"):
                     break
-            link_end = line_end if line_end < len(makefile_content) else len(makefile_content)
+                line_break = makefile_content.find("\n", cursor)
+                if line_break == -1:
+                    line_break = len(makefile_content)
+                next_line = makefile_content[cursor:line_break]
+                logical_lines.append(next_line.strip())
+                link_end = line_break
+                cursor = line_break + 1
 
-            existing_link = makefile_content[link_start:link_end]
+            existing_entries: List[str] = []
+            for line in logical_lines:
+                stripped = line.rstrip("\\").strip()
+                if not stripped:
+                    continue
+                existing_entries.extend(stripped.split())
 
-            # Append new entries
-            additions = " \\\n      ".join(new_entries)
-            # Ensure the last existing line ends with a backslash
-            if existing_link.rstrip().endswith("\\"):
-                updated_link = existing_link + "\n      " + additions
-            else:
-                updated_link = existing_link.rstrip() + " \\\n      " + additions
+            merged_entries = list(existing_entries)
+            for entry in new_entries:
+                if entry not in merged_entries:
+                    merged_entries.append(entry)
+
+            updated_link = self._format_link_block(merged_entries)
 
             makefile_content = (
                 makefile_content[:link_start]
@@ -587,6 +596,19 @@ class ScopeWidener:
             f"Updated LINK in Makefile with {len(new_entries)} new file(s): "
             + ", ".join(new_entries)
         )
+
+    @staticmethod
+    def _format_link_block(entries: List[str]) -> str:
+        """Format LINK as a multi-line Makefile assignment."""
+        if not entries:
+            return "LINK ="
+
+        lines = ["LINK ="]
+        for index, entry in enumerate(entries):
+            suffix = " \\" if index < len(entries) - 1 else ""
+            prefix = "      " if index > 0 else " "
+            lines.append(f"{prefix}{entry}{suffix}")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # 4. Get currently linked source files from the Makefile
@@ -637,9 +659,42 @@ class ScopeWidener:
     # 5. Main entry point — iterative scope widening
     # ------------------------------------------------------------------
 
-    def widen_scope(self, scope_bound: int) -> bool:
+    def _format_scope_target(self, scope_bound: Optional[int]) -> str:
+        """Return a human-readable scope target for logging."""
+        return str(scope_bound) if scope_bound is not None else "unbounded"
+
+    def _within_scope_bound(
+        self,
+        current_level: int,
+        scope_bound: Optional[int],
+    ) -> bool:
+        """Return True while another widening step is still allowed."""
+        return scope_bound is None or current_level < scope_bound
+
+    def _is_over_time_budget(
+        self,
+        make_results: dict,
+        time_budget_seconds: float,
+    ) -> bool:
         """
-        Iteratively widen the compilation scope up to *scope_bound*.
+        Return whether a verification run exceeded the configured budget.
+
+        Timeouts are always treated as over-budget.
+        """
+        return (
+            make_results.get("status") == Status.TIMEOUT
+            or make_results.get("exit_code") == 124
+            or make_results.get("elapsed_seconds", 0.0) > time_budget_seconds
+        )
+
+    def widen_scope(
+        self,
+        scope_bound: Optional[int] = None,
+        time_budget_minutes: Optional[float] = None,
+    ) -> bool:
+        """
+        Iteratively widen the compilation scope up to *scope_bound* and/or
+        until a full verification time budget is exceeded.
 
         Starting from level 1 (the target file only), each iteration:
         1. Compiles the current Makefile
@@ -647,29 +702,67 @@ class ScopeWidener:
         3. Locates their source files via cscope
         4. Adds new source files to the Makefile's ``LINK``
         5. Uses ``MakefileGenerator`` to fix compilation errors
+        6. Optionally runs a full verification and keeps the widened scope
+           only if it remains within the configured time budget
 
-        Stops early if no new source files are discovered.
+        Stops early if no new source files are discovered, the optional
+        bound is reached, or the optional time budget is exceeded.
 
         Args:
-            scope_bound: Maximum depth of scope widening (1 = no widening).
+            scope_bound: Optional maximum depth of scope widening
+                (1 = no widening).
+            time_budget_minutes: Optional full verification wall-clock
+                budget in minutes for any accepted widened scope.
 
         Returns:
             ``True`` if compilation succeeds after widening, ``False``
             otherwise.
         """
-        if scope_bound <= 1:
-            logger.info("Scope bound is 1; no widening needed.")
+        if scope_bound is None and time_budget_minutes is None:
+            logger.info("No scope widening bound or time budget configured.")
             return True
 
         # Import here to avoid circular imports
         from makefile_generator.makefile_generator import MakefileGenerator
 
+        time_budget_seconds = (
+            time_budget_minutes * 60.0
+            if time_budget_minutes is not None
+            else None
+        )
         current_level = 1
 
-        while current_level < scope_bound:
-            current_level += 1
+        if time_budget_seconds is not None:
+            baseline_results = self.agent.run_make(compile_only=False)
+            if self._is_over_time_budget(
+                baseline_results,
+                time_budget_seconds,
+            ):
+                logger.info(
+                    "Baseline verification at scope level 1 exceeded the "
+                    "time budget (%.2fs > %.2fs or timed out). "
+                    "No widening will be attempted.",
+                    baseline_results.get("elapsed_seconds", 0.0),
+                    time_budget_seconds,
+                )
+                return True
+            if not self.agent.validate_verification_report():
+                logger.error(
+                    "Baseline verification did not produce a report. "
+                    "Aborting scope widening."
+                )
+                return False
+
+        if scope_bound is not None and scope_bound <= 1:
+            logger.info("Scope bound is %s; no widening needed.", scope_bound)
+            return True
+
+        while self._within_scope_bound(current_level, scope_bound):
+            next_level = current_level + 1
             logger.info(
-                f"=== Scope widening: level {current_level}/{scope_bound} ==="
+                "=== Scope widening: level %s/%s ===",
+                next_level,
+                self._format_scope_target(scope_bound),
             )
 
             # 1. Compile to produce the GOTO binary
@@ -677,7 +770,7 @@ class ScopeWidener:
             if make_results.get("exit_code", -1) != 0:
                 logger.error(
                     "Compilation failed before scope widening at "
-                    f"level {current_level}. Attempting to fix with "
+                    f"level {next_level}. Attempting to fix with "
                     "MakefileGenerator..."
                 )
                 mg = MakefileGenerator(
@@ -760,13 +853,38 @@ class ScopeWidener:
             if not mg.generate():
                 logger.error(
                     f"MakefileGenerator could not fix compilation at "
-                    f"scope level {current_level}. Aborting widening."
+                    f"scope level {next_level}. Aborting widening."
                 )
                 self.agent.restore_backup(tag)
                 self.agent.discard_backup(tag)
                 return False
 
+            if time_budget_seconds is not None:
+                verification_results = self.agent.run_make(compile_only=False)
+                if self._is_over_time_budget(
+                    verification_results,
+                    time_budget_seconds,
+                ):
+                    logger.info(
+                        "Scope widening level %s exceeded the time budget. "
+                        "Restoring the previous accepted scope.",
+                        next_level,
+                    )
+                    self.agent.restore_backup(tag)
+                    self.agent.discard_backup(tag)
+                    return True
+                if not self.agent.validate_verification_report():
+                    logger.error(
+                        "Scope widening level %s did not produce a "
+                        "verification report. Restoring previous scope.",
+                        next_level,
+                    )
+                    self.agent.restore_backup(tag)
+                    self.agent.discard_backup(tag)
+                    return False
+
             self.agent.discard_backup(tag)
+            current_level = next_level
 
             logger.info(
                 f"Scope widening level {current_level} succeeded."

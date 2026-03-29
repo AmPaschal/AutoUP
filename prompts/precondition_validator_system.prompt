@@ -78,10 +78,10 @@ Classification rules:
 - Use violation_type="function-pointer-constraints" if the precondition constrains a function pointer to a specific model which differs from the actual implementation.
 - Use violation_type="angelic-assumption" for implicit public-API or infrastructure assumptions that we intentionally ignore. These include:
   - malloc allocation size is greater than zero.
-  - a pointer variable derived from arguments or struct membersof a public user-facing API is not NULL.
+  - a pointer variable derived from arguments or struct members of a public user-facing API is not NULL.
   - a pointer variable returned by malloc is not NULL.
   - a length argument or struct member derived from a public user-facing API corresponds to the size of the memory region referenced by a pointer argument or struct member.
-  - a struct pointer variable references a valid struct.
+  - a pointer variable referencing a struct or type greater than a byte (e.g. int, uint64_t) references a memory region of at least the size of the type.
 - Use violation_type="exploitable" only when violating the precondition leads to the error and the case does not fit one of the more specific categories above.
 
 Proof-validator workflow requirements:

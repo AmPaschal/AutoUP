@@ -282,9 +282,15 @@ class AIAgent(ABC):
     def run_make(self, compile_only: bool = False) -> dict:
         logger.info("[INFO] Running make command...")
         make_cmd = "make compile -j3" if compile_only else "make clean && make -j3"
+        start_time = time.perf_counter()
         make_results = self.execute_command(make_cmd, workdir=self.harness_dir, timeout=1800)
+        make_results["elapsed_seconds"] = time.perf_counter() - start_time
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
+        logger.info(
+            "Make command finished in %.2f seconds.",
+            make_results["elapsed_seconds"],
+        )
         return make_results
 
     def validate_linked_target(self) -> bool:

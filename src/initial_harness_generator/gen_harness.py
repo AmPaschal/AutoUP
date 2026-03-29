@@ -249,13 +249,23 @@ class InitialHarnessGenerator(AIAgent, Generable):
             logger.info("Initial harness compiles. Checking verification...")
 
             # --- Scope widening ---
-            scope_bound = getattr(self.args, "scope_bound", 1)
-            if scope_bound > 1:
+            scope_bound = getattr(self.args, "scope_bound", None)
+            scope_time_budget_minutes = getattr(
+                self.args,
+                "scope_time_budget",
+                None,
+            )
+            if scope_bound is not None or scope_time_budget_minutes is not None:
                 logger.info(
-                    f"Running scope widening with bound={scope_bound}..."
+                    "Running scope widening with bound=%s and time budget=%s minute(s)...",
+                    scope_bound,
+                    scope_time_budget_minutes,
                 )
                 widener = ScopeWidener(agent=self)
-                widen_ok = widener.widen_scope(scope_bound)
+                widen_ok = widener.widen_scope(
+                    scope_bound=scope_bound,
+                    time_budget_minutes=scope_time_budget_minutes,
+                )
                 if widen_ok:
                     logger.info("Scope widening succeeded.")
                 else:

@@ -315,10 +315,9 @@ class StubGenerator(AIAgent, Generable):
         if attempts >= self._max_attempts:  
             logger.error("Failed to generate compilable harness after maximum attempts.")
 
-        if agent_result.get("verification_status", False):
-            self.discard_backup(tag)
-        else:
+        if not agent_result.get("verification_status", False):
             self.restore_backup(tag)
+        self.discard_backup(tag)
 
         self.log_agent_result(agent_result)
         self.save_status('stubs')
