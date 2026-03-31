@@ -188,10 +188,17 @@ class GPT(LLM):
 
     def __init__(self, name: str, max_input_tokens: int):
         super().__init__(name, max_input_tokens)
-        openai_api_key = os.getenv("OPENAI_API_KEY", None)
-        if not openai_api_key:
-            raise EnvironmentError("No OpenAI API key found")
-        self.client = openai.OpenAI(api_key=openai_api_key)
+        api_key = os.getenv("OPENAI_API_KEY", None)
+        base_url = None
+        if str(name).startswith("together_ai/"):
+            api_key = os.getenv("TOGETHER_API_KEY", None)
+            base_url = "https://api.together.xyz/v1"
+        if not api_key:
+            raise EnvironmentError("No API key found for selected model")
+        if base_url:
+            self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        else:
+            self.client = openai.OpenAI(api_key=api_key)
 
     def chat_llm(
         self,

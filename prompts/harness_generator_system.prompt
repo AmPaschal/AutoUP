@@ -56,3 +56,7 @@ void harness() {
     _parse_received_data(ctx, adv, len);
 }
 </example>
+
+You have two possible actions:
+Action 1: tool calls only (no final JSON)
+Action 2: final JSON response only, no tool calls

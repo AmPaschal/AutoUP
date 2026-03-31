@@ -1,0 +1,81 @@
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 1, "llm_data": {}, "error": "invalid_response", "timestamp": 1774913969.63346}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 2, "llm_data": {}, "error": "invalid_response", "timestamp": 1774913969.7374995}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 3, "llm_data": {}, "error": "invalid_response", "timestamp": 1774913969.8395956}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 4, "llm_data": {}, "error": "invalid_response", "timestamp": 1774913969.933024}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 5, "llm_data": {}, "error": "invalid_response", "timestamp": 1774913970.0110476}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 6, "llm_data": {}, "error": "invalid_response", "timestamp": 1774913970.0914207}
+{"type": "task_result", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "success": false, "total_attempts": 6, "data": null, "timestamp": 1774913970.0914838}
+{"type": "agent_result", "agent_name": "InitialHarnessGenerator", "data": {"compilation_status": false, "verification_status": false}, "timestamp": 1774913970.0915391}
+{"agent_name": "InitialHarnessGenerator", "elapsed_time": 0.6765509154647589}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 1, "llm_data": {}, "error": "invalid_response", "timestamp": 1774914100.939755}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 2, "llm_data": {}, "error": "invalid_response", "timestamp": 1774914101.0199585}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 3, "llm_data": {}, "error": "invalid_response", "timestamp": 1774914101.1467807}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 4, "llm_data": {}, "error": "invalid_response", "timestamp": 1774914101.2421758}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 5, "llm_data": {}, "error": "invalid_response", "timestamp": 1774914101.3280833}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 6, "llm_data": {}, "error": "invalid_response", "timestamp": 1774914101.411019}
+{"type": "task_result", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "success": false, "total_attempts": 6, "data": null, "timestamp": 1774914101.4110816}
+{"type": "agent_result", "agent_name": "InitialHarnessGenerator", "data": {"compilation_status": false, "verification_status": false}, "timestamp": 1774914101.4111366}
+{"agent_name": "InitialHarnessGenerator", "elapsed_time": 0.601265181787312}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 1, "llm_data": {}, "error": "invalid_response", "timestamp": 1774966629.7785227}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 2, "llm_data": {}, "error": "invalid_response", "timestamp": 1774966629.8752882}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 3, "llm_data": {}, "error": "invalid_response", "timestamp": 1774966630.012769}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 4, "llm_data": {}, "error": "invalid_response", "timestamp": 1774966630.108708}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 5, "llm_data": {}, "error": "invalid_response", "timestamp": 1774966630.2014844}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 6, "llm_data": {}, "error": "invalid_response", "timestamp": 1774966630.3060355}
+{"type": "task_result", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "success": false, "total_attempts": 6, "data": null, "timestamp": 1774966630.3061051}
+{"type": "agent_result", "agent_name": "InitialHarnessGenerator", "data": {"compilation_status": false, "verification_status": false}, "timestamp": 1774966630.3061848}
+{"agent_name": "InitialHarnessGenerator", "elapsed_time": 1.0083171101287007}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 1, "llm_data": {}, "error": "invalid_response", "timestamp": 1774967305.8806844}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 2, "llm_data": {}, "error": "invalid_response", "timestamp": 1774967305.9805412}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 3, "llm_data": {}, "error": "invalid_response", "timestamp": 1774967306.1734846}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 4, "llm_data": {}, "error": "invalid_response", "timestamp": 1774967306.273567}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 5, "llm_data": {}, "error": "invalid_response", "timestamp": 1774967306.36769}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 6, "llm_data": {}, "error": "invalid_response", "timestamp": 1774967306.4648628}
+{"type": "task_result", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "success": false, "total_attempts": 6, "data": null, "timestamp": 1774967306.4649317}
+{"type": "agent_result", "agent_name": "InitialHarnessGenerator", "data": {"compilation_status": false, "verification_status": false}, "timestamp": 1774967306.4650052}
+{"agent_name": "InitialHarnessGenerator", "elapsed_time": 0.7117933370172977}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 1, "llm_data": {}, "error": "invalid_response", "timestamp": 1774967926.7327735}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 2, "llm_data": {}, "error": "invalid_response", "timestamp": 1774967926.871212}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 3, "llm_data": {}, "error": "invalid_response", "timestamp": 1774967926.9613113}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 4, "llm_data": {}, "error": "invalid_response", "timestamp": 1774967927.0571663}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 5, "llm_data": {}, "error": "invalid_response", "timestamp": 1774967927.1441767}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 6, "llm_data": {}, "error": "invalid_response", "timestamp": 1774967927.2620308}
+{"type": "task_result", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "success": false, "total_attempts": 6, "data": null, "timestamp": 1774967927.2621017}
+{"type": "agent_result", "agent_name": "InitialHarnessGenerator", "data": {"compilation_status": false, "verification_status": false}, "timestamp": 1774967927.2621765}
+{"agent_name": "InitialHarnessGenerator", "elapsed_time": 0.7568243099376559}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 1, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968307.7660053}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 2, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968307.8606477}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 3, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968307.9563055}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 4, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968308.0450447}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 5, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968308.1440077}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 6, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968308.2482426}
+{"type": "task_result", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "success": false, "total_attempts": 6, "data": null, "timestamp": 1774968308.248312}
+{"type": "agent_result", "agent_name": "InitialHarnessGenerator", "data": {"compilation_status": false, "verification_status": false}, "timestamp": 1774968308.2483919}
+{"agent_name": "InitialHarnessGenerator", "elapsed_time": 0.599649254232645}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 1, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968621.5315533}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 2, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968621.6326098}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 3, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968621.7215757}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 4, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968621.8211038}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 5, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968621.9127574}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 6, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968622.0129747}
+{"type": "task_result", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "success": false, "total_attempts": 6, "data": null, "timestamp": 1774968622.0130448}
+{"type": "agent_result", "agent_name": "InitialHarnessGenerator", "data": {"compilation_status": false, "verification_status": false}, "timestamp": 1774968622.013123}
+{"agent_name": "InitialHarnessGenerator", "elapsed_time": 0.6152849523350596}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 1, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968705.876937}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 2, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968705.962004}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 3, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968706.0469358}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 4, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968706.1381438}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 5, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968706.258729}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 6, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968706.359987}
+{"type": "task_result", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "success": false, "total_attempts": 6, "data": null, "timestamp": 1774968706.3600466}
+{"type": "agent_result", "agent_name": "InitialHarnessGenerator", "data": {"compilation_status": false, "verification_status": false}, "timestamp": 1774968706.3601062}
+{"agent_name": "InitialHarnessGenerator", "elapsed_time": 0.6177941430360079}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 1, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968819.8161333}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 2, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968819.9876404}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 3, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968820.0797553}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 4, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968820.1699162}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 5, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968820.2611718}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 6, "llm_data": {}, "error": "invalid_response", "timestamp": 1774968820.3682427}
+{"type": "task_result", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "success": false, "total_attempts": 6, "data": null, "timestamp": 1774968820.3683107}
+{"type": "agent_result", "agent_name": "InitialHarnessGenerator", "data": {"compilation_status": false, "verification_status": false}, "timestamp": 1774968820.368383}
+{"agent_name": "InitialHarnessGenerator", "elapsed_time": 0.6798478914424777}

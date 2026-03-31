@@ -1,0 +1,8 @@
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 1, "llm_data": {}, "error": "invalid_response", "timestamp": 1774899258.0342264}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 2, "llm_data": {}, "error": "invalid_response", "timestamp": 1774899434.340201}
+{"type": "task_attempt", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "attempt_number": 1, "llm_data": {"function_call_count": 25, "token_usage": {"input_tokens": 435574, "cached_tokens": 363136, "output_tokens": 14875, "reasoning_tokens": 8139, "total_tokens": 450449}}, "error": "", "timestamp": 1774899976.4838235}
+{"type": "task_result", "agent_name": "InitialHarnessGenerator", "task_id": "harness_generation", "success": true, "total_attempts": 1, "data": null, "timestamp": 1774899976.4840226}
+{"type": "task_attempt", "agent_name": "MakefileGenerator", "task_id": "makefile_generation", "attempt_number": 1, "llm_data": {"function_call_count": 48, "token_usage": {"input_tokens": 1385928, "cached_tokens": 1217408, "output_tokens": 11515, "reasoning_tokens": 7160, "total_tokens": 1397443}}, "error": "", "timestamp": 1774900213.2723312}
+{"type": "task_result", "agent_name": "MakefileGenerator", "task_id": "makefile_generation", "success": true, "total_attempts": 1, "data": null, "timestamp": 1774900213.272492}
+{"type": "agent_result", "agent_name": "InitialHarnessGenerator", "data": {"compilation_status": true, "verification_status": true}, "timestamp": 1774900215.397188}
+{"agent_name": "InitialHarnessGenerator", "elapsed_time": 507.5487473523244}

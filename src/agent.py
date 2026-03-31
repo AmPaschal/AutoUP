@@ -38,7 +38,7 @@ class AIAgent(ABC):
 
         try:
             result = get_llm_provider(args.llm_model)
-            if result[1] == "openai":
+            if str(args.llm_model).startswith("together_ai/") or result[1] == "openai":
                 logger.info(f"Using model '{args.llm_model}' with OpenAI specification")
                 self.llm = GPT(name=args.llm_model, max_input_tokens=270000)
             else:
