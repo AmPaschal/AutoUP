@@ -15,13 +15,19 @@ full verification time budget is exceeded:
 import json
 import os
 import re
-import uuid
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
-from commons.utils import Status
 from logger import setup_logger
 
 logger = setup_logger(__name__)
+
+
+@dataclass
+class ScopeWidenStepResult:
+    outcome: str
+    level: int
+    new_files: List[str]
 
 
 class ScopeWidener:
@@ -412,6 +418,10 @@ class ScopeWidener:
         the declaration are rejected.  The remaining candidates are
         ranked by path proximity to the declaration header.
         """
+        current_harness_path = os.path.realpath(
+            os.path.join(self.harness_dir, f"{self.target_function}_harness.c")
+        )
+
         result = self.agent.execute_command(
             f"cscope -dL -1 {function_name}",
             workdir=self.root_dir,
@@ -447,9 +457,20 @@ class ScopeWidener:
             abs_path = os.path.normpath(
                 os.path.join(self.root_dir, file_path)
             )
-            if os.path.isfile(abs_path) and abs_path not in seen_paths:
-                seen_paths.add(abs_path)
-                candidates.append((abs_path, line_num))
+            real_abs_path = os.path.realpath(abs_path)
+            if (
+                os.path.basename(real_abs_path).endswith("_harness.c")
+                or real_abs_path == current_harness_path
+            ):
+                logger.info(
+                    "  ✗ Rejected '%s' candidate in %s: generated harness file",
+                    function_name,
+                    real_abs_path,
+                )
+                continue
+            if os.path.isfile(abs_path) and real_abs_path not in seen_paths:
+                seen_paths.add(real_abs_path)
+                candidates.append((real_abs_path, line_num))
 
         if not candidates:
             logger.warning(
@@ -671,224 +692,160 @@ class ScopeWidener:
         """Return True while another widening step is still allowed."""
         return scope_bound is None or current_level < scope_bound
 
-    def _is_over_time_budget(
-        self,
-        make_results: dict,
-        time_budget_seconds: float,
-    ) -> bool:
+    def widen_scope_level(self, current_level: int) -> ScopeWidenStepResult:
         """
-        Return whether a verification run exceeded the configured budget.
+        Attempt to widen by a single scope level and leave the widened
+        harness and Makefile in place only when compilation succeeds.
 
-        Timeouts are always treated as over-budget.
+        Returns a result object whose outcome is one of:
+        - ``advanced``: scope was widened to the next level
+        - ``complete``: nothing else can be widened from the current level
+        - ``failed``: compilation or scope discovery failed
         """
-        return (
-            make_results.get("status") == Status.TIMEOUT
-            or make_results.get("exit_code") == 124
-            or make_results.get("elapsed_seconds", 0.0) > time_budget_seconds
-        )
-
-    def widen_scope(
-        self,
-        scope_bound: Optional[int] = None,
-        time_budget_minutes: Optional[float] = None,
-    ) -> bool:
-        """
-        Iteratively widen the compilation scope up to *scope_bound* and/or
-        until a full verification time budget is exceeded.
-
-        Starting from level 1 (the target file only), each iteration:
-        1. Compiles the current Makefile
-        2. Finds bodyless reachable functions in the GOTO binary
-        3. Locates their source files via cscope
-        4. Adds new source files to the Makefile's ``LINK``
-        5. Uses ``MakefileGenerator`` to fix compilation errors
-        6. Optionally runs a full verification and keeps the widened scope
-           only if it remains within the configured time budget
-
-        Stops early if no new source files are discovered, the optional
-        bound is reached, or the optional time budget is exceeded.
-
-        Args:
-            scope_bound: Optional maximum depth of scope widening
-                (1 = no widening).
-            time_budget_minutes: Optional full verification wall-clock
-                budget in minutes for any accepted widened scope.
-
-        Returns:
-            ``True`` if compilation succeeds after widening, ``False``
-            otherwise.
-        """
-        if scope_bound is None and time_budget_minutes is None:
-            logger.info("No scope widening bound or time budget configured.")
-            return True
 
         # Import here to avoid circular imports
         from makefile_generator.makefile_generator import MakefileGenerator
 
-        time_budget_seconds = (
-            time_budget_minutes * 60.0
-            if time_budget_minutes is not None
-            else None
-        )
-        current_level = 1
+        next_level = current_level + 1
+        logger.info("=== Scope widening: level %s ===", next_level)
 
-        if time_budget_seconds is not None:
-            baseline_results = self.agent.run_make(compile_only=False)
-            if self._is_over_time_budget(
-                baseline_results,
-                time_budget_seconds,
-            ):
-                logger.info(
-                    "Baseline verification at scope level 1 exceeded the "
-                    "time budget (%.2fs > %.2fs or timed out). "
-                    "No widening will be attempted.",
-                    baseline_results.get("elapsed_seconds", 0.0),
-                    time_budget_seconds,
-                )
-                return True
-            if not self.agent.validate_verification_report():
-                logger.error(
-                    "Baseline verification did not produce a report. "
-                    "Aborting scope widening."
-                )
-                return False
-
-        if scope_bound is not None and scope_bound <= 1:
-            logger.info("Scope bound is %s; no widening needed.", scope_bound)
-            return True
-
-        while self._within_scope_bound(current_level, scope_bound):
-            next_level = current_level + 1
-            logger.info(
-                "=== Scope widening: level %s/%s ===",
-                next_level,
-                self._format_scope_target(scope_bound),
+        # 1. Compile to produce the GOTO binary
+        make_results = self.agent.run_make(compile_only=True)
+        if make_results.get("exit_code", -1) != 0:
+            logger.error(
+                "Compilation failed before scope widening at "
+                f"level {next_level}. Attempting to fix with "
+                "MakefileGenerator..."
             )
-
-            # 1. Compile to produce the GOTO binary
-            make_results = self.agent.run_make(compile_only=True)
-            if make_results.get("exit_code", -1) != 0:
-                logger.error(
-                    "Compilation failed before scope widening at "
-                    f"level {next_level}. Attempting to fix with "
-                    "MakefileGenerator..."
-                )
-                mg = MakefileGenerator(
-                    args=self.agent.args,
-                    project_container=self.agent.project_container,
-                )
-                if not mg.generate():
-                    logger.error(
-                        "MakefileGenerator could not fix compilation. "
-                        "Aborting scope widening."
-                    )
-                    return False
-
-            # 2. Find bodyless functions
-            goto_file = os.path.join(
-                self.harness_dir,
-                "build",
-                f"{self.target_function}.goto",
-            )
-            if not os.path.exists(goto_file):
-                logger.error(f"GOTO file not found: {goto_file}")
-                return False
-
-            bodyless_funcs = self.extract_functions_without_body(goto_file)
-            if not bodyless_funcs:
-                logger.info(
-                    "No bodyless functions found — scope widening "
-                    "complete."
-                )
-                return True
-
-            # 3. Locate source files for each bodyless function
-            already_linked = self.get_linked_source_files()
-            new_files: List[str] = []
-
-            for func_info in bodyless_funcs:
-                func_name = func_info["name"]
-                decl_hint = func_info.get("declaration_file", "")
-                decl_line = func_info.get("declaration_line", "")
-                src_path = self.locate_function_source(
-                    func_name,
-                    declaration_hint=decl_hint,
-                    declaration_line=decl_line,
-                )
-                if src_path is None:
-                    continue
-                real_src = os.path.realpath(src_path)
-                if real_src in already_linked:
-                    logger.debug(
-                        f"'{func_name}' source {real_src} already linked."
-                    )
-                    continue
-                if real_src not in [os.path.realpath(f) for f in new_files]:
-                    new_files.append(src_path)
-
-            if not new_files:
-                logger.info(
-                    "No new source files discovered — scope widening "
-                    "complete."
-                )
-                return True
-
-            logger.info(
-                f"Adding {len(new_files)} new file(s) to LINK: "
-                + ", ".join(new_files)
-            )
-
-            # Create backup before modifying LINK
-            tag = uuid.uuid4().hex[:4].upper()
-            self.agent.create_backup(tag)
-
-            # 4. Update Makefile
-            self.add_source_files_to_makefile(new_files)
-
-            # 5. Fix compilation with MakefileGenerator
             mg = MakefileGenerator(
                 args=self.agent.args,
                 project_container=self.agent.project_container,
             )
             if not mg.generate():
                 logger.error(
-                    f"MakefileGenerator could not fix compilation at "
-                    f"scope level {next_level}. Aborting widening."
+                    "MakefileGenerator could not fix compilation. "
+                    "Aborting scope widening."
                 )
-                self.agent.restore_backup(tag)
-                self.agent.discard_backup(tag)
-                return False
+                return ScopeWidenStepResult(
+                    outcome="failed",
+                    level=current_level,
+                    new_files=[],
+                )
 
-            if time_budget_seconds is not None:
-                verification_results = self.agent.run_make(compile_only=False)
-                if self._is_over_time_budget(
-                    verification_results,
-                    time_budget_seconds,
-                ):
-                    logger.info(
-                        "Scope widening level %s exceeded the time budget. "
-                        "Restoring the previous accepted scope.",
-                        next_level,
-                    )
-                    self.agent.restore_backup(tag)
-                    self.agent.discard_backup(tag)
-                    return True
-                if not self.agent.validate_verification_report():
-                    logger.error(
-                        "Scope widening level %s did not produce a "
-                        "verification report. Restoring previous scope.",
-                        next_level,
-                    )
-                    self.agent.restore_backup(tag)
-                    self.agent.discard_backup(tag)
-                    return False
-
-            self.agent.discard_backup(tag)
-            current_level = next_level
-
-            logger.info(
-                f"Scope widening level {current_level} succeeded."
+        # 2. Find bodyless functions
+        goto_file = os.path.join(
+            self.harness_dir,
+            "build",
+            f"{self.target_function}.goto",
+        )
+        if not os.path.exists(goto_file):
+            logger.error(f"GOTO file not found: {goto_file}")
+            return ScopeWidenStepResult(
+                outcome="failed",
+                level=current_level,
+                new_files=[],
             )
+
+        bodyless_funcs = self.extract_functions_without_body(goto_file)
+        if not bodyless_funcs:
+            logger.info(
+                "No bodyless functions found — scope widening complete."
+            )
+            return ScopeWidenStepResult(
+                outcome="complete",
+                level=current_level,
+                new_files=[],
+            )
+
+        # 3. Locate source files for each bodyless function
+        already_linked = self.get_linked_source_files()
+        new_files: List[str] = []
+
+        for func_info in bodyless_funcs:
+            func_name = func_info["name"]
+            decl_hint = func_info.get("declaration_file", "")
+            decl_line = func_info.get("declaration_line", "")
+            src_path = self.locate_function_source(
+                func_name,
+                declaration_hint=decl_hint,
+                declaration_line=decl_line,
+            )
+            if src_path is None:
+                continue
+            real_src = os.path.realpath(src_path)
+            if real_src in already_linked:
+                logger.debug(
+                    f"'{func_name}' source {real_src} already linked."
+                )
+                continue
+            if real_src not in [os.path.realpath(f) for f in new_files]:
+                new_files.append(src_path)
+
+        if not new_files:
+            logger.info(
+                "No new source files discovered — scope widening complete."
+            )
+            return ScopeWidenStepResult(
+                outcome="complete",
+                level=current_level,
+                new_files=[],
+            )
+
+        logger.info(
+            f"Adding {len(new_files)} new file(s) to LINK: "
+            + ", ".join(new_files)
+        )
+
+        # 4. Update Makefile
+        self.add_source_files_to_makefile(new_files)
+
+        # 5. Fix compilation with MakefileGenerator
+        mg = MakefileGenerator(
+            args=self.agent.args,
+            project_container=self.agent.project_container,
+        )
+        if not mg.generate():
+            logger.error(
+                f"MakefileGenerator could not fix compilation at "
+                f"scope level {next_level}. Aborting widening."
+            )
+            return ScopeWidenStepResult(
+                outcome="failed",
+                level=current_level,
+                new_files=[],
+            )
+
+        logger.info("Scope widening level %s compiled successfully.", next_level)
+        return ScopeWidenStepResult(
+            outcome="advanced",
+            level=next_level,
+            new_files=new_files,
+        )
+
+    def widen_scope(
+        self,
+        scope_bound: Optional[int] = None,
+    ) -> bool:
+        """
+        Compile-only widening wrapper retained for callers that want the
+        widened Makefile state without per-level verification.
+        """
+        if scope_bound is None:
+            logger.info("No scope widening bound configured.")
+            return True
+
+        if scope_bound <= 1:
+            logger.info("Scope bound is %s; no widening needed.", scope_bound)
+            return True
+
+        current_level = 1
+        while self._within_scope_bound(current_level, scope_bound):
+            step_result = self.widen_scope_level(current_level)
+            if step_result.outcome == "failed":
+                return False
+            if step_result.outcome == "complete":
+                return True
+            current_level = step_result.level
 
         logger.info("Scope widening completed successfully.")
         return True

@@ -1,8 +1,10 @@
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -100,6 +102,66 @@ class ScopeCliTests(unittest.TestCase):
         self.assertIn("--scope_bound", cmd)
         self.assertIn("4", cmd)
         self.assertNotIn("--scope_time_budget", cmd)
+
+    def test_all_mode_skips_standalone_model_generation_agents(self):
+        created_agents: list[str] = []
+
+        class FakeInitialHarnessGenerator:
+            def __init__(self, *args, **kwargs):
+                created_agents.append(type(self).__name__)
+
+            def generate(self):
+                return True
+
+        class FakeCoverageDebugger:
+            def __init__(self, *args, **kwargs):
+                created_agents.append(type(self).__name__)
+
+            def generate(self):
+                return True
+
+        class FakeProofDebugger:
+            def __init__(self, *args, **kwargs):
+                created_agents.append(type(self).__name__)
+
+            def generate(self):
+                return True
+
+        class FakeVulnAwareRefiner:
+            def __init__(self, *args, **kwargs):
+                created_agents.append(type(self).__name__)
+
+            def generate(self):
+                return True
+
+        with tempfile.NamedTemporaryFile() as metrics_file:
+            args = SimpleNamespace(
+                mode="all",
+                harness_path="/tmp/proof",
+                root_dir="/tmp/project",
+                target_function_name="demo",
+                target_file_path="/tmp/project/demo.c",
+                metrics_file=metrics_file.name,
+            )
+
+            with mock.patch.object(autoup_run, "InitialHarnessGenerator", FakeInitialHarnessGenerator), \
+                 mock.patch.object(autoup_run, "CoverageDebugger", FakeCoverageDebugger), \
+                 mock.patch.object(autoup_run, "VulnAwareRefiner", FakeVulnAwareRefiner), \
+                 mock.patch.object(autoup_run, "ProofDebugger", FakeProofDebugger), \
+                 mock.patch.object(autoup_run, "StubGenerator", side_effect=AssertionError("StubGenerator should not run in all mode")), \
+                 mock.patch.object(autoup_run, "FunctionPointerHandler", side_effect=AssertionError("FunctionPointerHandler should not run in all mode")):
+                autoup_run.project_container = object()
+                autoup_run.process_mode(args)
+
+        self.assertEqual(
+            created_agents,
+            [
+                "FakeInitialHarnessGenerator",
+                "FakeCoverageDebugger",
+                "FakeVulnAwareRefiner",
+                "FakeProofDebugger",
+            ],
+        )
 
 
 if __name__ == "__main__":

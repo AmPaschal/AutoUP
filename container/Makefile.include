@@ -5,20 +5,7 @@ C_INC ?=
 
 
 C_DEF = \
-	-DWIN32 \
-	-DWINVER=0x400 \
-	-D_CONSOLE \
-	-D_CRT_SECURE_NO_WARNINGS \
-	-D_DEBUG \
-	-D_WIN32_WINNT=0x0500 \
-	-D__PRETTY_FUNCTION__=__FUNCTION__ \
-	-D__free_rtos__ \
 	-DCBMC \
-	-D'_static=' \
-	-D'_volatile=' \
-	-D'$(MAC_DRIVER)=1' \
-	-D'$(NET_DRIVER)=1' \
-	-D'$(ROUTE_DRIVER)=1' \
 
 C_CBMCFLAGS = \
 	--object-bits $(OBJ_BITS) \
@@ -63,7 +50,7 @@ INC = \
 
 CFLAGS = \
   $(CFLAGS2) \
-  $(O_DEF) $(H_DEF) $(DEF) \
+  $(C_DEF) $(O_DEF) $(H_DEF) $(DEF) \
   $(C_OPT) $(O_OPT) $(H_OPT) $(OPT) \
   -m32 \
   # empty

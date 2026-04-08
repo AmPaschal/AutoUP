@@ -120,7 +120,7 @@ class FunctionPointerHandler(AIAgent, Generable):
 
         return system_prompt, user_prompt
 
-    def generate(self) -> bool:
+    def generate(self, verify_after_generation: bool = True) -> bool:
 
         h_def_args = self.get_h_def_entries()
         h_inc_args = self.get_h_inc_entries()
@@ -181,6 +181,7 @@ class FunctionPointerHandler(AIAgent, Generable):
         stubs_to_generate = len(fp_results)
         agent_result = {
             "fp_stubs_to_generate": stubs_to_generate, 
+            "generation_succeeded": False,
             "verification_status": False,
             }
         while user_prompt and attempts < self._max_attempts:
@@ -213,14 +214,24 @@ class FunctionPointerHandler(AIAgent, Generable):
                 self.update_harness(llm_response.updated_harness)
 
             # Now, try to build the harness using make
-            make_results = self.run_make(compile_only=False)
+            make_results = self.run_make(
+                compile_only=not verify_after_generation,
+            )
             
             status_code = make_results.get('status', Status.ERROR)
 
-            if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0 and self.validate_verification_report():
+            if (
+                status_code == Status.SUCCESS
+                and make_results.get('exit_code', -1) == 0
+                and (
+                    not verify_after_generation
+                    or self.validate_verification_report()
+                )
+            ):
                 logger.info("Generated harness builds succeeded.")
                 self.log_task_attempt("function_pointer_generation", attempts, llm_data, None)
-                agent_result["verification_status"] = True
+                agent_result["generation_succeeded"] = True
+                agent_result["verification_status"] = verify_after_generation
                 status = Status.SUCCESS
                 break    
             elif status_code == Status.FAILURE:
@@ -254,5 +265,5 @@ class FunctionPointerHandler(AIAgent, Generable):
             self.restore_backup(tag)
 
         self.log_agent_result(agent_result)
-        return agent_result.get("verification_status", False)
+        return agent_result.get("generation_succeeded", False)
         

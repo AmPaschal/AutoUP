@@ -1,3 +1,4 @@
+import os
 import shutil
 import sys
 import tempfile
@@ -14,7 +15,6 @@ litellm_stub.ModelResponse = object
 litellm_stub.get_llm_provider = lambda name: (None, "openai")
 sys.modules.setdefault("litellm", litellm_stub)
 
-from commons.utils import Status
 from scope_widener.scope_widener import ScopeWidener
 
 
@@ -35,7 +35,6 @@ class FakeAgent:
         self,
         temp_dir: str,
         compile_results: list[dict] | None = None,
-        full_results: list[dict] | None = None,
     ):
         self.temp_dir = Path(temp_dir)
         self.root_dir = str(self.temp_dir / "project")
@@ -47,7 +46,6 @@ class FakeAgent:
         self.args = SimpleNamespace()
         self.project_container = object()
         self.compile_results = list(compile_results or [])
-        self.full_results = list(full_results or [])
         self.run_make_calls: list[bool] = []
         self.backup_tags: list[str] = []
 
@@ -79,9 +77,7 @@ class FakeAgent:
 
     def run_make(self, compile_only: bool = False) -> dict:
         self.run_make_calls.append(compile_only)
-        result = dict(
-            (self.compile_results if compile_only else self.full_results).pop(0)
-        )
+        result = dict(self.compile_results.pop(0))
         build_dir = Path(self.harness_dir) / "build"
         build_dir.mkdir(parents=True, exist_ok=True)
 
@@ -91,36 +87,13 @@ class FakeAgent:
                 encoding="utf-8",
             )
 
-        report_dir = build_dir / "report" / "json"
-        if compile_only:
-            if report_dir.exists():
-                shutil.rmtree(report_dir.parent)
-        else:
-            if result.get("report", False):
-                report_dir.mkdir(parents=True, exist_ok=True)
-                report_dir.joinpath("viewer-property.json").write_text(
-                    "{}",
-                    encoding="utf-8",
-                )
-            elif report_dir.exists():
-                shutil.rmtree(report_dir.parent.parent)
-
         return {
-            "status": result.get("status", Status.SUCCESS),
+            "status": result.get("status"),
             "exit_code": result.get("exit_code", 0),
             "elapsed_seconds": result.get("elapsed_seconds", 0.0),
             "stdout": "",
             "stderr": "",
         }
-
-    def validate_verification_report(self) -> bool:
-        return Path(
-            self.harness_dir,
-            "build",
-            "report",
-            "json",
-            "viewer-property.json",
-        ).exists()
 
     def create_backup(self, tag: str) -> None:
         self.backup_tags.append(tag)
@@ -168,6 +141,9 @@ class FakeAgent:
         if build_backup.exists():
             shutil.rmtree(build_backup)
 
+    def execute_command(self, cmd: str, workdir: str | None = None, timeout: int | None = None) -> dict:
+        return {"exit_code": 1, "stdout": "", "stderr": f"Unexpected command: {cmd}"}
+
 
 class ScriptedScopeWidener(ScopeWidener):
     def __init__(
@@ -210,12 +186,10 @@ class ScopeWidenerTests(unittest.TestCase):
     def create_agent(
         self,
         compile_results: list[dict] | None = None,
-        full_results: list[dict] | None = None,
     ) -> FakeAgent:
         return FakeAgent(
             self.temp_dir.name,
             compile_results=compile_results,
-            full_results=full_results,
         )
 
     def create_source(self, relative_path: str) -> str:
@@ -228,7 +202,7 @@ class ScopeWidenerTests(unittest.TestCase):
         agent = self.create_agent()
         widener = ScriptedScopeWidener(agent, bodyless_sequences=[], source_map={})
 
-        self.assertTrue(widener.widen_scope())
+        self.assertTrue(widener.widen_scope(scope_bound=None))
         self.assertEqual(agent.run_make_calls, [])
 
         self.assertTrue(widener.widen_scope(scope_bound=1))
@@ -249,6 +223,38 @@ class ScopeWidenerTests(unittest.TestCase):
         self.assertTrue(widener.widen_scope(scope_bound=2))
         self.assertEqual(agent.run_make_calls, [True])
         self.assertIn("$(ROOT)/src/one.c", agent.get_makefile())
+
+    def test_widen_scope_level_returns_complete_when_no_bodyless_functions(self):
+        agent = self.create_agent(
+            compile_results=[{"exit_code": 0, "elapsed_seconds": 1.0}],
+        )
+        widener = ScriptedScopeWidener(
+            agent,
+            bodyless_sequences=[[]],
+            source_map={},
+        )
+
+        result = widener.widen_scope_level(current_level=1)
+
+        self.assertEqual(result.outcome, "complete")
+        self.assertEqual(result.level, 1)
+        self.assertEqual(agent.run_make_calls, [True])
+
+    def test_widen_scope_level_returns_failed_when_makefile_generator_cannot_repair(self):
+        FakeMakefileGenerator.results_queue = [False]
+        agent = self.create_agent(
+            compile_results=[{"exit_code": 2, "elapsed_seconds": 1.0}],
+        )
+        widener = ScriptedScopeWidener(
+            agent,
+            bodyless_sequences=[],
+            source_map={},
+        )
+
+        result = widener.widen_scope_level(current_level=1)
+
+        self.assertEqual(result.outcome, "failed")
+        self.assertEqual(result.level, 1)
 
     def test_add_source_files_rewrites_existing_multiline_link_block(self):
         agent = self.create_agent()
@@ -284,68 +290,6 @@ class ScopeWidenerTests(unittest.TestCase):
             makefile_content,
         )
 
-    def test_budget_only_rolls_back_first_over_budget_candidate(self):
-        FakeMakefileGenerator.results_queue = [True, True]
-        source_one = self.create_source("src/one.c")
-        source_two = self.create_source("src/two.c")
-        agent = self.create_agent(
-            compile_results=[
-                {"exit_code": 0, "elapsed_seconds": 1.0},
-                {"exit_code": 0, "elapsed_seconds": 1.0},
-            ],
-            full_results=[
-                {"exit_code": 0, "elapsed_seconds": 10.0, "report": True},
-                {"exit_code": 0, "elapsed_seconds": 20.0, "report": True},
-                {"exit_code": 0, "elapsed_seconds": 80.0, "report": True},
-            ],
-        )
-        widener = ScriptedScopeWidener(
-            agent,
-            bodyless_sequences=[
-                [{"name": "one"}],
-                [{"name": "two"}],
-            ],
-            source_map={"one": source_one, "two": source_two},
-        )
-
-        self.assertTrue(widener.widen_scope(time_budget_minutes=1.0))
-        makefile_content = agent.get_makefile()
-        self.assertIn("$(ROOT)/src/one.c", makefile_content)
-        self.assertNotIn("$(ROOT)/src/two.c", makefile_content)
-
-    def test_budget_and_bound_stop_at_depth_cap(self):
-        FakeMakefileGenerator.results_queue = [True]
-        source_one = self.create_source("src/one.c")
-        agent = self.create_agent(
-            compile_results=[{"exit_code": 0, "elapsed_seconds": 1.0}],
-            full_results=[
-                {"exit_code": 0, "elapsed_seconds": 5.0, "report": True},
-                {"exit_code": 0, "elapsed_seconds": 10.0, "report": True},
-            ],
-        )
-        widener = ScriptedScopeWidener(
-            agent,
-            bodyless_sequences=[[{"name": "one"}]],
-            source_map={"one": source_one},
-        )
-
-        self.assertTrue(
-            widener.widen_scope(scope_bound=2, time_budget_minutes=1.0)
-        )
-        self.assertEqual(agent.run_make_calls, [False, True, False])
-        self.assertIn("$(ROOT)/src/one.c", agent.get_makefile())
-
-    def test_baseline_over_budget_skips_widening(self):
-        agent = self.create_agent(
-            full_results=[{"exit_code": 0, "elapsed_seconds": 70.0, "report": True}],
-        )
-        widener = ScriptedScopeWidener(agent, bodyless_sequences=[], source_map={})
-
-        self.assertTrue(widener.widen_scope(time_budget_minutes=1.0))
-        self.assertEqual(agent.run_make_calls, [False])
-        self.assertEqual(agent.backup_tags, [])
-        self.assertNotIn("$(ROOT)/src/", agent.get_makefile())
-
     def test_no_new_files_stops_cleanly(self):
         agent = self.create_agent(
             compile_results=[{"exit_code": 0, "elapsed_seconds": 1.0}],
@@ -360,59 +304,41 @@ class ScopeWidenerTests(unittest.TestCase):
         self.assertEqual(agent.backup_tags, [])
         self.assertEqual(agent.run_make_calls, [True])
 
-    def test_timeout_rolls_back_to_last_accepted_scope(self):
-        FakeMakefileGenerator.results_queue = [True, True]
-        source_one = self.create_source("src/one.c")
-        source_two = self.create_source("src/two.c")
-        agent = self.create_agent(
-            compile_results=[
-                {"exit_code": 0, "elapsed_seconds": 1.0},
-                {"exit_code": 0, "elapsed_seconds": 1.0},
-            ],
-            full_results=[
-                {"exit_code": 0, "elapsed_seconds": 5.0, "report": True},
-                {"exit_code": 0, "elapsed_seconds": 10.0, "report": True},
-                {
-                    "status": Status.TIMEOUT,
-                    "exit_code": 124,
-                    "elapsed_seconds": 30.0,
-                    "report": False,
-                },
-            ],
-        )
-        widener = ScriptedScopeWidener(
-            agent,
-            bodyless_sequences=[
-                [{"name": "one"}],
-                [{"name": "two"}],
-            ],
-            source_map={"one": source_one, "two": source_two},
+    def test_locate_function_source_ignores_generated_harness_candidates(self):
+        agent = self.create_agent()
+        real_source = self.create_source("src/net_buf.c")
+        harness_candidate = Path(agent.harness_file_path)
+        harness_candidate.write_text(
+            "uint8_t *net_buf_simple_add_u8(struct net_buf_simple *buf, uint8_t val) { return 0; }\n",
+            encoding="utf-8",
         )
 
-        self.assertTrue(widener.widen_scope(time_budget_minutes=1.0))
-        makefile_content = agent.get_makefile()
-        self.assertIn("$(ROOT)/src/one.c", makefile_content)
-        self.assertNotIn("$(ROOT)/src/two.c", makefile_content)
+        class CscopeAgent(FakeAgent):
+            def __init__(self, base_agent: FakeAgent, cscope_stdout: str):
+                self.__dict__ = base_agent.__dict__.copy()
+                self._cscope_stdout = cscope_stdout
 
-    def test_missing_verification_report_rolls_back_and_fails(self):
-        FakeMakefileGenerator.results_queue = [True]
-        source_one = self.create_source("src/one.c")
-        agent = self.create_agent(
-            compile_results=[{"exit_code": 0, "elapsed_seconds": 1.0}],
-            full_results=[
-                {"exit_code": 0, "elapsed_seconds": 5.0, "report": True},
-                {"exit_code": 0, "elapsed_seconds": 10.0, "report": False},
-            ],
-        )
-        original_makefile = agent.get_makefile()
-        widener = ScriptedScopeWidener(
-            agent,
-            bodyless_sequences=[[{"name": "one"}]],
-            source_map={"one": source_one},
-        )
+            def execute_command(self, cmd: str, workdir: str | None = None, timeout: int | None = None) -> dict:
+                if cmd.startswith("cscope -dL -1 "):
+                    return {
+                        "exit_code": 0,
+                        "stdout": self._cscope_stdout,
+                        "stderr": "",
+                    }
+                return {"exit_code": 1, "stdout": "", "stderr": f"Unexpected command: {cmd}"}
 
-        self.assertFalse(widener.widen_scope(time_budget_minutes=1.0))
-        self.assertEqual(agent.get_makefile(), original_makefile)
+        rel_harness = os.path.relpath(harness_candidate, agent.root_dir)
+        rel_real = os.path.relpath(real_source, agent.root_dir)
+        cscope_stdout = "\n".join([
+            f"{rel_harness} context 1 uint8_t *net_buf_simple_add_u8(",
+            f"{rel_real} context 1 uint8_t *net_buf_simple_add_u8(",
+        ])
+        cscope_agent = CscopeAgent(agent, cscope_stdout)
+        widener = ScopeWidener(cscope_agent)
+
+        chosen = widener.locate_function_source("net_buf_simple_add_u8")
+
+        self.assertEqual(chosen, os.path.realpath(real_source))
 
 
 if __name__ == "__main__":

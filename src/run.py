@@ -117,8 +117,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Optional maximum depth for scope widening. "
-            "At k=2, source files defining functions called from the target "
-            "are added to the Makefile LINK. Higher values widen further."
+            "When set without a time budget, widening remains compile-only "
+            "at each level and integrated model generation runs once at the "
+            "final accepted scope."
         ),
     )
     parser.add_argument(
@@ -126,8 +127,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=positive_float,
         default=None,
         help=(
-            "Optional wall-clock budget in minutes for a full verification "
-            "run at any accepted scope widening level."
+            "Optional wall-clock budget in minutes for the single full "
+            "verification run performed after integrated model generation "
+            "at each accepted scope widening level."
         ),
     )
     return parser
@@ -165,11 +167,12 @@ def process_mode(args):
             args=args,
             project_container=project_container
         ))
-    if args.mode in ["function-stubs", "all"]:
+    if args.mode in ["function-stubs"]:
         agents.append(StubGenerator(
             args=args,
             project_container=project_container
         ))
+    if args.mode in ["function-pointers"]:
         agents.append(FunctionPointerHandler(
             args=args,
             project_container=project_container

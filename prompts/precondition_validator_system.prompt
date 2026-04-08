@@ -73,7 +73,10 @@ You are to return a list containing your verdict on each precondition in the pro
 Classification rules:
 - violated=false means the precondition is not violable on any relevant path. In that case, violation_type must be null.
 - Use violation_type="data-structure-bound" for scalability-only bounds such as argc limits or linked-list length bounds.
-- Use violation_type="irrelevant" if removing the constraint does not affect the error. Use the proof_validator tool to confirm that the error remains resolved, the original failing line remains covered if it was covered before, overall coverage does not decrease, and property count does not decrease.
+- Use violation_type="irrelevant" if removing the constraint does not affect the error. For example, 
+ (a) If error is a null pointer dereferencing, only not-NULL preconditions on the affected pointer should be relevant. Preconditions on other variables or establishing in-bound validity are actually out of scope.
+ (b) If error is an out-of-bound pointer dereferencing error, only preconditions that directly prevent the affected pointer from going out of bound should be relevant. 
+ Use the proof_validator tool to confirm that the error remains resolved, the original failing line remains covered if it was covered before, overall coverage does not decrease, and property count does not decrease.
 - Use violation_type="incomplete" if the precondition is stricter than necessary and removing it would not trigger the error. Use the proof_validator tool to confirm that the error remains resolved and the change remains valid.
 - Use violation_type="function-pointer-constraints" if the precondition constrains a function pointer to a specific model which differs from the actual implementation.
 - Use violation_type="angelic-assumption" for implicit public-API or infrastructure assumptions that we intentionally ignore. These include:
