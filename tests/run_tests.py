@@ -132,6 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-s", "--scope_bound", type=positive_int, default=None, help="Optional maximum depth of verification scope")
     parser.add_argument("-st", "--scope_time_budget", type=positive_float, default=None, help="Optional full verification wall-clock budget in minutes for scope widening")
     parser.add_argument(
+        "-c",
         "--container_engine",
         choices=["docker", "apptainer"],
         default="docker",
@@ -164,6 +165,25 @@ def build_run_command(entry, args, metrics_file: Path, proof_dir: Path) -> list[
             str(args.scope_time_budget),
         ])
     return cmd
+
+
+def resolve_entry_source_paths(entries: list[dict], root_path: str) -> list[dict]:
+    """Resolve relative source_file values against the provided project root."""
+    root_dir = Path(root_path).resolve()
+    resolved_entries = []
+
+    for entry in entries:
+        normalized_entry = dict(entry)
+        source_file = normalized_entry.get("source_file")
+
+        if source_file:
+            source_path = Path(source_file)
+            if not source_path.is_absolute():
+                normalized_entry["source_file"] = str((root_dir / source_path).resolve())
+
+        resolved_entries.append(normalized_entry)
+
+    return resolved_entries
 
 
 def run_proof_command(entry, args, output_root):
@@ -238,6 +258,8 @@ def main():
 
     else:
         raise ValueError(f"Unsupported file format: {file_path.suffix}")
+
+    entries = resolve_entry_source_paths(entries, args.base_dir)
 
     results = []
 

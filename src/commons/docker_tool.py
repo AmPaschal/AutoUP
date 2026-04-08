@@ -7,6 +7,7 @@ from docker.models.containers import Container
 
 from logger import setup_logger
 from commons.project_container import ProjectContainer
+from commons.container_constants import CSCOPE_INIT_TIMEOUT
 
 logger = setup_logger(__name__)
 
@@ -166,11 +167,13 @@ class DockerProjectContainer(ProjectContainer):
         try:
             with lock:
                 logger.info("[+] Acquired cscope lock; initializing database...")
-                cscope_init = self.execute("cscope -Rbqk", timeout=300)
+                cscope_init = self.execute("cscope -Rbqk", timeout=CSCOPE_INIT_TIMEOUT)
                 if cscope_init["exit_code"] == 0:
                     logger.info("[+] cscope database initialized successfully.")
                 else:
-                    logger.warning("[!] cscope initialization failed.")
+                    logger.warning(
+                        f"[!] cscope initialization failed: {cscope_init['stderr'].strip()}"
+                    )
         except Timeout:
             logger.info("[*] Another process is building the cscope database; skipping.")
 

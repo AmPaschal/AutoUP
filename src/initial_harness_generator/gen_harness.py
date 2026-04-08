@@ -507,6 +507,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
                                 project_container=self.project_container
                             )
         status = makefile_generator.generate()
+        completed_scope_level = 1
         agent_result["compilation_status"] = status
         if status:
             logger.info("Initial harness compiles. Checking verification...")
@@ -547,6 +548,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
                 agent_result["verification_status"] = True
                 logger.info("Initial harness verification succeeded.")
 
+        agent_result["completed_scope_level"] = completed_scope_level
         self.log_agent_result(agent_result)
 
         self.save_status('harness')

@@ -16,6 +16,7 @@ From: ubuntu:22.04
         libc6-dev \
         universal-ctags \
         cscope \
+        sudo \
         bash-completion \
         lsb-release
 
@@ -45,3 +46,4 @@ From: ubuntu:22.04
 %files
     container/Makefile.include /makefiles/Makefile.include
     container/general-stubs.c /makefiles/general-stubs.c
+    container/zephyr-stubs.c /makefiles/zephyr-stubs.c
