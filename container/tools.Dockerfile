@@ -48,4 +48,6 @@ COPY Makefile.include /makefiles/Makefile.include
 
 COPY general-stubs.c /makefiles/general-stubs.c
 
+COPY zephyr-stubs.c /makefiles/zephyr-stubs.c
+
 ENV C_INCLUDE_PATH=/usr/include/x86_64-linux-gnu

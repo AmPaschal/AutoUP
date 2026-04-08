@@ -35,8 +35,24 @@ from validator.precondition_validator import PreconditionValidator
 project_container: Optional[ProjectContainer] = None
 
 
-def get_parser():
-    """ Create parser for CLI options """
+def positive_int(value: str) -> int:
+    """Parse a strictly positive integer CLI argument."""
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("value must be at least 1")
+    return parsed
+
+
+def positive_float(value: str) -> float:
+    """Parse a strictly positive float CLI argument."""
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be greater than 0")
+    return parsed
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Create the CLI parser."""
     parser = argparse.ArgumentParser(
         description="Tool for harness generation and proof debugging using DockerExecutor."
     )
@@ -92,10 +108,36 @@ def get_parser():
     )
     parser.add_argument(
         "--llm_model",
-        default="gpt-5.2",
+        default="gpt-5.3-codex",
         help="LLM model to use (default: gpt-5.2)"
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--scope_bound",
+        type=positive_int,
+        default=None,
+        help=(
+            "Optional maximum depth for scope widening. "
+            "When set without a time budget, widening remains compile-only "
+            "at each level and integrated model generation runs once at the "
+            "final accepted scope."
+        ),
+    )
+    parser.add_argument(
+        "--scope_time_budget",
+        type=positive_float,
+        default=None,
+        help=(
+            "Optional wall-clock budget in minutes for the single full "
+            "verification run performed after integrated model generation "
+            "at each accepted scope widening level."
+        ),
+    )
+    return parser
+
+
+def get_parser():
+    """Parse CLI options."""
+    return build_parser().parse_args()
 
 
 def process_mode(args):
@@ -125,12 +167,12 @@ def process_mode(args):
             args=args,
             project_container=project_container
         ))
-    if args.mode in ["function-stubs", "all"]:
+    if args.mode in ["function-stubs"]:
         agents.append(StubGenerator(
             args=args,
             project_container=project_container
         ))
-    if args.mode in ["function-pointers", "all"]:
+    if args.mode in ["function-pointers"]:
         agents.append(FunctionPointerHandler(
             args=args,
             project_container=project_container

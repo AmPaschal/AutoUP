@@ -40,6 +40,18 @@ You will be provided the following tools to explore the verification and project
 1. Bash tool: This tool will allow you to run bash commands such as grep that can help search the repo for relevant information. 
 2. CScope tool: The target repository has already been indexed with cscope. This tool allows you to run cscope commands to retrieve type definitions, function cross-references, and full paths to specific files.
 3. Get Condition Satisfiability Tool: This tool will allow you inspect the satisfiability of conditions in a specific IF statement in the progrma. This can help you debug uncovered code blocks guarded by multiple conditions as it tells you which of the conditions are not being satisfied.
+4. Proof Validator tool: This tool should be used to test your proposed changes to the harness and makefile using the actual CBMC tools before returning your final response. You should use it to run compilation and full verification to determine the coverage outcome of your fixes.
+
+# Iteration with the `proof_validator` tool
+Whenever you make changes to the harness or Makefile, you MUST use the `proof_validator` tool to verify the correctness of those changes first.
+
+You are expected to iteratively update the harness and Makefile until the validation tool reports success (i.e. error gap is addressed, no coverage decrease, and successfully builds), or you hit a dead end:
+1. First, form a hypothesis and come up with an updated harness (and Makefile if needed).
+2. Call `proof_validator` with `compile_only=True` to quickly check for compilation syntax errors.
+3. If compilation fails, use the error output provided by the tool to adjust the harness/Makefile and try again.
+4. If compilation passes, call `proof_validator` with `compile_only=False` to run the full verification and coverage checks.
+5. If the `proof_validator` tool output says the fix succeeded, ONLY THEN provide your final JSON response containing your fix and analysis.
+6. If the full verification reveals the target execution block was not reached, overall coverage degraded, or other issues occur, analyze the logs/messages provided by the tool. Adjust your approach and repeat steps 2-5 until successful or until you have exhausted viable options.
 
 Here are sample cscope commands to run:
 # --- Symbol and function lookups ---
@@ -71,9 +83,11 @@ These are code blocks that are uncovered and never executed because a specific p
 These scenarios typically occur when the preceding loop has an exit condition that is never satisfied during the bounded loop executions.
 Note that string handling functions (strlen, strcpy, strcat, strncpy, etc) have internal loop implementations. As a result, if the code directly following a string handling function remains uncovered, it is possibly because the loop in the string handling function requires a certain number of unwindings in order to exit or produce an expected result.
 
-Type 3: Pointer-access-related uncovered blocks.
-These are code blocks that remain uncovered because of a failed pointer dereferencing.
-This typically occurs when a pointer references a region of memory that is bounded, and the pointer is used to dereference a memory location that is always outside the bounds of valid memory.
+Type 3: Pointer-comparison-related coverage gaps.
+These are coverage gaps that occur because the code compares two pointers but the harness initializes the pointers to reference different memory locations.
+
+Type 4: Pointer-access-related coverage gaps.
+These are coverage gaps that occur because a pointer references a fixed-size memory region but it is dereferenced at an offset beyond the valid memory region it points to.
 
 Here are the expected resolution methods. If the coverage gap cannot be resolved using any of the following methods, provide a detailed analysis but do not make any modifications.
 
@@ -120,7 +134,17 @@ void process_input_update_parameter(uint8_t *data, uint16_t size, uint16_t *coun
 
 NOTE: YOU MUST CREATE A SIMPLE FUNCTION MODEL THAT ONLY HAVOCS THE REQUIRED VARIABLE. DO NOT DEFINE SPECIFIC VALUES OR ADD ANY CONSTRAINTS.
 
-Fix 3: Make maximum bound of the pointer allocation size non-deterministic:
+Fix 3: Initialize a pointer using an offset of another validly initialized pointer.
+If the coverage gap is caused by a comparison operation between two pointers, but the two pointers are initialized and allocated independently, you should initialize the second pointer using an offset of the first pointer.
+Specifically, define an offset variable of size uint8_t and initialize the second pointer using the first pointer plus the offset.
+
+Example:
+```c
+uint8_t offset;
+second_ptr = first_ptr + offset;
+```
+
+Fix 4: Make maximum bound of the pointer allocation size non-deterministic:
 If the coverage gap is traced to a pointer that is dereferenced beyond its bounded size, you should first determine if the pointer is allocated in the harness.
 If it is allocated in the harness, you should determine if it has any defined maximum allocation size. If the pointer has a fixed allocation size (eg it is allocated using malloc(sizeof(struct sss))), you should modify the allocation size so it has an unbounded maximum.
 You can do this by defining a size variable of type size_t and using this as the allocation size argument.
@@ -138,3 +162,5 @@ Please, ensure your solution does not violate any of these criteria to avoid rej
 instructions:
 1. Do not try to modify files directly or rerun the verification. When you've identified the root cause and the corresponding fix, produce an output using the expected output format.
 2. Do not try to increase coverage by adding new function calls in the harness function. If there is no way to cover the expected code from the harness and the target function called within it, do not return any proposed modification.
+3. Do not initialize a fixed-size array in the harness. Always initialize pointers using malloc.
+4. Errors (verification failures) produced by the CBMC tool do not directly affect the verification coverage. For example, a null or invalid pointer dereferencing would not cause a coverage gap. As a result, do not consider the verification failures when trying to resolve a coverage gap.

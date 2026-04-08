@@ -23,9 +23,12 @@ An iteration-dependent memory operation is a memory access within a loop where t
    - Step 1: Determine the size of the destination buffer. If this is not a static or fixed-size array, skip this loop.
    - Step 2: Check if the size of the destination buffer is controlled by a config in the makefile. If it is, modify the value of the config to 10.
    - Step 3: Increase the loop unwinding limits of the corresponding string handling function to the destination_size + 1.
-      - For strcpy, the loop id is typically strcpy.unwind.0
-      - Strcat has two loops, the first iterating over the destination to find its null byte and the second copying over the source byte-by-byte to the destination. You should set the loop unwinding limit to the second loop (typically strcat.unwind.1).
-      - For strlen, only increase its internal loop if its return variable is used to copy data into a fixed size buffer. In such case, unroll it to the size of the fixed size buffer + 1.
+      - For strcpy, the loop id is typically strcpy.0
+      - Strcat has two loops, the first iterating over the destination to find its null byte and the second copying over the source byte-by-byte to the destination. You should set the loop unwinding limit to the second loop (typically strcat.1).
+   For strlen, increase its internal loop (strlen.0) if: 
+      - its return value is used to directly copy data into a fixed size buffer. In such case, unroll it to the size of the fixed size buffer + 1.
+      - its input string is later parsed into a fixed size buffer. In such case, identify the minimum length of the input string that can overflow the fixed size buffer and increase the loop unwinding limit to that length + 1.
+   - You must add 1 to the computed minimum size of destination `buffer or number of iterations so as to make the loop access invalid memory. For example, if strcpy reads data to a destination buffer of size 10, then you should set the loop unwinding limit to 11.
 
 ## Makefile Update Format
 

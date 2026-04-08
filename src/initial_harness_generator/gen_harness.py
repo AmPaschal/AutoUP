@@ -4,12 +4,16 @@ from pathlib import Path
 import json
 import os
 import re
+import uuid
 from agent import AIAgent
 from commons.models import GPT, Generable
 from makefile.output_models import HarnessResponse
 from logger import setup_logger
 from makefile_generator.makefile_generator import MakefileGenerator
+from scope_widener.scope_widener import ScopeWidener
 from commons.utils import Status
+from stub_generator.gen_function_stubs import StubGenerator
+from stub_generator.handle_function_pointers import FunctionPointerHandler
 
 logger = setup_logger(__name__)
 class InitialHarnessGenerator(AIAgent, Generable):
@@ -139,11 +143,25 @@ class InitialHarnessGenerator(AIAgent, Generable):
                 return
             logger.info(f'Copied general-stubs.c to {dest_stubs_path}')
 
+        # Copy zephyr-stubs.c to harness parent directory
+        src_stubs_path = os.path.join('makefiles', 'zephyr-stubs.c')
+        dest_stubs_path = os.path.join(os.path.dirname(self.harness_dir), 'zephyr-stubs.c')
+        if os.path.exists(dest_stubs_path):
+            logger.info(f'general-stubs.c already exists at {dest_stubs_path}, skipping copy.')
+        else:
+            copy_cmd = f"cp {src_stubs_path} {dest_stubs_path}"
+            copy_results = self.project_container.execute(copy_cmd, workdir='/')
+            if copy_results.get('exit_code', -1) != 0:
+                logger.error(f'Failed to copy zephyr-stubs.c: {copy_results.get("stderr", "")}')
+                return
+            logger.info(f'Copied zephyr-stubs.c to {dest_stubs_path}')
+
+
     def setup_initial_makefile(self, initial_configs):
 
         harness_relative_root = self.get_backward_path(self.root_dir, self.harness_dir)
 
-        with open('src/makefile/Makefile.zephyr.template', 'r') as file:
+        with open('src/makefile/Makefile.template', 'r') as file:
             makefile = file.read()
 
         makefile = makefile.replace('{ROOT}', str(harness_relative_root))
@@ -175,6 +193,266 @@ class InitialHarnessGenerator(AIAgent, Generable):
                 configs.add(config)
 
         return list(configs)
+
+    @staticmethod
+    def _is_over_time_budget(make_results: dict, time_budget_seconds: float) -> bool:
+        return (
+            make_results.get("status") == Status.TIMEOUT
+            or make_results.get("exit_code") == 124
+            or make_results.get("elapsed_seconds", 0.0) > time_budget_seconds
+        )
+
+    def _run_integrated_model_generation(
+        self,
+        verify_after_generation: bool,
+    ) -> bool:
+        if not self._run_function_pointer_generation(
+            verify_after_generation=verify_after_generation,
+        ):
+            return False
+
+        if not self._run_stub_generation(
+            verify_after_generation=verify_after_generation,
+        ):
+            return False
+
+        return True
+
+    def _run_function_pointer_generation(
+        self,
+        verify_after_generation: bool,
+    ) -> bool:
+        function_pointer_handler = FunctionPointerHandler(
+            args=self.args,
+            project_container=self.project_container,
+        )
+        if not function_pointer_handler.generate(
+            verify_after_generation=verify_after_generation,
+        ):
+            logger.error(
+                "Function pointer generation failed in integrated scope widening."
+            )
+            return False
+
+        return True
+
+    def _run_stub_generation(
+        self,
+        verify_after_generation: bool,
+    ) -> bool:
+        stub_generator = StubGenerator(
+            args=self.args,
+            project_container=self.project_container,
+        )
+        if not stub_generator.generate(
+            verify_after_generation=verify_after_generation,
+        ):
+            logger.error("Stub generation failed in integrated scope widening.")
+            return False
+
+        return True
+
+    def _create_backup_tag(self) -> str:
+        return uuid.uuid4().hex[:4].upper()
+
+    def _discard_backup_if_present(self, tag: str | None) -> None:
+        if tag is not None:
+            self.discard_backup(tag)
+
+    def _run_budgeted_scope_widening(
+        self,
+        widener: ScopeWidener,
+        scope_bound: int | None,
+        time_budget_minutes: float,
+    ) -> int:
+        time_budget_seconds = time_budget_minutes * 60.0
+        current_level = 1
+
+        if not self._run_function_pointer_generation(
+            verify_after_generation=False,
+        ):
+            return -1
+
+        accepted_pre_stub_tag = self._create_backup_tag()
+        self.create_backup(accepted_pre_stub_tag)
+        accepted_post_stub_tag: str | None = None
+        try:
+            if not self._run_stub_generation(
+                verify_after_generation=False,
+            ):
+                return -1
+
+            baseline_results = self.run_make(compile_only=False)
+            if self._is_over_time_budget(baseline_results, time_budget_seconds):
+                logger.info(
+                    "Baseline verification at scope level 1 exceeded the "
+                    "time budget (%.2fs > %.2fs or timed out). No widening "
+                    "will be attempted.",
+                    baseline_results.get("elapsed_seconds", 0.0),
+                    time_budget_seconds,
+                )
+                return current_level
+
+            if not self.validate_verification_report():
+                logger.error(
+                    "Baseline verification did not produce a report. "
+                    "Aborting scope widening."
+                )
+                return -1
+
+            accepted_post_stub_tag = self._create_backup_tag()
+            self.create_backup(accepted_post_stub_tag)
+
+            if scope_bound is not None and scope_bound <= 1:
+                logger.info("Scope bound is %s; no widening needed.", scope_bound)
+                return current_level
+
+            while widener._within_scope_bound(current_level, scope_bound):
+                self.restore_backup(accepted_pre_stub_tag)
+                step_result = widener.widen_scope_level(current_level)
+                if step_result.outcome == "complete":
+                    self.restore_backup(accepted_post_stub_tag)
+                    return current_level
+
+                if step_result.outcome == "failed":
+                    logger.warning(
+                        "Scope widening failed at level %s. Restoring the "
+                        "previous accepted scope.",
+                        current_level + 1,
+                    )
+                    self.restore_backup(accepted_post_stub_tag)
+                    return current_level
+
+                if not self._run_function_pointer_generation(
+                    verify_after_generation=False,
+                ):
+                    logger.warning(
+                        "Function pointer generation failed at scope level %s. "
+                        "Restoring the previous accepted scope.",
+                        step_result.level,
+                    )
+                    self.restore_backup(accepted_post_stub_tag)
+                    return current_level
+
+                candidate_pre_stub_tag = self._create_backup_tag()
+                self.create_backup(candidate_pre_stub_tag)
+
+                if not self._run_stub_generation(
+                    verify_after_generation=False,
+                ):
+                    logger.warning(
+                        "Stub generation failed at scope level %s. "
+                        "Restoring the previous accepted scope.",
+                        step_result.level,
+                    )
+                    self.discard_backup(candidate_pre_stub_tag)
+                    self.restore_backup(accepted_post_stub_tag)
+                    return current_level
+
+                verification_results = self.run_make(compile_only=False)
+                if self._is_over_time_budget(
+                    verification_results,
+                    time_budget_seconds,
+                ):
+                    logger.info(
+                        "Scope widening level %s exceeded the time budget. "
+                        "Restoring the previous accepted scope.",
+                        step_result.level,
+                    )
+                    self.discard_backup(candidate_pre_stub_tag)
+                    self.restore_backup(accepted_post_stub_tag)
+                    return current_level
+
+                if not self.validate_verification_report():
+                    logger.warning(
+                        "Scope widening level %s did not produce a "
+                        "verification report. Restoring the previous "
+                        "accepted scope.",
+                        step_result.level,
+                    )
+                    self.discard_backup(candidate_pre_stub_tag)
+                    self.restore_backup(accepted_post_stub_tag)
+                    return current_level
+
+                self.discard_backup(accepted_pre_stub_tag)
+                self.discard_backup(accepted_post_stub_tag)
+                accepted_pre_stub_tag = candidate_pre_stub_tag
+                accepted_post_stub_tag = self._create_backup_tag()
+                self.create_backup(accepted_post_stub_tag)
+                current_level = step_result.level
+
+            return current_level
+        finally:
+            self._discard_backup_if_present(accepted_pre_stub_tag)
+            self._discard_backup_if_present(accepted_post_stub_tag)
+
+    def _run_bound_only_scope_widening(
+        self,
+        widener: ScopeWidener,
+        scope_bound: int,
+    ) -> int:
+        current_level = 1
+        if scope_bound <= 1:
+            logger.info("Scope bound is %s; no widening needed.", scope_bound)
+        else:
+            while widener._within_scope_bound(current_level, scope_bound):
+                rollback_tag = self._create_backup_tag()
+                self.create_backup(rollback_tag)
+                try:
+                    step_result = widener.widen_scope_level(current_level)
+                    if step_result.outcome == "complete":
+                        break
+
+                    if step_result.outcome == "failed":
+                        logger.warning(
+                            "Scope widening failed at level %s. Restoring "
+                            "the previous compiled scope.",
+                            current_level + 1,
+                        )
+                        self.restore_backup(rollback_tag)
+                        break
+
+                    current_level = step_result.level
+                finally:
+                    self.discard_backup(rollback_tag)
+
+        model_tag = self._create_backup_tag()
+        self.create_backup(model_tag)
+        try:
+            if not self._run_integrated_model_generation(
+                verify_after_generation=False,
+            ):
+                logger.warning(
+                    "Final model generation failed after bound-only scope "
+                    "widening. Restoring the last compiled scope."
+                )
+                self.restore_backup(model_tag)
+                return -1
+            return current_level
+        finally:
+            self.discard_backup(model_tag)
+
+    def _run_scope_widening_flow(
+        self,
+        scope_bound: int | None,
+        time_budget_minutes: float | None,
+    ) -> int:
+        widener = ScopeWidener(agent=self)
+
+        if time_budget_minutes is not None:
+            return self._run_budgeted_scope_widening(
+                widener=widener,
+                scope_bound=scope_bound,
+                time_budget_minutes=time_budget_minutes,
+            )
+
+        if scope_bound is None:
+            return -1
+
+        return self._run_bound_only_scope_widening(
+            widener=widener,
+            scope_bound=scope_bound,
+        )
 
     def generate(self) -> bool:
 
@@ -232,6 +510,35 @@ class InitialHarnessGenerator(AIAgent, Generable):
         agent_result["compilation_status"] = status
         if status:
             logger.info("Initial harness compiles. Checking verification...")
+
+            # --- Scope widening ---
+            scope_bound = getattr(self.args, "scope_bound", None)
+            scope_time_budget_minutes = getattr(
+                self.args,
+                "scope_time_budget",
+                None,
+            )
+            if scope_bound is not None or scope_time_budget_minutes is not None:
+                logger.info(
+                    "Running scope widening with bound=%s and time budget=%s minute(s)...",
+                    scope_bound,
+                    scope_time_budget_minutes,
+                )
+                completed_scope_level = self._run_scope_widening_flow(
+                    scope_bound=scope_bound,
+                    time_budget_minutes=scope_time_budget_minutes,
+                )
+                if completed_scope_level >= 0:
+                    logger.info(
+                        "Scope widening completed at level %s.",
+                        completed_scope_level,
+                    )
+                else:
+                    logger.warning(
+                        "Scope widening did not fully succeed. "
+                        "Continuing with current compilation state."
+                    )
+
             make_results = self.run_make(compile_only=False)
             
             status_code = make_results.get('status', Status.ERROR)

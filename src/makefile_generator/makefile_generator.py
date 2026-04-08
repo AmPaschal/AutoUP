@@ -28,7 +28,7 @@ class MakefileGenerator(AIAgent, Generable):
             args,
             project_container
         )
-        self._max_attempts = 5
+        self._max_attempts = 10
 
     def prepare_prompt(self):
         """Prepare system and user prompts for the LLM."""

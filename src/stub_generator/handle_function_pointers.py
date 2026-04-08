@@ -8,7 +8,7 @@ from makefile.output_models import HarnessResponse, MakefileFields
 from commons.utils import Status
 from logger import setup_logger
 from agent import AIAgent
-from stub_generator.find_function_pointers import analyze_file
+from stub_generator.find_function_pointers import analyze_file, analyze_files, get_makefile_list_var, get_makefile_var, expand_vars
 
 logger = setup_logger(__name__)
 
@@ -120,7 +120,7 @@ class FunctionPointerHandler(AIAgent, Generable):
 
         return system_prompt, user_prompt
 
-    def generate(self) -> bool:
+    def generate(self, verify_after_generation: bool = True) -> bool:
 
         h_def_args = self.get_h_def_entries()
         h_inc_args = self.get_h_inc_entries()
@@ -129,7 +129,36 @@ class FunctionPointerHandler(AIAgent, Generable):
         extra_args = h_def_args + h_inc_args
         
         logger.info(f"Analyzing file: {self.target_file_path} for entry point: {self.target_function}")
-        fp_results = analyze_file(self.target_file_path, self.target_function, extra_args)
+
+        # Get linked source files from Makefile LINK variable for multi-file analysis
+        makefile_content = self.get_makefile()
+        root_val = self.get_makefile_var(makefile_content, "ROOT")
+        if not root_val:
+            root_val = self.root_dir
+        if root_val.startswith("."):
+            root_val = os.path.normpath(os.path.join(self.harness_dir, root_val))
+
+        linked_files = []
+        link_entries = get_makefile_list_var(makefile_content, "LINK")
+        for entry in link_entries:
+            resolved = entry.replace("$(ROOT)", root_val).replace("${ROOT}", root_val)
+            resolved = resolved.replace(
+                "$(MAKE_INCLUDE_PATH)",
+                os.path.dirname(self.harness_dir),
+            )
+            resolved = os.path.normpath(resolved)
+            if resolved.endswith(".c"):
+                if not os.path.isabs(resolved):
+                    resolved = os.path.normpath(os.path.join(self.harness_dir, resolved))
+                if os.path.exists(resolved):
+                    linked_files.append(resolved)
+
+        if linked_files:
+            logger.info(f"Multi-file analysis with {len(linked_files)} linked files.")
+            fp_results = analyze_files(self.target_file_path, self.target_function, linked_files, extra_args)
+        else:
+            logger.info("No linked files found; falling back to single-file analysis.")
+            fp_results = analyze_file(self.target_file_path, self.target_function, extra_args)
         
         if not fp_results:
             logger.info("No function pointers found.")
@@ -152,6 +181,7 @@ class FunctionPointerHandler(AIAgent, Generable):
         stubs_to_generate = len(fp_results)
         agent_result = {
             "fp_stubs_to_generate": stubs_to_generate, 
+            "generation_succeeded": False,
             "verification_status": False,
             }
         while user_prompt and attempts < self._max_attempts:
@@ -184,14 +214,24 @@ class FunctionPointerHandler(AIAgent, Generable):
                 self.update_harness(llm_response.updated_harness)
 
             # Now, try to build the harness using make
-            make_results = self.run_make(compile_only=False)
+            make_results = self.run_make(
+                compile_only=not verify_after_generation,
+            )
             
             status_code = make_results.get('status', Status.ERROR)
 
-            if status_code == Status.SUCCESS and make_results.get('exit_code', -1) == 0 and self.validate_verification_report():
+            if (
+                status_code == Status.SUCCESS
+                and make_results.get('exit_code', -1) == 0
+                and (
+                    not verify_after_generation
+                    or self.validate_verification_report()
+                )
+            ):
                 logger.info("Generated harness builds succeeded.")
                 self.log_task_attempt("function_pointer_generation", attempts, llm_data, None)
-                agent_result["verification_status"] = True
+                agent_result["generation_succeeded"] = True
+                agent_result["verification_status"] = verify_after_generation
                 status = Status.SUCCESS
                 break    
             elif status_code == Status.FAILURE:
@@ -225,5 +265,5 @@ class FunctionPointerHandler(AIAgent, Generable):
             self.restore_backup(tag)
 
         self.log_agent_result(agent_result)
-        return agent_result.get("verification_status", False)
+        return agent_result.get("generation_succeeded", False)
         

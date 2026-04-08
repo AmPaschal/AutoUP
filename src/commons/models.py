@@ -180,6 +180,7 @@ class LiteLLM(LLM):
         conversation_history.append({'role': 'assistant', 'content': str(parsed_output)})
 
         return parsed_output, {
+            "model_name": self.name,
             "function_call_count": function_calls_count,
             "token_usage": token_usage
         }
@@ -290,6 +291,7 @@ class GPT(LLM):
         conversation_history.append({'role': 'assistant', 'content': str(parsed_output)})
 
         return parsed_output, {
+            "model_name": self.name,
             "function_call_count": function_calls_count,
             "token_usage": token_usage
         }

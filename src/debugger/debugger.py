@@ -23,7 +23,6 @@ from debugger.dereference_handler import DerefereneErrorHandler
 from debugger.error_report import ErrorReport, CBMCError
 from debugger.parser import extract_errors_and_payload, get_json_errors
 from debugger.advice import get_advice_for_cluster
-from makefile.makefile_debugger import MakefileDebugger
 from validator.precondition_validator import PreconditionValidator
 
 logger = setup_logger(__name__)
@@ -46,6 +45,12 @@ class ProofDebugger(AIAgent, Generable):
         self.validator = PreconditionValidator(args=self.args, project_container=self.project_container)
         
         self.__max_attempts = 3
+
+        # Instance attributes for proof_validator tool context
+        self._current_error: Optional[CBMCError] = None
+        self._error_covered_initially: bool = False
+        self._current_coverage: dict = {}
+        self._initial_property_count: int = -1
 
     def generate(self) -> bool:
         """Iterates over errors"""
@@ -118,19 +123,6 @@ class ProofDebugger(AIAgent, Generable):
         self.save_status('debugger')
         return True
 
-    def get_overall_coverage(self):
-        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
-        if not os.path.exists(coverage_report_path):
-            logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
-            return {}
-
-        with open(coverage_report_path, "r") as f:
-            coverage_data = json.load(f)
-
-        viewer_coverage = coverage_data.get("viewer-coverage", {})
-        overall_coverage = viewer_coverage.get("overall_coverage", {})
-
-        return overall_coverage
 
     def get_property_count(self, property_file_path: str = None) -> int:
         """Get the number of memory safety properties from viewer-property.json.
@@ -270,23 +262,225 @@ class ProofDebugger(AIAgent, Generable):
         # Use Precondition Validator to validate the preconditions
 
         validation_status = self.validator.validate(error, diff_output, analysis)
-        if validation_status != Status.SUCCESS:
-            logger.error("[ERROR] Precondition validation failed.")
+        if validation_status == Status.ERROR:
+            logger.error("[ERROR] Precondition validation failed due to analysis or runtime errors.")
+            return validation_status
+
+        if validation_status == Status.FAILURE:
+            logger.warning("[WARN] Precondition validation found exploitable violated preconditions.")
             return validation_status
 
         return Status.SUCCESS
 
+    # ---------- proof_validator tool ----------
+
+    def get_debugger_tools(self):
+        """Return standard tools plus the proof_validator tool."""
+        proof_validator_tool = {
+            "type": "function",
+            "name": "proof_validator",
+            "description": (
+                "Update the proof harness (and optionally the Makefile) with the provided content, "
+                "then run verification to test if the fix resolves the error. "
+                "When compile_only is true, only compilation is checked (quick syntax validation). "
+                "When compile_only is false, full verification is run and the result includes "
+                "error coverage, overall coverage, property count, and error resolution status."
+            ),
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "The reason for running this validation"
+                    },
+                    "harness_content": {
+                        "type": "string",
+                        "description": "The complete updated harness file content"
+                    },
+                    "makefile_content": {
+                        "type": ["string", "null"],
+                        "description": "The complete updated Makefile content, or null if no Makefile changes are needed"
+                    },
+                    "compile_only": {
+                        "type": "boolean",
+                        "description": "If true, only run compilation to check syntax validity. If false, run full verification."
+                    }
+                },
+                "required": ["reason", "harness_content", "makefile_content", "compile_only"],
+                "additionalProperties": False
+            }
+        }
+        return [*self.get_tools(), proof_validator_tool]
+
+    def handle_proof_validator(self, harness_content: str, makefile_content: Optional[str], compile_only: bool) -> dict:
+        """
+        Write harness (and optionally Makefile) to disk, run make, and return
+        structured validation results.
+        """
+        self.update_harness(harness_content)
+        if makefile_content:
+            self.update_makefile(makefile_content)
+        logger.info("Harness%s updated via proof_validator tool.", " and Makefile" if makefile_content else "")
+
+        make_results = self.run_make(compile_only=compile_only)
+
+        status_code = make_results.get("status", Status.ERROR)
+        exit_code = make_results.get("exit_code", -1)
+        timed_out = status_code == Status.TIMEOUT
+
+        compilation_info = {
+            "success": exit_code == 0 and status_code == Status.SUCCESS,
+            "exit_code": exit_code,
+            "stderr": make_results.get("stderr", ""),
+        }
+
+        # Include stdout only if compilation failed
+        if not compilation_info["success"]:
+            compilation_info["stdout"] = make_results.get("stdout", "")
+
+        result = {
+            "compilation": compilation_info,
+            "timed_out": timed_out,
+            "error_covered": None,
+            "coverage_maintained": None,
+            "properties_maintained": None,
+            "error_resolved": None,
+            "message": "",
+        }
+
+        # If compile-only mode, or compilation failed, or timed out, return early
+        if compile_only:
+            if compilation_info["success"]:
+                result["message"] = "Compilation succeeded (compile-only mode)."
+            else:
+                result["message"] = "Compilation failed. Review the errors above."
+            return result
+
+        if timed_out:
+            result["message"] = (
+                "Verification timed out. If the timeout cannot be avoided by updating the "
+                "harness (e.g., the target function has inherently long verification time), "
+                "you may give up and return an analysis explaining why."
+            )
+            return result
+
+        if not compilation_info["success"]:
+            result["message"] = (
+                "Compilation/verification failed. Review the errors and verification logs (build/reports/cbmc.xml, build/reports/coverage.xml) to understand the reason."
+                "If the error cannot be resolved, you may give up and return an analysis explaining why."
+            )
+            return result
+
+        # Full verification passed — run validation checks
+        messages = []
+        error = self._current_error
+
+        # Check error coverage
+        if error and self._error_covered_initially:
+            error_covered = self.__is_error_covered(error)
+            result["error_covered"] = error_covered
+            if not error_covered:
+                messages.append(
+                    "ERROR: The harness no longer reaches the line where the error occurred. "
+                    "Your fix may have introduced constraints that prevent coverage of the failing line."
+                )
+
+        # Check overall coverage
+        if self._current_coverage:
+            new_coverage = self.get_overall_coverage()
+            cov_hit_ok = new_coverage.get("hit", 0.0) >= self._current_coverage.get("hit", 0.0)
+            cov_pct_ok = new_coverage.get("percentage", 0.0) >= self._current_coverage.get("percentage", 0.0)
+            result["coverage_maintained"] = cov_hit_ok and cov_pct_ok
+            if not result["coverage_maintained"]:
+                messages.append(
+                    f"ERROR: Overall coverage decreased. "
+                    f"Previous: {self._current_coverage}, Current: {new_coverage}. "
+                    "Your fix likely added constraints that prevent previously covered lines from being reached."
+                )
+
+        # Check property count
+        if self._initial_property_count >= 0:
+            new_property_count = self.get_property_count()
+            result["properties_maintained"] = (
+                new_property_count >= 0 and new_property_count >= self._initial_property_count
+            )
+            if not result["properties_maintained"]:
+                messages.append(
+                    f"ERROR: Property count reduced from {self._initial_property_count} to {new_property_count}. "
+                    "Your change likely stubbed or replaced a function called from the target function, "
+                    "which is NOT allowed as it reduces the verification scope."
+                )
+
+        # Check error resolution
+        if error:
+            error_resolved = self.__is_error_solved(error)
+            result["error_resolved"] = error_resolved
+            if not error_resolved:
+                messages.append(
+                    "The error was NOT resolved. It is possible your previous attempt was valid but "
+                    "incomplete — it may have addressed one execution path through which the error "
+                    "occurred, but the error persists due to other paths that still need to be addressed. "
+                    "Analyze the remaining paths and propose additional preconditions."
+                )
+
+        if not messages:
+            result["message"] = "All checks passed. The error is resolved and all validation criteria are met."
+        else:
+            result["message"] = " | ".join(messages)
+
+        return result
+
+    def handle_tool_calls(self, tool_name, function_args):
+        """Handle tool calls, including the proof_validator tool."""
+        logging_text = f"""
+        Function call: 
+        Name: {tool_name} 
+        Args: {function_args}
+        """
+        logger.info(logging_text)
+        function_args_parsed = json.loads(function_args)
+
+        if tool_name == "proof_validator":
+            harness_content = function_args_parsed.get("harness_content", "")
+            makefile_content = function_args_parsed.get("makefile_content", None)
+            compile_only = function_args_parsed.get("compile_only", False)
+            tool_response = self.handle_proof_validator(harness_content, makefile_content, compile_only)
+        elif tool_name == "run_bash_command":
+            cmd = function_args_parsed.get("cmd", "")
+            tool_response = self.run_bash_command(cmd)
+        elif tool_name == "run_cscope_command":
+            command = function_args_parsed.get("command", "")
+            tool_response = self.run_bash_command(command)
+        elif tool_name == "get_condition_satisfiability":
+            function_name = function_args_parsed.get("function_name", "")
+            line_number = function_args_parsed.get("line_number", -1)
+            tool_response = self.handle_condition_retrieval_tool(function_name, line_number)
+        else:
+            raise ValueError(f"Unknown function call: {tool_name}")
+
+        logger.info(f"Function call response:\n {tool_response}")
+        return str(tool_response)
+
+    # ---------- LLM fix generation ----------
+
     def generate_fix_with_llm(self, error: CBMCError, current_coverage: dict, tag: str) -> tuple[bool, dict]:
-        """Generate the fix of a given error"""
+        """Generate the fix of a given error using the LLM with proof_validator tool."""
         cause_of_failure = None
         conversation_history = []
         attempt = 0
 
         self.create_error_trace_file(error)
-        
-        # Track initial property count for validation
-        initial_property_count = self.get_property_count()
-        logger.info(f"Initial property count: {initial_property_count}")
+
+        # Store context for proof_validator tool
+        self._current_error = error
+        self._current_coverage = current_coverage
+        self._initial_property_count = self.get_property_count()
+        logger.info(f"Initial property count: {self._initial_property_count}")
+
+        self._error_covered_initially = self.__is_error_covered(error)
+        if not self._error_covered_initially:
+            logger.info("Error not covered initially. Continuing to fix.")
 
         while attempt < self.__max_attempts:
             attempt += 1
@@ -294,18 +488,13 @@ class ProofDebugger(AIAgent, Generable):
             logger.info("Cluster: %s", error.cluster)
             logger.info("Error id: %s", error.error_id)
 
-            error_covered_initially = self.__is_error_covered(error)
-
-            if not error_covered_initially:
-                logger.info("Error not covered initially. Continuing to fix.")
-
             system_prompt = self.__get_prompt("general_system")
             user_prompt = self.__compute_user_prompt(error, cause_of_failure)
             output, chat_data = self.llm.chat_llm(
                 system_messages=system_prompt,
                 input_messages=user_prompt,
                 output_format=ModelOutput,
-                llm_tools=self.get_tools(),
+                llm_tools=self.get_debugger_tools(),
                 call_function=self.handle_tool_calls,
                 conversation_history=conversation_history,
             )
@@ -317,29 +506,27 @@ class ProofDebugger(AIAgent, Generable):
                 logger.info("[INFO] No updated harness provided by LLM.")
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="no_updated_harness")
                 break
-            self.__update_harness(output.updated_harness)
+
+            # Apply final response from LLM
+            self.update_harness(output.updated_harness)
+            if output.updated_makefile:
+                self.update_makefile(output.updated_makefile)
+
+            # Safety-net validation: run make and check all criteria on the final response
             make_result = self.run_make()
             if make_result.get("status") == Status.ERROR:
                 logger.error("[ERROR] Make command failed to execute.")
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="make_invocation_failed")
                 break
-            if make_result.get("status") == Status.FAILURE:
-                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_failed")
-                # Let's use the makefile debugger to fix this error
-                makefile_debugger = MakefileDebugger(
-                    args=self.args,
-                    project_container=self.project_container,
-                )
-                compile_errors_fixed = makefile_debugger.generate()
-                if not compile_errors_fixed:
-                    cause_of_failure = {"reason": "make_failed", "make_output": make_result}
-                    continue
-                make_result = self.run_make()
             if make_result.get("status") == Status.TIMEOUT:
                 logger.error("[ERROR] Make command timed out.")
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="make_timeout")
                 break
-            if error_covered_initially and not self.__is_error_covered(error):
+            if make_result.get("status") == Status.FAILURE:
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="make_failed")
+                cause_of_failure = {"reason": "make_failed", "make_output": make_result}
+                continue
+            if self._error_covered_initially and not self.__is_error_covered(error):
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_covered")
                 cause_of_failure = {"reason": "error_not_covered"}
                 continue
@@ -348,15 +535,15 @@ class ProofDebugger(AIAgent, Generable):
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="overall_coverage_decreased")
                 cause_of_failure = {"reason": "overall_coverage_decreased"}
                 continue
-            # Property count validation: ensure LLM didn't remove functions that reduce properties
+            # Property count validation
             new_property_count = self.get_property_count()
-            if new_property_count >= 0 and initial_property_count >= 0 and new_property_count < initial_property_count:
-                logger.error(f"[ERROR] Property count reduced from {initial_property_count} to {new_property_count}")
+            if new_property_count >= 0 and self._initial_property_count >= 0 and new_property_count < self._initial_property_count:
+                logger.error(f"[ERROR] Property count reduced from {self._initial_property_count} to {new_property_count}")
                 removed_properties, diff_output = self.get_properties_diff(tag)
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="properties_reduced")
                 cause_of_failure = {
                     "reason": "properties_reduced",
-                    "initial_count": initial_property_count,
+                    "initial_count": self._initial_property_count,
                     "new_count": new_property_count,
                     "removed_properties": removed_properties,
                     "diff": diff_output
@@ -367,8 +554,13 @@ class ProofDebugger(AIAgent, Generable):
                 cause_of_failure = {"reason": "error_not_fixed"}
                 continue
             logger.info("Error resolved! Validating proposed preconditions...")
-            self.validate_preconditions(error, tag, output.analysis)
-            logger.info("Preconditions validated!")
+            validation_status = self.validate_preconditions(error, tag, output.analysis)
+            if validation_status == Status.SUCCESS:
+                logger.info("Preconditions validated without exploitable violations.")
+            elif validation_status == Status.FAILURE:
+                logger.warning("Precondition validation completed with exploitable violations.")
+            else:
+                logger.error("Precondition validation did not complete successfully.")
             self.log_task_attempt(error.error_id, attempt, chat_data, error=None)
             self.log_task_result(error.error_id, True, attempt)
             logger.info(f"[INFO] Current Overall Coverage: {json.dumps(new_coverage, indent=2)}")
@@ -376,10 +568,6 @@ class ProofDebugger(AIAgent, Generable):
         self.log_task_result(error.error_id, False, attempt)
         logger.info("Error not resolved...")
         return False, current_coverage
-    
-    def __update_harness(self, harness_content: str):
-        with open(self.harness_file_path, "w+", encoding="utf-8") as f:
-            f.write(harness_content)
 
     def __is_error_covered(self, error: CBMCError) -> bool:
 

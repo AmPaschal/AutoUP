@@ -23,7 +23,7 @@ H_INC =
 MAKE_INCLUDE_PATH ?= ..
 
 # Extra function model files to be linked into the harness
-LINK = $(MAKE_INCLUDE_PATH)/general-stubs.c
+LINK = $(MAKE_INCLUDE_PATH)/general-stubs.c $(MAKE_INCLUDE_PATH)/zephyr-stubs.c 
 
 # Include our special build file
 include $(MAKE_INCLUDE_PATH)/Makefile.include

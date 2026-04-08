@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 import subprocess
 from abc import ABC
@@ -35,6 +36,7 @@ class AIAgent(ABC):
         self.harness_file_name = f"{self.target_function}_harness.c"
         self.harness_file_path = os.path.join(self.harness_dir, self.harness_file_name)
         self.makefile_path = os.path.join(self.harness_dir, 'Makefile')
+        self.snapshot_dir = os.path.join(self.harness_dir, "snapshots")
 
         try:
             result = get_llm_provider(args.llm_model)
@@ -280,9 +282,15 @@ class AIAgent(ABC):
     def run_make(self, compile_only: bool = False) -> dict:
         logger.info("[INFO] Running make command...")
         make_cmd = "make compile -j3" if compile_only else "make clean && make -j3"
+        start_time = time.perf_counter()
         make_results = self.execute_command(make_cmd, workdir=self.harness_dir, timeout=1800)
+        make_results["elapsed_seconds"] = time.perf_counter() - start_time
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
+        logger.info(
+            "Make command finished in %.2f seconds.",
+            make_results["elapsed_seconds"],
+        )
         return make_results
 
     def validate_linked_target(self) -> bool:
@@ -475,6 +483,47 @@ class AIAgent(ABC):
 
         return [*self.get_tools(), *coverage_tools]
 
+    def _is_harness_file(self, file_path: str) -> bool:
+        """Check if a coverage report file path belongs to the harness directory.
+
+        Coverage report paths are relative to self.root_dir.
+        We resolve them to absolute, then check whether the normalized
+        absolute path starts with the harness directory path.
+        """
+        abs_harness_dir = os.path.normpath(os.path.abspath(self.harness_dir))
+
+        if os.path.isabs(file_path):
+            abs_file = os.path.normpath(file_path)
+        else:
+            abs_file = os.path.normpath(os.path.join(self.root_dir, file_path))
+
+        return abs_file.startswith(abs_harness_dir + os.sep) or abs_file == abs_harness_dir
+
+    def get_overall_coverage(self):
+        """Get overall coverage excluding files in the harness directory."""
+        coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
+        if not os.path.exists(coverage_report_path):
+            logger.error(f"[ERROR] Coverage report not found: {coverage_report_path}")
+            return {}
+
+        with open(coverage_report_path, "r") as f:
+            coverage_data = json.load(f)
+
+        viewer_coverage = coverage_data.get("viewer-coverage", {})
+        function_coverage = viewer_coverage.get("function_coverage", {})
+
+        total_hit = 0
+        total_lines = 0
+        for file_path, funcs in function_coverage.items():
+            if self._is_harness_file(file_path):
+                continue
+            for func_name, stats in funcs.items():
+                total_hit += stats.get("hit", 0)
+                total_lines += stats.get("total", 0)
+
+        percentage = total_hit / total_lines if total_lines > 0 else 0.0
+        return {"hit": total_hit, "total": total_lines, "percentage": percentage}
+
     def _get_function_coverage_status(self, file_path, function_name):
         coverage_report_path = os.path.join(self.harness_dir, "build/report/json/viewer-coverage.json")
         if not os.path.exists(coverage_report_path):
@@ -495,19 +544,70 @@ class AIAgent(ABC):
 
         return function_coverage
 
+    def get_invalid_unwindset_loop_ids(self) -> list[str]:
+        """
+        Check viewer-result.json for loop IDs used with --unwindset that do not
+        exist in the CBMC goto program.  CBMC emits warnings of the form:
+
+            "loop identifier <id> for non-existent function provided with unwindset"
+
+        Returns a (possibly empty) list of the invalid loop ID strings.
+        """
+        result_path = os.path.join(
+            self.harness_dir, "build", "report", "json", "viewer-result.json"
+        )
+        if not os.path.exists(result_path):
+            logger.warning(f"[WARN] viewer-result.json not found at {result_path}")
+            return []
+
+        try:
+            with open(result_path, "r") as f:
+                result_data = json.load(f)
+        except Exception as e:
+            logger.error(f"[ERROR] Failed to read viewer-result.json: {e}")
+            return []
+
+        warnings = result_data.get("viewer-result", {}).get("warning", [])
+
+        invalid_ids: list[str] = []
+        pattern = re.compile(
+            r"loop identifier (.+?) for non-existent function provided with unwindset"
+        )
+        for warning in warnings:
+            match = pattern.search(warning)
+            if match:
+                invalid_ids.append(match.group(1).strip())
+
+        if invalid_ids:
+            logger.warning(
+                f"[WARN] Detected {len(invalid_ids)} invalid --unwindset loop ID(s): "
+                + ", ".join(invalid_ids)
+            )
+        return invalid_ids
+
+    def get_loop_json_path(self) -> str:
+        """Return the absolute path to the viewer-loop.json file."""
+        return os.path.join(
+            self.harness_dir, "build", "report", "json", "viewer-loop.json"
+        )
+
     def save_status(self, tag: str):
+        os.makedirs(self.get_snapshot_dir(), exist_ok=True)
         harness_tagged_path = os.path.join(
-            self.harness_dir, f"{self.harness_file_name}.{tag}",
+            self.get_snapshot_dir(), f"{self.harness_file_name}.{tag}",
         )
         with open(self.harness_file_path, "r", encoding="utf-8") as src:
             with open(harness_tagged_path, "w", encoding="utf-8") as dst:
                 dst.write(src.read())
         makefile_tagged_path = os.path.join(
-            self.harness_dir, f"Makefile.{tag}",
+            self.get_snapshot_dir(), f"Makefile.{tag}",
         )
         with open(self.makefile_path, "r", encoding="utf-8") as src:
             with open(makefile_tagged_path, "w", encoding="utf-8") as dst:
                 dst.write(src.read())
+
+    def get_snapshot_dir(self) -> str:
+        return getattr(self, "snapshot_dir", os.path.join(self.harness_dir, "snapshots"))
     
     def create_backup(self, tag: str):
         harness_backup_path = os.path.join(

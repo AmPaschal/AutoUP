@@ -17,3 +17,5 @@ tools.sif
 tests/report
 tests/rank
 run_tests.out
+
+.codex

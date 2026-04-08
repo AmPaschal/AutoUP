@@ -43,6 +43,8 @@ python src/run.py
 --target_file_path <target_source>
 --log_file <log_file_name>
 --metrics_file <metrics_file_name>
+[--scope_bound <depth_cap>]
+[--scope_time_budget_minutes <minutes>]
 ```
 
 ### Modes
@@ -79,7 +81,14 @@ harness
 --metrics_file metrics.jsonl > output-coverage-receive.txt 2>&1
 ```
 
+Optional scope widening controls:
+
+- `--scope_bound <k>` sets the maximum widening depth.
+- `--scope_time_budget <minutes>` runs integrated model generation at each widened level, then performs a single verification/time-budget check for that level.
+- If both are set, widening stops at the earlier of the time budget or depth cap, and failed/over-budget levels roll back to the last accepted level.
+- If only `--scope_bound` is set, widening remains compile-only per level and integrated model generation runs once at the final accepted scope without an extra final verification pass.
+
 To automatically fix coverage gaps or generate preconditions fixing errors, replace `harness` with `coverage` or `debugger` respectively.
-To run all the agents sequentially, use the `all` mode.
+To run the main pipeline sequentially, use the `all` mode. Model generation needed for scope widening is now handled inside `harness` mode.
 
 ---

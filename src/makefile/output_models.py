@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import Optional
 from enum import Enum
 
@@ -38,25 +38,36 @@ class CoverageDebuggerResponse(BaseModel):
             "updated_makefile": self.updated_makefile
         }
 
-class Verdict(Enum):
-    VALID = "VALID"
-    VIOLATED_NOT_BUGGY = "VIOLATED_NOT_BUGGY"
-    VIOLATED_BUGGY = "VIOLATED_BUGGY"
+class ViolationType(Enum):
+    DATA_STRUCTURE_BOUND = "data-structure-bound"
+    IRRELEVANT = "irrelevant"
+    INCOMPLETE = "incomplete"
+    FUNCTION_POINTER_CONSTRAINTS = "function-pointer-constraints"
+    ANGELIC_ASSUMPTION = "angelic-assumption"
+    EXPLOITABLE = "exploitable"
 
 class ValidationResult(BaseModel):
     precondition: str
     parent_function: str
-    verdict: Verdict
-    untrusted_input_source: str
+    violated: bool
+    violation_type: Optional[ViolationType]
     reasoning: str
     detailed_analysis: str
+
+    @model_validator(mode="after")
+    def validate_violation_fields(self):
+        if self.violated and self.violation_type is None:
+            raise ValueError("violation_type must be provided when violated is true")
+        if not self.violated and self.violation_type is not None:
+            raise ValueError("violation_type must be null when violated is false")
+        return self
 
     def to_dict(self):
         return {
             "precondition": self.precondition,
             "parent_function": self.parent_function,
-            "verdict": self.verdict.value,
-            "untrusted_input_source": self.untrusted_input_source,
+            "violated": self.violated,
+            "violation_type": self.violation_type.value if self.violation_type else None,
             "reasoning": self.reasoning,
             "detailed_analysis": self.detailed_analysis
         }
@@ -64,15 +75,18 @@ class ValidationResult(BaseModel):
 class PreconditionValidatorResponse(BaseModel):
     preconditions_analyzed: int
     validation_result: list[ValidationResult]
-    
+    updated_harness: Optional[str] = None
 
-    def to_dict(self):
-        return {
+    def to_dict(self, include_updated_harness: bool = True):
+        result = {
             "preconditions_analyzed": self.preconditions_analyzed,
             "validation_result": [
                 v.to_dict() for v in self.validation_result
             ]
         }
+        if include_updated_harness:
+            result["updated_harness"] = self.updated_harness
+        return result
 
 class VulnAwareRefinerResponse(BaseModel):
     """
