@@ -1,6 +1,7 @@
 """ Debugger class"""
 
 # System
+from _typeshed import NoneType
 from typing import Optional
 from pathlib import Path
 import subprocess
@@ -124,7 +125,7 @@ class ProofDebugger(AIAgent, Generable):
         return True
 
 
-    def get_property_count(self, property_file_path: str = None) -> int:
+    def get_property_count(self, property_file_path: str|NoneType = None) -> int:
         """Get the number of memory safety properties from viewer-property.json.
         
         Args:
@@ -206,7 +207,7 @@ class ProofDebugger(AIAgent, Generable):
         if not updated_harness:
             logger.error("Programmatic handler could not analyze the error.")
             return False
-        self.__update_harness(updated_harness)
+        self.update_harness(updated_harness)
         make_result = self.run_make()
         if make_result.get("status") != Status.SUCCESS:
             logger.error("Make command failed after programmatic fix.")
