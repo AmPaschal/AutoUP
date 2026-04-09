@@ -20,6 +20,7 @@ from logger import setup_logger
 logger = setup_logger(__name__)
 
 IMAGE_FILE = "tools.sif"
+IMAGE_LOCK_FILE = f"{IMAGE_FILE}.lock"
 INSTANCE_PREFIX = "autoup"
 APPTAINER_FATAL_PATTERNS = {
     "bind/workdir failure": (
@@ -136,22 +137,31 @@ class ApptainerProjectContainer(ProjectContainer):
             logger.info(f"[*] Apptainer image '{IMAGE_FILE}' is up to date; skipping build.")
             return
 
-        if os.path.exists(IMAGE_FILE):
-            logger.info(f"[*] Rebuilding stale Apptainer image '{IMAGE_FILE}'.")
-            os.remove(IMAGE_FILE)
+        lock_path = os.path.abspath(IMAGE_LOCK_FILE)
+        logger.info(f"[*] Waiting for Apptainer image build lock '{lock_path}'...")
+        with FileLock(lock_path):
+            if self.__image_is_fresh():
+                logger.info(
+                    f"[*] Apptainer image '{IMAGE_FILE}' was built by another process; skipping build."
+                )
+                return
 
-        logger.info(f"[+] Building Apptainer image from {self.apptainer_def_path}...")
-        result = self.__run_subprocess(
-            ["apptainer", "build", "--fakeroot", IMAGE_FILE, self.apptainer_def_path]
-        )
-        if result["exit_code"] == 0:
-            logger.info(f"[+] Image '{IMAGE_FILE}' built successfully.")
-        else:
-            logger.error("[!] Apptainer build failed!")
-            raise RuntimeError(
-                "Apptainer build failed: "
-                f"{result['stderr'].strip() or result['stdout'].strip() or 'unknown error'}"
+            if os.path.exists(IMAGE_FILE):
+                logger.info(f"[*] Rebuilding stale Apptainer image '{IMAGE_FILE}'.")
+                os.remove(IMAGE_FILE)
+
+            logger.info(f"[+] Building Apptainer image from {self.apptainer_def_path}...")
+            result = self.__run_subprocess(
+                ["apptainer", "build", "--fakeroot", IMAGE_FILE, self.apptainer_def_path]
             )
+            if result["exit_code"] == 0:
+                logger.info(f"[+] Image '{IMAGE_FILE}' built successfully.")
+            else:
+                logger.error("[!] Apptainer build failed!")
+                raise RuntimeError(
+                    "Apptainer build failed: "
+                    f"{result['stderr'].strip() or result['stdout'].strip() or 'unknown error'}"
+                )
 
     def __image_is_fresh(self) -> bool:
         if not os.path.exists(IMAGE_FILE):

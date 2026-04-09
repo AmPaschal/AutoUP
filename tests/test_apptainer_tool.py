@@ -28,6 +28,7 @@ sys.modules.setdefault("docker.models.containers", docker_models_containers_stub
 from commons.apptainer_tool import (  # noqa: E402
     ApptainerProjectContainer,
     IMAGE_FILE,
+    IMAGE_LOCK_FILE,
 )
 from commons.container_constants import CSCOPE_INIT_TIMEOUT, DEFAULT_CONTAINER_USER  # noqa: E402
 
@@ -226,6 +227,29 @@ class ApptainerToolTests(unittest.TestCase):
         mock_getmtime.side_effect = lambda path: mtimes[os.path.abspath(path)]
 
         self.assertFalse(self.container._ApptainerProjectContainer__image_is_fresh())
+
+    @mock.patch("commons.apptainer_tool.FileLock")
+    @mock.patch("commons.apptainer_tool.os.path.exists")
+    def test_build_image_waits_for_lock_and_rechecks_freshness(self, mock_exists, mock_lock):
+        mock_exists.return_value = True
+        lock_instance = mock.MagicMock()
+        mock_lock.return_value = lock_instance
+
+        with mock.patch.object(
+            self.container,
+            "_ApptainerProjectContainer__image_is_fresh",
+            side_effect=[False, True],
+        ) as mock_fresh, mock.patch.object(
+            self.container,
+            "_ApptainerProjectContainer__run_subprocess",
+        ) as mock_run:
+            self.container._ApptainerProjectContainer__build_image()
+
+        mock_lock.assert_called_once_with(os.path.abspath(IMAGE_LOCK_FILE))
+        lock_instance.__enter__.assert_called_once()
+        lock_instance.__exit__.assert_called_once()
+        self.assertEqual(mock_fresh.call_count, 2)
+        mock_run.assert_not_called()
 
     @staticmethod
     def _completed(args, returncode, stdout="", stderr=""):
