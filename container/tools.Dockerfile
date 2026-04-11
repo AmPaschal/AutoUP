@@ -12,6 +12,7 @@ RUN apt update && apt install -y \
     dpkg \
     build-essential \
     libc6-dev \
+    clang \
     universal-ctags \
     cscope \
     sudo \

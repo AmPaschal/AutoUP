@@ -6,6 +6,7 @@ From: ubuntu:22.04
     export C_INCLUDE_PATH=/usr/include/x86_64-linux-gnu
 
 %post
+    echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99sandbox-root
     apt update && apt install -y \
         software-properties-common \
         curl \
@@ -14,6 +15,7 @@ From: ubuntu:22.04
         dpkg \
         build-essential \
         libc6-dev \
+        clang \
         universal-ctags \
         cscope \
         sudo \
@@ -39,6 +41,9 @@ From: ubuntu:22.04
     rm /tmp/cbmc.deb
 
     pip install cbmc-viewer
+
+    echo "Defaults !use_pty" >> /etc/sudoers
+    echo "ALL ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
     apt clean
     rm -rf /var/lib/apt/lists/*
