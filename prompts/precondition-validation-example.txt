@@ -1,0 +1,77 @@
+## Precondition Validation: `__CPROVER_assume(payload_len <= IEEE802154_MAX_PHY_PACKET_SIZE)`
+
+**Target function:** `nrf5_tx` (zephyr/drivers/ieee802154/ieee802154_nrf5.c:585)
+**Constrained variable:** `frag->len`, assigned to `uint8_t payload_len` at line 591.
+**Precondition meaning:** `frag->len <= 127` on all paths reaching `nrf5_tx`.
+
+**Verdict: NOT VIOLATED** — all reachable call paths enforce this bound.
+
+### Relevant Constants
+
+- `IEEE802154_MAX_PHY_PACKET_SIZE` = 127 (include/zephyr/net/ieee802154.h:111)
+- `IEEE802154_FCS_LENGTH` = 2 (ieee802154.h:120)
+- `IEEE802154_MTU` = 125 (= 127 - 2) (ieee802154.h:136)
+
+### How `nrf5_tx` Is Reached
+
+`nrf5_tx` is static and exposed only via `.tx = nrf5_tx` in `nrf5_radio_api` (ieee802154_nrf5.c:1306). All callers invoke it through `radio_api->tx(...)`. Four call paths exist:
+
+### Path 1: Native L2 Data TX
+
+`ieee802154_send()` → `ieee802154_radio_send(iface, pkt, frame_buf)` → `ieee802154_radio_tx()` → `radio->tx()` = `nrf5_tx`
+
+- `frame_buf` is allocated from `NET_BUF_POOL_DEFINE(tx_frame_buf_pool, 1, IEEE802154_MTU, 8, NULL)` (ieee802154.c:47). Pool data capacity = 125 bytes.
+- Explicit check before send (ieee802154.c:573-576, when fragmentation is disabled):
+  ```c
+  if (ll_hdr_len + pkt_buf->len + authtag_len > IEEE802154_MTU) {
+      return -EINVAL;
+  }
+  ```
+- Data copied into `frame_buf` via `net_buf_add_mem(frame_buf, pkt_buf->data, pkt_buf->len)`. Buffer capacity caps `frame_buf->len` at 125.
+- **Bound: frag->len ≤ 125 < 127 ✓**
+
+### Path 2: Native L2 ACK TX
+
+`ieee802154_acknowledge()` → `ieee802154_radio_tx(iface, ..., pkt, pkt->buffer)` → `nrf5_tx`
+
+- Packet allocated with `net_pkt_alloc_with_buffer(iface, IEEE802154_ACK_PKT_LENGTH, ...)` (ieee802154.c:84). ACK frames are 3 bytes (FCF + sequence).
+- `ieee802154_create_ack_frame()` calls `net_buf_add(pkt->buffer, IEEE802154_ACK_PKT_LENGTH)` (ieee802154_frame.c:955), setting `len = 3`.
+- **Bound: frag->len = 3 ≪ 127 ✓**
+
+### Path 3: Management Commands (Scan / Association / Disassociation)
+
+`ieee802154_scan/associate/disassociate()` → `ieee802154_radio_send(iface, pkt, pkt->buffer)` → `ieee802154_radio_tx()` → `nrf5_tx`
+
+Sites: ieee802154_mgmt.c lines 181, 564, 591, 718.
+
+- All packets created by `ieee802154_create_mac_cmd_frame()` (ieee802154_frame.c:879), which allocates with `net_pkt_alloc_with_buffer(iface, IEEE802154_MTU, ...)`. Buffer capacity = 125.
+- Actual MAC command content is MAC header + command payload. Largest command (COORDINATOR_REALIGNMENT) adds 9 bytes to the header. Total is well under 125.
+- Final length set by `ieee802154_mac_cmd_finalize()` (ieee802154_frame.c:931-934).
+- **Bound: frag->len ≤ 125 < 127 ✓**
+
+### Path 4: OpenThread TX
+
+`transmit_message()` → `radio_api->tx(radio_dev, ..., tx_pkt, tx_payload)` → `nrf5_tx`
+
+Sites: modules/openthread/platform/radio.c lines 434, 438, 443, 449.
+
+- `tx_payload` allocated in `dataInit()` (radio.c:330):
+  ```c
+  tx_payload = net_pkt_get_reserve_tx_data(IEEE802154_MAX_PHY_PACKET_SIZE, K_NO_WAIT);
+  ```
+  Buffer capacity = 127 bytes.
+- Length set at radio.c:397: `tx_payload->len = sTransmitFrame.mLength - FCS_SIZE`.
+- `sTransmitFrame.mLength` is bounded by `OT_RADIO_FRAME_MAX_SIZE` = 127 (openthread/platform/radio.h:70, defined as `aMaxPHYPacketSize`).
+- Therefore: `tx_payload->len ≤ 127 - 2 = 125`.
+- **Bound: frag->len ≤ 125 < 127 ✓**
+
+### Summary
+
+| Path | frag->len Bound | Enforcement Mechanism |
+|---|---|---|
+| Native L2 data TX | ≤ 125 | Buffer pool capacity (125) + explicit MTU check |
+| Native L2 ACK TX | = 3 | Fixed ACK packet length |
+| Management commands | ≤ 125 | Buffer allocation size (IEEE802154_MTU) |
+| OpenThread TX | ≤ 125 | OT_RADIO_FRAME_MAX_SIZE (127) - FCS_SIZE (2) |
+
+All paths guarantee `frag->len ≤ 125 < 127 = IEEE802154_MAX_PHY_PACKET_SIZE`. The precondition is a true invariant and cannot be violated on any reachable execution path.

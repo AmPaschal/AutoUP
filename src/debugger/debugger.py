@@ -1,7 +1,6 @@
 """ Debugger class"""
 
 # System
-from _typeshed import NoneType
 from typing import Optional
 from pathlib import Path
 import subprocess
@@ -125,7 +124,7 @@ class ProofDebugger(AIAgent, Generable):
         return True
 
 
-    def get_property_count(self, property_file_path: str|NoneType = None) -> int:
+    def get_property_count(self, property_file_path: Optional[str] = None) -> int:
         """Get the number of memory safety properties from viewer-property.json.
         
         Args:

@@ -79,12 +79,37 @@ Classification rules:
  Use the proof_validator tool to confirm that the error remains resolved, the original failing line remains covered if it was covered before, overall coverage does not decrease, and property count does not decrease.
 - Use violation_type="incomplete" if the precondition is stricter than necessary and removing it would not trigger the error. Use the proof_validator tool to confirm that the error remains resolved and the change remains valid.
 - Use violation_type="function-pointer-constraints" if the precondition constrains a function pointer to a specific model which differs from the actual implementation.
-- Use violation_type="angelic-assumption" for implicit public-API or infrastructure assumptions that we intentionally ignore. These include:
-  - malloc allocation size is greater than zero.
-  - a pointer variable derived from arguments or struct members of a public user-facing API is not NULL.
-  - a pointer variable returned by malloc is not NULL.
-  - a length argument or struct member derived from a public user-facing API corresponds to the size of the memory region referenced by a pointer argument or struct member.
-  - a pointer variable referencing a struct or type greater than a byte (e.g. int, uint64_t) references a memory region of at least the size of the type.
+- Use violation_type="angelic-assumption" only when precondition satisfies one of the following conditions. In your detailed analysis, specify the angelic type and provide reasons and source code evidence why it is of that type.
+   Type 1: Heap allocation size greater than zero
+   Eg. size_t datalen;
+       __CPROVER_assume(datalen > 0);
+       uint8_t *data = malloc(datalen);
+
+   Type 2: Heap allocation is not NULL only when (i) the pointer is derived from an argument of a public user-facing API or (ii) the pointer is derived from a struct member of an argument of a public user-facing API or (iii) the pointer is returned by malloc.
+   Eg. uint8_t *data = malloc(datalen);
+       __CPROVER_assume(data != NULL);
+
+   Type 3: Relationship between a heap reference pointer and its length only when (i) the pointer and length are both arguments of the same public user-facing API, or (ii) the pointer and length are pointers of the same struct, which is an argument of a public user-facing API.
+   Eg. size_t datalen;
+       uint8_t *data = malloc(datalen);
+       size_t len;
+       __CPROVER_assume(len <= datalen);
+       func(data, len); or
+       buf->data = data;
+       buf->len = len;
+       func(buf);
+
+   Type 4: Precondition that a pointer referencing a struct or type points to a memory region of at least, the size of that type.
+   Eg. size_t len;
+       __CPROVER_assume(len >= sizeof(struct foo));
+       struct foo *foo = malloc(len);
+
+       size_t len;
+       __CPROVER_assume(len >= sizeof(int));
+       int *foo = malloc(len);
+
+       Note that the precondition must be constraining the heap size based only on the size of the struct or type. Any other precondition based on other factors or variables or numbers is not considered as Type 4 angelic.
+
 - Use violation_type="exploitable" only when violating the precondition leads to the error and the case does not fit one of the more specific categories above.
 
 Proof-validator workflow requirements:
@@ -98,3 +123,85 @@ Proof-validator workflow requirements:
 - For incomplete, report the final refined precondition in the precondition field and explain the original coarse constraint and the refinement in reasoning and detailed_analysis.
 - detailed_analysis must mention the proof-validator confirmation outcome whenever irrelevant or incomplete is used.
 
+Here is an example of a detailed validation analysis that provides evidence that a precondition is always satisfied.
+Your analysis should be as thorough, for both violated and not violated cases.
+
+=======
+
+## Precondition Validation: `__CPROVER_assume(payload_len <= IEEE802154_MAX_PHY_PACKET_SIZE)`
+
+**Target function:** `nrf5_tx` (zephyr/drivers/ieee802154/ieee802154_nrf5.c:585)
+**Constrained variable:** `frag->len`, assigned to `uint8_t payload_len` at line 591.
+**Precondition meaning:** `frag->len <= 127` on all paths reaching `nrf5_tx`.
+
+**Verdict: NOT VIOLATED** — all reachable call paths enforce this bound.
+
+### Relevant Constants
+
+- `IEEE802154_MAX_PHY_PACKET_SIZE` = 127 (include/zephyr/net/ieee802154.h:111)
+- `IEEE802154_FCS_LENGTH` = 2 (ieee802154.h:120)
+- `IEEE802154_MTU` = 125 (= 127 - 2) (ieee802154.h:136)
+
+### How `nrf5_tx` Is Reached
+
+`nrf5_tx` is static and exposed only via `.tx = nrf5_tx` in `nrf5_radio_api` (ieee802154_nrf5.c:1306). All callers invoke it through `radio_api->tx(...)`. Four call paths exist:
+
+### Path 1: Native L2 Data TX
+
+`ieee802154_send()` → `ieee802154_radio_send(iface, pkt, frame_buf)` → `ieee802154_radio_tx()` → `radio->tx()` = `nrf5_tx`
+
+- `frame_buf` is allocated from `NET_BUF_POOL_DEFINE(tx_frame_buf_pool, 1, IEEE802154_MTU, 8, NULL)` (ieee802154.c:47). Pool data capacity = 125 bytes.
+- Explicit check before send (ieee802154.c:573-576, when fragmentation is disabled):
+  ```c
+  if (ll_hdr_len + pkt_buf->len + authtag_len > IEEE802154_MTU) {
+      return -EINVAL;
+  }
+  ```
+- Data copied into `frame_buf` via `net_buf_add_mem(frame_buf, pkt_buf->data, pkt_buf->len)`. Buffer capacity caps `frame_buf->len` at 125.
+- **Bound: frag->len ≤ 125 < 127 ✓**
+
+### Path 2: Native L2 ACK TX
+
+`ieee802154_acknowledge()` → `ieee802154_radio_tx(iface, ..., pkt, pkt->buffer)` → `nrf5_tx`
+
+- Packet allocated with `net_pkt_alloc_with_buffer(iface, IEEE802154_ACK_PKT_LENGTH, ...)` (ieee802154.c:84). ACK frames are 3 bytes (FCF + sequence).
+- `ieee802154_create_ack_frame()` calls `net_buf_add(pkt->buffer, IEEE802154_ACK_PKT_LENGTH)` (ieee802154_frame.c:955), setting `len = 3`.
+- **Bound: frag->len = 3 ≪ 127 ✓**
+
+### Path 3: Management Commands (Scan / Association / Disassociation)
+
+`ieee802154_scan/associate/disassociate()` → `ieee802154_radio_send(iface, pkt, pkt->buffer)` → `ieee802154_radio_tx()` → `nrf5_tx`
+
+Sites: ieee802154_mgmt.c lines 181, 564, 591, 718.
+
+- All packets created by `ieee802154_create_mac_cmd_frame()` (ieee802154_frame.c:879), which allocates with `net_pkt_alloc_with_buffer(iface, IEEE802154_MTU, ...)`. Buffer capacity = 125.
+- Actual MAC command content is MAC header + command payload. Largest command (COORDINATOR_REALIGNMENT) adds 9 bytes to the header. Total is well under 125.
+- Final length set by `ieee802154_mac_cmd_finalize()` (ieee802154_frame.c:931-934).
+- **Bound: frag->len ≤ 125 < 127 ✓**
+
+### Path 4: OpenThread TX
+
+`transmit_message()` → `radio_api->tx(radio_dev, ..., tx_pkt, tx_payload)` → `nrf5_tx`
+
+Sites: modules/openthread/platform/radio.c lines 434, 438, 443, 449.
+
+- `tx_payload` allocated in `dataInit()` (radio.c:330):
+  ```c
+  tx_payload = net_pkt_get_reserve_tx_data(IEEE802154_MAX_PHY_PACKET_SIZE, K_NO_WAIT);
+  ```
+  Buffer capacity = 127 bytes.
+- Length set at radio.c:397: `tx_payload->len = sTransmitFrame.mLength - FCS_SIZE`.
+- `sTransmitFrame.mLength` is bounded by `OT_RADIO_FRAME_MAX_SIZE` = 127 (openthread/platform/radio.h:70, defined as `aMaxPHYPacketSize`).
+- Therefore: `tx_payload->len ≤ 127 - 2 = 125`.
+- **Bound: frag->len ≤ 125 < 127 ✓**
+
+### Summary
+
+| Path | frag->len Bound | Enforcement Mechanism |
+|---|---|---|
+| Native L2 data TX | ≤ 125 | Buffer pool capacity (125) + explicit MTU check |
+| Native L2 ACK TX | = 3 | Fixed ACK packet length |
+| Management commands | ≤ 125 | Buffer allocation size (IEEE802154_MTU) |
+| OpenThread TX | ≤ 125 | OT_RADIO_FRAME_MAX_SIZE (127) - FCS_SIZE (2) |
+
+All paths guarantee `frag->len ≤ 125 < 127 = IEEE802154_MAX_PHY_PACKET_SIZE`. The precondition is a true invariant and cannot be violated on any reachable execution path.

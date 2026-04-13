@@ -36,11 +36,18 @@ from commons.container_constants import CSCOPE_INIT_TIMEOUT, DEFAULT_CONTAINER_U
 class ApptainerToolTests(unittest.TestCase):
     def setUp(self):
         self.host_dir_ctx = tempfile.TemporaryDirectory()
+        self.repo_dir_ctx = tempfile.TemporaryDirectory()
         self.host_dir = self.host_dir_ctx.name
-        self.container = ApptainerProjectContainer("container/tools.def", self.host_dir)
+        self.repo_dir = self.repo_dir_ctx.name
+        self.container = ApptainerProjectContainer(
+            "container/tools.def",
+            self.host_dir,
+            repo_dir=self.repo_dir,
+        )
 
     def tearDown(self):
         self.host_dir_ctx.cleanup()
+        self.repo_dir_ctx.cleanup()
 
     @mock.patch("commons.apptainer_tool.shutil.which", return_value="/usr/bin/apptainer")
     @mock.patch("commons.apptainer_tool.os.path.getmtime")
@@ -78,8 +85,9 @@ class ApptainerToolTests(unittest.TestCase):
         start_cmd = calls[1].args[0]
         self.assertEqual(start_cmd[:4], ["apptainer", "instance", "start", "--fakeroot"])
         self.assertIn("--writable-tmpfs", start_cmd)
-        self.assertIn("--bind", start_cmd)
+        self.assertEqual(start_cmd.count("--bind"), 2)
         self.assertIn(f"{host_dir}:{host_dir}", start_cmd)
+        self.assertIn(f"{self.repo_dir}:{self.repo_dir}", start_cmd)
         self.assertEqual(start_cmd[-2], IMAGE_FILE)
         self.assertEqual(start_cmd[-1], self.container.instance_name)
 
@@ -265,7 +273,12 @@ class ApptainerIntegrationTests(unittest.TestCase):
         from commons.apptainer_tool import ApptainerProjectContainer
 
         with tempfile.TemporaryDirectory() as host_dir:
-            container = ApptainerProjectContainer("container/tools.def", host_dir)
+            repo_dir = str(Path(__file__).resolve().parents[1])
+            container = ApptainerProjectContainer(
+                "container/tools.def",
+                host_dir,
+                repo_dir=repo_dir,
+            )
             try:
                 container.initialize()
                 user_file = os.path.join(host_dir, "user-owned.txt")
@@ -276,5 +289,32 @@ class ApptainerIntegrationTests(unittest.TestCase):
 
                 sudo_result = container.execute("sudo touch /tmp/autoup-apptainer-sudo-test")
                 self.assertEqual(sudo_result["exit_code"], 0)
+            finally:
+                container.terminate()
+
+    def test_container_script_starts_without_missing_clang_module(self):
+        from commons.apptainer_tool import ApptainerProjectContainer
+
+        with tempfile.TemporaryDirectory() as host_dir:
+            repo_dir = str(Path(__file__).resolve().parents[1])
+            container = ApptainerProjectContainer(
+                "container/tools.def",
+                host_dir,
+                repo_dir=repo_dir,
+            )
+            try:
+                container.initialize()
+                script_path = os.path.join(
+                    repo_dir,
+                    "src",
+                    "stub_generator",
+                    "find_function_pointers.py",
+                )
+                result = container.execute(
+                    f"python3 {script_path} /tmp/missing.c demo /tmp/missing.makefile",
+                    workdir=host_dir,
+                    timeout=20,
+                )
+                self.assertNotIn("ModuleNotFoundError: No module named 'clang'", result["stderr"])
             finally:
                 container.terminate()

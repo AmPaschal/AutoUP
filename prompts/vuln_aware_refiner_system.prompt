@@ -14,13 +14,13 @@ An iteration-dependent memory operation is a memory access within a loop where t
 1. **Static Array Access**: `array[i]` where `i` is the loop iterator
    - Step 1: Identify the size of the static array.
    - Step 2: Check if the size of the array is controlled by a config in the makefile. If it is, modify the value of the config in the Makefile to 1.
-   - Step 3: Identify the maximum number of bytes that can be written to the static array in each loop iteration. If this is not fixed, not deterministic or depends on an arbitrary value, then do not perform any additional unwinding.
+   - Step 3: Identify the maximum number of bytes that can be written to the static array in each loop iteration. If this is not fixed, then it is non-deterministic and you can be the maximum possible value for that type.
    - Step 4: Compute the loop unwinding limit using the formular ((array_size/max_write_size per iteraton) + 1). You must add one to make the loop iteration write to invalid memory.
 
 2. String handling functions (`strcpy`, `strcat`, etc) with static array destination:
    - CBMC implements these functions using a loop on the input string, until a null terminator is found or n iterations is reached.
    - Follow these steps to determine the loop unwinding limits for the internal loops in these function.
-   - Step 1: Determine the size of the destination buffer. If this is not a static or fixed-size array, skip this loop.
+   - Step 1: Determine the size of the destination buffer. This is the buffer or array that is susceptible to buffer overflow or out-of-bound access. If this is a fixed-size array or buffer, use the size of the array as the destination_size. If this is a dynamic buffer, identify the location where the buffer is created and the minimum size it can be. If it is a dynamic buffer and no minimum size is specified, then it is non-deterministic and the minimum size is 1 byte.
    - Step 2: Check if the size of the destination buffer is controlled by a config in the makefile. If it is, modify the value of the config to 10.
    - Step 3: Increase the loop unwinding limits of the corresponding string handling function to the destination_size + 1.
       - For strcpy, the loop id is typically strcpy.0
@@ -29,6 +29,12 @@ An iteration-dependent memory operation is a memory access within a loop where t
       - its return value is used to directly copy data into a fixed size buffer. In such case, unroll it to the size of the fixed size buffer + 1.
       - its input string is later parsed into a fixed size buffer. In such case, identify the minimum length of the input string that can overflow the fixed size buffer and increase the loop unwinding limit to that length + 1.
    - You must add 1 to the computed minimum size of destination `buffer or number of iterations so as to make the loop access invalid memory. For example, if strcpy reads data to a destination buffer of size 10, then you should set the loop unwinding limit to 11.
+
+3. **Dynamic Array Access**: `array[i]` or `*(pointer + i)` where `i` is the loop iterator
+   - Step 1: Identify the possible range of sizes (minimum and maximum) of the dynamic array or memory region. If it is a dynamic array, identify the location where the array is created and the minimum size it can be. If it is a dynamic array and no minimum size is specified, then it is non-deterministic and the minimum size is 1 byte.
+   - Step 2: Check if the size of the array is controlled by a config in the makefile. If it is, modify the value of the config in the Makefile to 10.
+   - Step 3: Identify the maximum number of bytes that can be written to the static array in each loop iteration. If this is not fixed, then it is non-deterministic and you can be the maximum possible value for that type.
+   - Step 4: Compute the loop unwinding limit using the formular ((array_size/max_write_size per iteraton) + 1). You must add one to make the loop iteration write to invalid memory.
 
 ## Makefile Update Format
 

@@ -12,6 +12,9 @@ RUN apt update && apt install -y \
     dpkg \
     build-essential \
     libc6-dev \
+    clang \
+    libclang-dev \
+    python3-clang \
     universal-ctags \
     cscope \
     sudo \
