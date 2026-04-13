@@ -2,9 +2,9 @@ import sys
 import tempfile
 import types
 import unittest
+import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -30,8 +30,26 @@ class FakeLLM:
         )
 
 
+class FakeProjectContainer:
+    def __init__(self, result=None):
+        self.result = result or {
+            "exit_code": 0,
+            "stdout": "[]",
+            "stderr": "",
+        }
+        self.calls = []
+
+    def execute(self, command: str, workdir=None, timeout=30):
+        self.calls.append({
+            "command": command,
+            "workdir": workdir,
+            "timeout": timeout,
+        })
+        return self.result
+
+
 class TestableFunctionPointerHandler(FunctionPointerHandler):
-    def __init__(self, temp_dir: str):
+    def __init__(self, temp_dir: str, project_container=None):
         self.root_dir = str(Path(temp_dir) / "project")
         self.harness_dir = str(Path(temp_dir) / "proof")
         self.target_function = "demo"
@@ -40,7 +58,7 @@ class TestableFunctionPointerHandler(FunctionPointerHandler):
         self.harness_file_path = str(Path(self.harness_dir) / self.harness_file_name)
         self.makefile_path = str(Path(self.harness_dir) / "Makefile")
         self.snapshot_dir = str(Path(self.harness_dir) / "snapshots")
-        self.project_container = object()
+        self.project_container = project_container or FakeProjectContainer()
         self.args = SimpleNamespace()
         self.llm = FakeLLM()
         self._max_attempts = 1
@@ -87,12 +105,60 @@ class TestableFunctionPointerHandler(FunctionPointerHandler):
 class FunctionPointerHandlerTests(unittest.TestCase):
     def test_compile_only_generation_returns_success(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            handler = TestableFunctionPointerHandler(temp_dir)
-            with mock.patch(
-                "stub_generator.handle_function_pointers.analyze_file",
-                return_value=[{"call_id": "demo.function_pointer_call.1"}],
-            ):
-                self.assertTrue(handler.generate(verify_after_generation=False))
+            container = FakeProjectContainer(
+                result={
+                    "exit_code": 0,
+                    "stdout": json.dumps([{"call_id": "demo.function_pointer_call.1"}]),
+                    "stderr": "",
+                }
+            )
+            handler = TestableFunctionPointerHandler(temp_dir, project_container=container)
+
+            self.assertTrue(handler.generate(verify_after_generation=False))
+            self.assertEqual(len(container.calls), 1)
+            self.assertEqual(container.calls[0]["workdir"], handler.harness_dir)
+            self.assertEqual(container.calls[0]["timeout"], 60)
+            self.assertIn("find_function_pointers.py", container.calls[0]["command"])
+            self.assertIn(handler.target_file_path, container.calls[0]["command"])
+
+    def test_empty_analysis_result_is_treated_as_no_work(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            container = FakeProjectContainer(
+                result={
+                    "exit_code": 0,
+                    "stdout": "[]",
+                    "stderr": "",
+                }
+            )
+            handler = TestableFunctionPointerHandler(temp_dir, project_container=container)
+
+            self.assertTrue(handler.generate(verify_after_generation=False))
+
+    def test_nonzero_analysis_exit_fails_generation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            container = FakeProjectContainer(
+                result={
+                    "exit_code": 1,
+                    "stdout": "",
+                    "stderr": "analysis failed",
+                }
+            )
+            handler = TestableFunctionPointerHandler(temp_dir, project_container=container)
+
+            self.assertFalse(handler.generate(verify_after_generation=False))
+
+    def test_invalid_analysis_json_fails_generation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            container = FakeProjectContainer(
+                result={
+                    "exit_code": 0,
+                    "stdout": "not-json",
+                    "stderr": "",
+                }
+            )
+            handler = TestableFunctionPointerHandler(temp_dir, project_container=container)
+
+            self.assertFalse(handler.generate(verify_after_generation=False))
 
 
 if __name__ == "__main__":

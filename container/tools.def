@@ -16,6 +16,8 @@ From: ubuntu:22.04
         build-essential \
         libc6-dev \
         clang \
+        libclang-dev \
+        python3-clang \
         universal-ctags \
         cscope \
         sudo \

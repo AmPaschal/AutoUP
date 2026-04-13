@@ -208,6 +208,22 @@ def process_mode(args):
             return
         logger.info("Agent '%s' succeed", agent.__class__.__name__)
 
+def log_final_result(metrics_file: str, data: list[dict]):
+        if not metrics_file:
+            return
+
+        with open(metrics_file, 'a') as f:
+            for entry in data:
+                f.write(json.dumps(entry) + "\n")
+
+def get_metrics_file_entry(agent_name: str, data: dict):
+    return {
+        "type": "run_result",
+        "agent_name": agent_name,
+        "data": data,
+        "timestamp": time.time()
+    }
+
 def summarize_metrics_per_agent(metrics_file: str, logger):
     """ Summarize metrics from the given file and print to logger """
     with open(metrics_file, "r") as file:
@@ -215,8 +231,11 @@ def summarize_metrics_per_agent(metrics_file: str, logger):
 
     metrics = [json.loads(line) for line in metrics_data if line.strip()]
 
+    entries = []
+
     logger.info("===== Overall Metrics Summary =====")
     overall_summary = process_metrics(metrics)
+    entries.append(get_metrics_file_entry("overall", overall_summary))
     logger.info(json.dumps(overall_summary, indent=4))
     logger.info("\n\n")
 
@@ -230,10 +249,13 @@ def summarize_metrics_per_agent(metrics_file: str, logger):
     # ---- Summarize per agent ----
     for agent, agent_metrics in metrics_by_agent.items():
         agent_summary = process_metrics(agent_metrics)
+        entries.append(get_metrics_file_entry(agent, agent_summary))
 
         logger.info(f"Agent '{agent}':")
         logger.info(json.dumps(agent_summary, indent=4))
         logger.info("\n\n")
+
+    log_final_result(metrics_file, entries)
 
 def main():
     """Entry point"""
@@ -241,6 +263,7 @@ def main():
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
     load_dotenv()
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     args = get_parser()
 
@@ -254,14 +277,16 @@ def main():
     if args.container_engine == "apptainer":
         project_container = ApptainerProjectContainer(
             apptainer_def_path="container/tools.def",
-            host_dir=args.root_dir
+            host_dir=args.root_dir,
+            repo_dir=repo_dir,
         )
     else:
         container_name = f"autoup_{uuid.uuid4().hex[:8]}"
         project_container = DockerProjectContainer(
             dockerfile_path="container/tools.Dockerfile",
             host_dir=args.root_dir,
-            container_name=container_name
+            container_name=container_name,
+            repo_dir=repo_dir,
         )
     try:
         project_container.initialize()

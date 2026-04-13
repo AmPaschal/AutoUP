@@ -49,6 +49,7 @@ SUGGEST_SDK = f"Install the Python Docker SDK using:\n {FIX_INSTALL_SDK}"
 
 class DockerProjectContainer(ProjectContainer):
     def __init__(self, dockerfile_path: str, host_dir: str, container_name: str,
+                 repo_dir: Optional[str] = None,
                  image_tag="autoup_image:latest"):
         """
         :param container_name: Name of the container
@@ -57,7 +58,8 @@ class DockerProjectContainer(ProjectContainer):
         :param image_tag: Tag for the image
         """
         self.container_name = container_name
-        self.host_dir = host_dir
+        self.host_dir = os.path.abspath(host_dir)
+        self.repo_dir = os.path.abspath(repo_dir) if repo_dir else None
         self.dockerfile_path = dockerfile_path
         self.image_tag = image_tag
 
@@ -126,6 +128,9 @@ class DockerProjectContainer(ProjectContainer):
         if os.path.exists(self.host_dir):
             volumes = {self.host_dir: {'bind': self.host_dir, 'mode': 'rw'}}
             logger.info(f"[+] Mapping host directory {self.host_dir} -> container {self.host_dir}")
+        if self.repo_dir and self.repo_dir != self.host_dir and os.path.exists(self.repo_dir):
+            volumes[self.repo_dir] = {'bind': self.repo_dir, 'mode': 'rw'}
+            logger.info(f"[+] Mapping repo directory {self.repo_dir} -> container {self.repo_dir}")
 
         if not self.image:
             raise RuntimeError("Image not built. Call build_image() first.")
