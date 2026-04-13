@@ -52,12 +52,13 @@ IMAGE_DEPENDENCIES = (
 class ApptainerProjectContainer(ProjectContainer):
     """Base class for project container management"""
 
-    def __init__(self, apptainer_def_path: str, host_dir: str):
+    def __init__(self, apptainer_def_path: str, host_dir: str, repo_dir: Optional[str] = None):
         """
         :param host_dir: Host directory to map into container
         :param apptainer_def_path: Path to Apptainer definition file (required if building image)
         """
         self.host_dir = os.path.abspath(host_dir)
+        self.repo_dir = os.path.abspath(repo_dir) if repo_dir else None
         self.apptainer_def_path = os.path.abspath(apptainer_def_path)
         self.uid = os.getuid()
         self.gid = os.getgid()
@@ -179,14 +180,19 @@ class ApptainerProjectContainer(ProjectContainer):
     def __start_instance(self):
         if not os.path.isdir(self.host_dir):
             raise FileNotFoundError(f"Host directory '{self.host_dir}' does not exist.")
+        if self.repo_dir and not os.path.isdir(self.repo_dir):
+            raise FileNotFoundError(f"Repo directory '{self.repo_dir}' does not exist.")
 
         self.instance_name = f"{INSTANCE_PREFIX}_{os.getpid()}_{uuid.uuid4().hex[:8]}"
         logger.info(f"[+] Starting Apptainer instance '{self.instance_name}'...")
+        bind_args = ["--bind", f"{self.host_dir}:{self.host_dir}"]
+        if self.repo_dir and self.repo_dir != self.host_dir:
+            bind_args.extend(["--bind", f"{self.repo_dir}:{self.repo_dir}"])
         start_command = [
             "apptainer", "instance", "start",
             "--fakeroot",
             "--writable-tmpfs",
-            "--bind", f"{self.host_dir}:{self.host_dir}",
+            *bind_args,
             IMAGE_FILE,
             self.instance_name,
         ]

@@ -1,12 +1,81 @@
 #!/usr/bin/env python3
+import ctypes.util
 import sys
 import json
 import re
 import shutil
 import subprocess
 import os
+from pathlib import Path
+
+CURRENT_DIR = Path(__file__).resolve().parent
+SRC_DIR = CURRENT_DIR.parent
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 import clang.cindex
-from clang.cindex import CursorKind, TypeKind
+from clang.cindex import CursorKind
+
+from stub_generator.makefile_helpers import (
+    build_analysis_args,
+    resolve_linked_source_files,
+)
+
+_LIBCLANG_CONFIGURED = False
+
+
+def configure_libclang():
+    """Configure libclang discovery before creating an index."""
+    global _LIBCLANG_CONFIGURED
+
+    if _LIBCLANG_CONFIGURED:
+        return
+
+    if getattr(clang.cindex.Config, "loaded", False):
+        _LIBCLANG_CONFIGURED = True
+        return
+
+    candidates = []
+    env_path = os.environ.get("LIBCLANG_PATH")
+    if env_path:
+        if os.path.isdir(env_path):
+            candidates.append(("path", env_path))
+        else:
+            candidates.append(("file", env_path))
+
+    discovered = ctypes.util.find_library("clang")
+    if discovered:
+        candidates.append(("file", discovered))
+
+    last_error = None
+    for candidate_type, candidate in candidates:
+        try:
+            if candidate_type == "path":
+                clang.cindex.Config.set_library_path(candidate)
+            else:
+                clang.cindex.Config.set_library_file(candidate)
+            clang.cindex.conf.get_cindex_library()
+            _LIBCLANG_CONFIGURED = True
+            return
+        except Exception as exc:
+            last_error = exc
+
+    try:
+        clang.cindex.conf.get_cindex_library()
+        _LIBCLANG_CONFIGURED = True
+        return
+    except Exception as exc:
+        last_error = exc
+
+    raise RuntimeError(
+        "Unable to locate libclang. Set LIBCLANG_PATH to the libclang shared library "
+        f"or its directory. Last error: {last_error}"
+    )
+
+
+def _create_index():
+    configure_libclang()
+    return clang.cindex.Index.create()
 
 def get_diagnostics(translation_unit):
     return [d.spelling for d in translation_unit.diagnostics]
@@ -200,7 +269,7 @@ def find_function_calls(cursor, entry_point_name):
 
 def _parse_file(file_path, extra_args):
     """Parse a single file with libclang and return (translation_unit, function_defs_dict)."""
-    index = clang.cindex.Index.create()
+    index = _create_index()
     resource_include = get_clang_resource_dir()
     final_args = list(extra_args)
     if resource_include:
@@ -251,7 +320,7 @@ def _postprocess_results(results):
 
 def analyze_file(file_path, entry_point, extra_args=[]):
     """Analyze a single file for function pointer calls (original behavior)."""
-    index = clang.cindex.Index.create()
+    index = _create_index()
 
     resource_include = get_clang_resource_dir()
     final_args = list(extra_args)
@@ -347,75 +416,29 @@ def analyze_files(target_file, entry_point, linked_files, extra_args=[]):
     return _postprocess_results(all_fp_results)
 
 
-def get_makefile_list_var(makefile_content, var_name):
-    """Extract a list of values from a multi-line makefile variable."""
-    lines = makefile_content.splitlines()
-    values = []
-    inside_var = False
-    
-    for line in lines:
-        stripped = line.strip()
-        
-        # Check for start of variable
-        if not inside_var:
-            # Matches VAR = ... or VAR += ... or VAR ?= ...
-            if re.match(rf'^{var_name}\s*[\?\+]?=', stripped):
-                inside_var = True
-                # Extract content after =
-                part = re.split(r'[\?\+]?=', stripped, 1)[1].strip()
-                if part:
-                    # Handle backslash at end
-                    if part.endswith('\\'):
-                        part = part[:-1].strip()
-                    values.extend(part.split())
-                    # If line didn't end with \, then variable def ends
-                    if not stripped.endswith('\\'):
-                        inside_var = False
-            continue
-        
-        # Inside variable
-        if inside_var:
-            part = stripped
-            # Check for continuation
-            is_continuation = part.endswith('\\')
-            if is_continuation:
-                part = part[:-1].strip()
-            
-            if part:
-                values.extend(part.split())
-            
-            if not is_continuation:
-                inside_var = False
-                
-    return values
+def analyze_from_makefile(file_path, entry_point, makefile_path):
+    with open(makefile_path, "r", encoding="utf-8") as makefile:
+        makefile_content = makefile.read()
 
+    harness_dir = os.path.dirname(os.path.abspath(makefile_path))
+    default_root = os.environ.get("AUTOUP_ROOT_DIR")
+    extra_args = build_analysis_args(
+        makefile_content,
+        harness_dir,
+        default_root=default_root,
+    )
+    linked_files = resolve_linked_source_files(
+        makefile_content,
+        harness_dir,
+        default_root=default_root,
+    )
 
-
-def get_makefile_var(makefile_content, var_name):
-    """Simple extraction of a variable value from makefile content."""
-    # Handles VAR ?= val or VAR = val
-    match = re.search(rf'^{var_name}\s*\??=\s*(.*)', makefile_content, re.MULTILINE)
-    if match:
-        return match.group(1).strip()
-    return None
-
-def get_h_def_entries(makefile_content):
-    return get_makefile_list_var(makefile_content, "H_DEF")
-
-def expand_vars(flags, root_path):
-    """Expand $(ROOT) in flags."""
-    return [f.replace("$(ROOT)", root_path).replace("${ROOT}", root_path) for f in flags]
-
-def get_h_inc_entries(makefile_content):
-    # Determine ROOT
-    root_val = get_makefile_var(makefile_content, "ROOT")
-
-    # Extract H_INC
-    flags = get_makefile_list_var(makefile_content, "H_INC")
-    return expand_vars(flags, root_val)
+    if linked_files:
+        return analyze_files(file_path, entry_point, linked_files, extra_args)
+    return analyze_file(file_path, entry_point, extra_args)
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 4:
         print("Usage: python3 find-function-pointers.py <file_path> <entry_point> <makefile_path>")
         sys.exit(1)
 
@@ -423,14 +446,7 @@ def main():
     entry_point = sys.argv[2]
     makefile_path = sys.argv[3]
 
-    with open(makefile_path, 'r') as f:
-        makefile_content = f.read()
-    
-    h_inc_args = get_h_inc_entries(makefile_content)
-    h_def_args = get_h_def_entries(makefile_content)
-    extra_args = h_inc_args + h_def_args
-
-    results = analyze_file(file_path, entry_point, extra_args)
+    results = analyze_from_makefile(file_path, entry_point, makefile_path)
 
     print(json.dumps(results, indent=2))
 

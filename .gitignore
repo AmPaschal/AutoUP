@@ -19,3 +19,4 @@ tests/rank
 run_tests.out
 
 .codex
+.agents
