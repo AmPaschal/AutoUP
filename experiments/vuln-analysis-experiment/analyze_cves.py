@@ -19,24 +19,28 @@ from pathlib import Path
 from typing import Any
 
 
-REPO_ROOT = "/local/scratch/a/pamusuo/research/autoup-project/zephyrproject"
+REPO_ROOT: Path | None = None
 
 CSV_COLUMNS = [
-    "cve_id",
-    "target_function",
-    "target_file",
-    "vuln_type",
-    "sink",
-    "Verification_completes",
-    "verification_time",
-    "reachable_line_count",
-    "covered_line_count",
-    "line_coverage_pct",
-    "reported_error_count",
-    "sink_included",
-    "sink_covered",
-    "cve_exposed_strict",
-    "cve_exposed_partial",
+    "CVE ID",
+    "Tag",
+    "Target Function",
+    "Target File",
+    "Vulnerability Type",
+    "Sink",
+    "Proof Found",
+    "Compile Succeeded",
+    "Verification Completes",
+    "Verification Time",
+    "Reachable Line Count",
+    "Covered Line Count",
+    "Line Coverage %",
+    "Reported Error Count",
+    "Sink Included",
+    "Sink Covered",
+    "Precondition Addressed",
+    "CVE Exposed Strict",
+    "CVE Exposed Partial",
 ]
 
 CONTROL_KEYWORDS = {"if", "for", "while", "switch", "return", "sizeof"}
@@ -125,6 +129,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run an experiment's CBMC proofs and emit a summary CSV."
     )
+    parser.add_argument("repo_root", type=Path, help="Path to the repository root (e.g. contiki-ng)")
     parser.add_argument("experiment_dir", type=Path, help="Path to experiment dir, e.g. cbmc/exp-0325")
     parser.add_argument(
         "--output",
@@ -912,6 +917,33 @@ def load_vulnerability_report(proof_dir: Path) -> list[dict[str, Any]] | None:
     return result
 
 
+def load_validation_results(proof_dir: Path) -> list[dict[str, Any]]:
+    """Load validation_result.json which may contain concatenated JSON objects."""
+    result_path = proof_dir / "validation_result.json"
+    if not result_path.is_file():
+        return []
+    
+    content = result_path.read_text().strip()
+    if not content:
+        return []
+        
+    decoder = json.JSONDecoder()
+    pos = 0
+    results: list[dict[str, Any]] = []
+    while pos < len(content):
+        try:
+            obj, offset = decoder.raw_decode(content, pos)
+            if isinstance(obj, dict):
+                results.append(obj)
+            pos += offset
+            while pos < len(content) and content[pos].isspace():
+                pos += 1
+        except json.JSONDecodeError:
+            break
+            
+    return results
+
+
 def is_strict_target_vulnerability_match(
     vulnerability: dict[str, Any], target: dict[str, Any]
 ) -> bool:
@@ -1397,6 +1429,12 @@ def write_csv(rows: list[dict[str, object]], output_path: Path) -> None:
 def main() -> int:
     """Run the full experiment analysis workflow from discovery through CSV emission."""
     args = parse_args()
+    
+    global REPO_ROOT
+    REPO_ROOT = args.repo_root.resolve()
+    if not REPO_ROOT.is_dir():
+        print(f"Repository root directory not found: {REPO_ROOT}", file=sys.stderr)
+        return 1
     experiment_dir = args.experiment_dir.resolve()
     if not experiment_dir.is_dir():
         print(f"Experiment directory not found: {experiment_dir}", file=sys.stderr)
@@ -1435,21 +1473,25 @@ def main() -> int:
         proof_dir = experiment_dir / proof_dir_rel
 
         row = {
-            "cve_id": cve_id,
-            "target_function": target_function,
-            "target_file": target_file,
-            "vuln_type": vuln_type,
-            "sink": sink_str,
-            "Verification_completes": False,
-            "verification_time": "",
-            "reachable_line_count": "",
-            "covered_line_count": "",
-            "line_coverage_pct": "",
-            "reported_error_count": "",
-            "sink_included": False,
-            "sink_covered": False,
-            "cve_exposed_strict": False,
-            "cve_exposed_partial": False,
+            "CVE ID": cve_id,
+            "Tag": experiment_dir.name,
+            "Target Function": target_function,
+            "Target File": target_file,
+            "Vulnerability Type": vuln_type,
+            "Sink": sink_str,
+            "Proof Found": False,
+            "Compile Succeeded": False,
+            "Verification Completes": False,
+            "Verification Time": "",
+            "Reachable Line Count": "",
+            "Covered Line Count": "",
+            "Line Coverage %": "",
+            "Reported Error Count": "",
+            "Sink Included": False,
+            "Sink Covered": False,
+            "Precondition Addressed": False,
+            "CVE Exposed Strict": False,
+            "CVE Exposed Partial": False,
         }
 
         if not proof_dir.is_dir():
@@ -1458,6 +1500,7 @@ def main() -> int:
             continue
 
         print(f"[proof] {proof_dir.relative_to(REPO_ROOT)}", file=sys.stderr)
+        row["Proof Found"] = True
 
         if (proof_dir / "build").exists() and not args.force_make:
             print(f"[reuse] {proof_dir.relative_to(REPO_ROOT)}/build", file=sys.stderr)
@@ -1469,13 +1512,15 @@ def main() -> int:
         build_dir = proof_dir / "build"
         cbmc_xml = build_dir / "reports" / "cbmc.xml"
         report_json_dir = build_dir / "report" / "json"
+        compile_succeeded = (build_dir / f"{target_function}.goto").exists()
+        row["Compile Succeeded"] = compile_succeeded
         
         cbmc_root = parse_xml(cbmc_xml)
         verification_completes = verification_completed(cbmc_root, build_dir)
-        row["Verification_completes"] = verification_completes
+        row["Verification Completes"] = verification_completes
 
         verification_time = parse_verification_time(cbmc_root)
-        row["verification_time"] = format_optional_float(verification_time)
+        row["Verification Time"] = format_optional_float(verification_time)
 
         viewer_coverage = load_json(report_json_dir / "viewer-coverage.json")
         sink_included = False
@@ -1490,29 +1535,37 @@ def main() -> int:
                             sink_covered = True
                     break
         
-        row["sink_included"] = sink_included
-        row["sink_covered"] = sink_covered
+        row["Sink Included"] = sink_included
+        row["Sink Covered"] = sink_covered
 
         (
             overall_reachable_line_count,
             overall_covered_line_count,
             overall_line_coverage_pct,
         ) = aggregate_overall_coverage(viewer_coverage)
-        row["reachable_line_count"] = none_to_blank(overall_reachable_line_count)
-        row["covered_line_count"] = none_to_blank(overall_covered_line_count)
-        row["line_coverage_pct"] = format_optional_float(overall_line_coverage_pct)
+        row["Reachable Line Count"] = none_to_blank(overall_reachable_line_count)
+        row["Covered Line Count"] = none_to_blank(overall_covered_line_count)
+        row["Line Coverage %"] = format_optional_float(overall_line_coverage_pct)
 
         viewer_result_json = load_json(report_json_dir / "viewer-result.json")
         viewer_property_json = load_json(report_json_dir / "viewer-property.json")
         reported_error_count = count_reported_error_sites(viewer_result_json, viewer_property_json)
-        row["reported_error_count"] = none_to_blank(reported_error_count)
+        row["Reported Error Count"] = none_to_blank(reported_error_count)
+
+        validation_results = load_validation_results(proof_dir)
+        for vr in validation_results:
+            error_details = vr.get("error_details", {})
+            error_line = error_details.get("error_line")
+            if error_line is not None and str(error_line) == sink_line_str:
+                row["Precondition Addressed"] = True
+                break
 
         vulnerabilities = load_vulnerability_report(proof_dir)
         if vulnerabilities:
             if any(is_strict_target_vulnerability_match(v, cve) for v in vulnerabilities):
-                row["cve_exposed_strict"] = True
+                row["CVE Exposed Strict"] = True
             if has_partial_target_vulnerability_match(vulnerabilities, cve):
-                row["cve_exposed_partial"] = True
+                row["CVE Exposed Partial"] = True
 
         rows.append(row)
 
