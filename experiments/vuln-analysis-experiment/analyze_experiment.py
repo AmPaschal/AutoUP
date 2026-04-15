@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run CBMC experiment proofs and summarize methodology-aligned metrics."""
+"""Run CBMC experiment proofs and summarize methodology-aligned RQ1 metrics."""
 
 from __future__ import annotations
 
@@ -19,41 +19,53 @@ from pathlib import Path
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-VIEWER_SRC_ROOT = REPO_ROOT.parent
+AUTOUP_ROOT = Path(__file__).resolve().parents[2]
+WORKSPACE_ROOT = AUTOUP_ROOT.parent
+MODEL_PRICING_PATH = AUTOUP_ROOT / "model_pricing.json"
+BACKUP_BUILD_GLOB = "build_backup.*"
+NA_VALUE = "N/A"
 
-CSV_COLUMNS = [
-    "experiment",
-    "proof_relpath",
-    "entry",
-    "compile_succeeded",
-    "verification_completed",
-    "verification_time",
-    "timed_out",
-    "make_wall_time_s",
-    "cbmc_status",
-    "source_files_in_scope",
-    "functions_in_scope",
-    "loop_unwindset_count",
-    "loop_unwind_min",
-    "loop_unwind_max",
-    "model_used_variable_count",
-    "assumption_variable_count",
-    "function_model_count",
-    "function_model_avg_loc",
-    "total_harness_loc",
-    "program_reachable_line_count",
-    "program_covered_line_count",
-    "program_line_coverage_pct",
-    "target_function_reachable_line_count",
-    "target_function_covered_line_count",
-    "target_function_line_coverage_pct",
-    "reachable_line_count",
-    "covered_line_count",
-    "line_coverage_pct",
-    "reported_error_count",
-    "target_vulnerability_reported",
+COLUMN_SPECS = [
+    ("software", "Software"),
+    ("config", "Config"),
+    ("tag", "Tag"),
+    ("source_file", "Source File"),
+    ("target_function", "Target Function"),
+    ("proof_relpath", "Proof Relpath"),
+    ("proof_found", "Proof Found"),
+    ("compile_succeeded", "Compile Succeeded"),
+    ("links_target", "Links Target"),
+    ("semantic_valid", "Semantic Valid"),
+    ("verification_completes", "Verification Completes"),
+    ("verification_time", "Verification Time"),
+    ("verification_succeeds", "Verification Succeeds"),
+    ("target_function_reachable_line_count", "Target Function Reachable Line Count"),
+    ("target_function_covered_line_count", "Target Function Covered Line Count"),
+    ("target_function_line_coverage_pct", "Target Function Line Coverage %"),
+    ("program_reachable_line_count", "Program Reachable Line Count"),
+    ("program_covered_line_count", "Program Covered Line Count"),
+    ("program_line_coverage_pct", "Program Line Coverage %"),
+    ("overall_reachable_line_count", "Overall Reachable Line Count"),
+    ("overall_covered_line_count", "Overall Covered Line Count"),
+    ("overall_line_coverage_pct", "Overall Line Coverage %"),
+    ("property_violations", "Property Violations"),
+    ("precondition_violations", "Precondition Violations"),
+    ("generation_time", "Generation Time"),
+    ("api_cost", "API Cost"),
+    ("harness_size_loc", "Harness Size LOC"),
+    ("source_files_in_scope", "Source Files In Scope"),
+    ("functions_in_scope", "Functions In Scope"),
+    ("loop_unwindset_count", "Loop Unwindset Count"),
+    ("loop_unwind_min", "Loop Unwind Min"),
+    ("loop_unwind_max", "Loop Unwind Max"),
+    ("model_used_variable_count", "Model Used Variable Count"),
+    ("assumption_variable_count", "Assumption Variable Count"),
+    ("function_model_count", "Function Model Count"),
+    ("function_model_avg_loc", "Function Model Avg LOC"),
 ]
+CSV_COLUMNS = [label for _, label in COLUMN_SPECS]
+COLUMN_ORDER = [column_id for column_id, _ in COLUMN_SPECS]
+COLUMN_LABELS = dict(COLUMN_SPECS)
 
 CONTROL_KEYWORDS = {"if", "for", "while", "switch", "return", "sizeof"}
 DECL_QUALIFIERS = {
@@ -137,11 +149,21 @@ class FunctionInfo:
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments for a single experiment run."""
+    """Parse command-line arguments for a single experiment analysis run."""
     parser = argparse.ArgumentParser(
-        description="Run an experiment's CBMC proofs and emit a summary CSV."
+        description="Analyze CBMC experiment outputs and emit an RQ1-aligned CSV."
     )
-    parser.add_argument("experiment_dir", type=Path, help="Path to experiment dir, e.g. cbmc/exp-0325")
+    parser.add_argument("experiment_dir", type=Path, help="Path to experiment dir, e.g. zephyr/cbmc/exp-0413")
+    parser.add_argument(
+        "experiment_csv",
+        type=Path,
+        help="CSV containing source_file,function_name targets",
+    )
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Configuration label to emit in the CSV Config column",
+    )
     parser.add_argument(
         "--output",
         type=Path,
@@ -154,9 +176,9 @@ def parse_args() -> argparse.Namespace:
         help="Timeout in seconds for `make -j3` per proof (default: 1800)",
     )
     parser.add_argument(
-        "--vulnerability-metadata",
+        "--experiment-output-dir",
         type=Path,
-        help="Optional path to vulnerability metadata JSON keyed by affectedFunction",
+        help="Optional AutoUP experiment output directory containing metrics-*.jsonl files",
     )
     parser.add_argument(
         "--force-make",
@@ -171,7 +193,7 @@ def run_command(cmd: list[str], timeout: int | None = None) -> subprocess.Comple
     """Run a command and capture its text output."""
     return subprocess.run(
         cmd,
-        cwd=REPO_ROOT,
+        cwd=AUTOUP_ROOT,
         check=False,
         capture_output=True,
         text=True,
@@ -183,7 +205,7 @@ def run_quiet_command(cmd: list[str], timeout: int | None = None) -> subprocess.
     """Run a command with stdout/stderr discarded and kill the full process group on timeout."""
     proc = subprocess.Popen(
         cmd,
-        cwd=REPO_ROOT,
+        cwd=AUTOUP_ROOT,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
@@ -199,11 +221,6 @@ def run_quiet_command(cmd: list[str], timeout: int | None = None) -> subprocess.
             proc.wait()
         raise exc
     return subprocess.CompletedProcess(cmd, returncode)
-
-
-def discover_proof_dirs(experiment_dir: Path) -> list[Path]:
-    """Find proof directories by locating exact `Makefile` files under the experiment tree."""
-    return sorted(makefile.parent.resolve() for makefile in experiment_dir.rglob("Makefile"))
 
 
 def parse_make_assignments(make_output: str) -> dict[str, str]:
@@ -258,7 +275,7 @@ def run_make(proof_dir: Path, timeout_s: int) -> RunResult:
             timed_out=False,
             wall_time_s=wall_time_s,
         )
-    except subprocess.TimeoutExpired as exc:
+    except subprocess.TimeoutExpired:
         wall_time_s = time.monotonic() - start
         return RunResult(
             make_ran=True,
@@ -282,9 +299,9 @@ def ensure_build(proof_dir: Path, timeout_s: int, force_make: bool) -> RunResult
     return run_make(proof_dir, timeout_s)
 
 
-def load_json(path: Path) -> dict | None:
+def load_json(path: Path | None) -> dict | None:
     """Load a JSON file and return `None` if the file is missing or malformed."""
-    if not path.exists():
+    if path is None or not path.exists():
         return None
     try:
         return json.loads(path.read_text())
@@ -297,9 +314,9 @@ def load_json_value(path: Path) -> Any:
     return json.loads(path.read_text())
 
 
-def parse_xml(path: Path) -> ET.Element | None:
+def parse_xml(path: Path | None) -> ET.Element | None:
     """Parse an XML file and return its root element when available."""
-    if not path.exists():
+    if path is None or not path.exists():
         return None
     try:
         return ET.parse(path).getroot()
@@ -307,11 +324,89 @@ def parse_xml(path: Path) -> ET.Element | None:
         return None
 
 
+def candidate_build_dirs(proof_dir: Path) -> list[Path]:
+    """Return the primary build directory followed by available backups."""
+    candidates: list[Path] = []
+    build_dir = proof_dir / "build"
+    if build_dir.exists():
+        candidates.append(build_dir)
+    candidates.extend(
+        sorted(
+            (path for path in proof_dir.glob(BACKUP_BUILD_GLOB) if path.is_dir()),
+            reverse=True,
+        )
+    )
+    return candidates
+
+
+def resolve_artifact_path(proof_dir: Path, relative_path: str) -> Path | None:
+    """Resolve an artifact from build/ first, then fall back to build backups."""
+    for build_dir in candidate_build_dirs(proof_dir):
+        candidate = build_dir / relative_path
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def resolve_report_json_dir(proof_dir: Path) -> Path | None:
+    """Locate the cbmc-viewer JSON report directory for a proof."""
+    path = resolve_artifact_path(proof_dir, "report/json")
+    return path if path and path.is_dir() else None
+
+
+def resolve_report_html_index(proof_dir: Path) -> Path | None:
+    """Locate the cbmc-viewer HTML index for a proof."""
+    path = resolve_artifact_path(proof_dir, "report/html/index.html")
+    return path if path and path.is_file() else None
+
+
+def resolve_cbmc_xml_path(proof_dir: Path) -> Path | None:
+    """Locate cbmc.xml for a proof."""
+    path = resolve_artifact_path(proof_dir, "reports/cbmc.xml")
+    return path if path and path.is_file() else None
+
+
+def resolve_metrics_path(
+    experiment_output_dir: Path | None,
+    target_file: str,
+    target_function: str,
+) -> Path | None:
+    """Locate the metrics JSONL for a target proof using filename-function naming."""
+    if experiment_output_dir is None:
+        return None
+    file_stem = Path(target_file).stem
+    metrics_path = experiment_output_dir / f"metrics-{file_stem}-{target_function}.jsonl"
+    return metrics_path if metrics_path.is_file() else None
+
+
+def load_metrics_records(
+    experiment_output_dir: Path | None,
+    target_file: str,
+    target_function: str,
+) -> list[dict[str, Any]]:
+    """Load the matching metrics JSONL file into memory."""
+    metrics_path = resolve_metrics_path(experiment_output_dir, target_file, target_function)
+    if metrics_path is None:
+        return []
+
+    records: list[dict[str, Any]] = []
+    for line in metrics_path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
 def parse_verification_time(cbmc_root: ET.Element | None) -> float | None:
     """Sum the individual runtime values reported in cbmc.xml."""
     if cbmc_root is None:
         return None
-
     return parse_runtime_message_sum(cbmc_root)
 
 
@@ -343,7 +438,6 @@ def parse_unwind_metrics(cbmcflags: str) -> tuple[int, int | None, int | None]:
     unwind_values: list[int] = []
     unwindset_count = 0
     idx = 0
-    # Walk the flattened CBMC flag list and collect both global and per-loop unwind bounds.
     while idx < len(tokens):
         token = tokens[idx]
         value: str | None = None
@@ -400,8 +494,6 @@ def strip_c_comments_and_strings(text: str) -> str:
     result: list[str] = []
     idx = 0
     state = "code"
-    # The parser that follows relies on braces and delimiters still lining up, so we
-    # erase text without changing the overall shape of the source.
     while idx < len(text):
         ch = text[idx]
         nxt = text[idx + 1] if idx + 1 < len(text) else ""
@@ -531,7 +623,6 @@ def parse_functions(source: str) -> dict[str, FunctionInfo]:
     for match in pattern.finditer(sanitized):
         name = match.group("name")
         prefix = match.group("prefix")
-        # Skip constructs that look function-like syntactically but are not real definitions.
         if name in CONTROL_KEYWORDS:
             continue
         if "=" in prefix:
@@ -545,49 +636,6 @@ def parse_functions(source: str) -> dict[str, FunctionInfo]:
             body=body,
         )
     return functions
-
-
-def extract_declared_names(body: str) -> set[str]:
-    """Best-effort extraction of declared local variable names from a function body."""
-    names: set[str] = set()
-    statements = [stmt.strip() for stmt in body.split(";")]
-    for statement in statements:
-        if not statement:
-            continue
-        stmt = statement.replace("\n", " ").strip()
-        if any(stmt.startswith(prefix) for prefix in CALLISH_PREFIXES):
-            continue
-        if stmt.startswith("{") or stmt.startswith("}"):
-            stmt = stmt.lstrip("{} ").strip()
-        if not stmt:
-            continue
-        parts = split_top_level(stmt, ",")
-        if not parts:
-            continue
-        identifiers = re.findall(r"[A-Za-z_]\w*", parts[0])
-        if not identifiers:
-            continue
-        first = identifiers[0]
-        if first not in DECL_QUALIFIERS and first not in DECL_BASE_TYPES and not re.match(r"(?:u?int|char|size_t|_Bool|bool)\d*_t?$", first):
-            if not stmt.startswith("struct ") and not stmt.startswith("union ") and not stmt.startswith("enum "):
-                continue
-        for part in parts:
-            cleaned = part.strip()
-            if not cleaned:
-                continue
-            ids = re.findall(r"[A-Za-z_]\w*", cleaned)
-            if not ids:
-                continue
-            candidate = ids[-1]
-            if candidate in DECL_QUALIFIERS or candidate in DECL_BASE_TYPES:
-                continue
-            names.add(candidate)
-    return names
-
-
-def extract_identifiers(expr: str) -> set[str]:
-    """Return bare identifiers referenced in an expression."""
-    return set(re.findall(r"\b[A-Za-z_]\w*\b", expr))
 
 
 def split_path_root(path: str) -> tuple[str, str]:
@@ -746,7 +794,6 @@ def build_substitutions(function: FunctionInfo) -> dict[str, set[str]]:
     substitutions: dict[str, set[str]] = {}
     statements = split_statements(function.body)
 
-    # Re-run the assignment scan a few times so aliases can chain through multiple locals.
     for _ in range(8):
         changed = False
         for statement in statements:
@@ -763,9 +810,6 @@ def build_substitutions(function: FunctionInfo) -> dict[str, set[str]]:
             lhs_path = extract_lvalue_path(lhs)
             rhs_path = extract_primary_path(rhs)
             if lhs_path:
-                # `local = program_path` means future references to the local should resolve to
-                # the program path. `program_path = local` pushes the local's alias in the other
-                # direction so we count the underlying program variable once.
                 if is_simple_declared_variable(lhs_path, declared):
                     if rhs_path:
                         rhs_expanded = expand_path(rhs_path, substitutions)
@@ -835,8 +879,6 @@ def extract_harness_program_variables(function: FunctionInfo, entry: str) -> tup
     model_used: set[str] = set()
     assumption_used: set[str] = set()
 
-    # Record program-side lvalues written by the harness and program-side paths appearing
-    # inside assumptions, after alias expansion has normalized local helper variables.
     for statement in split_statements(function.body):
         stmt = statement.strip()
         if not stmt:
@@ -868,13 +910,8 @@ def norm_viewer_path(path: str) -> str:
     return path.replace("\\", "/").lstrip("./")
 
 
-def normalize_space(text: str) -> str:
-    """Collapse repeated whitespace to simplify exact substring matching."""
-    return " ".join(text.split())
-
-
 def path_matches_suffix(candidate: str, target_suffix: str) -> bool:
-    """Check whether a viewer path matches a metadata path by suffix."""
+    """Check whether a viewer path matches a target path by suffix."""
     normalized_candidate = norm_viewer_path(candidate)
     normalized_suffix = norm_viewer_path(target_suffix)
     return (
@@ -883,132 +920,10 @@ def path_matches_suffix(candidate: str, target_suffix: str) -> bool:
     )
 
 
-def load_vulnerability_metadata_index(path: Path) -> dict[str, dict[str, Any]]:
-    """Load vulnerability metadata and index it by affected function."""
-    try:
-        payload = load_json_value(path)
-    except FileNotFoundError as exc:
-        raise ValueError(f"Vulnerability metadata file not found: {path}") from exc
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid vulnerability metadata JSON in {path}: {exc}") from exc
-
-    if not isinstance(payload, list):
-        raise ValueError(f"Vulnerability metadata in {path} must be a JSON array")
-
-    index: dict[str, dict[str, Any]] = {}
-    for idx, entry in enumerate(payload):
-        if not isinstance(entry, dict):
-            raise ValueError(f"Metadata entry {idx} in {path} must be a JSON object")
-        affected_function = entry.get("affectedFunction")
-        if not isinstance(affected_function, str) or not affected_function.strip():
-            raise ValueError(f"Metadata entry {idx} in {path} is missing affectedFunction")
-        if affected_function in index:
-            raise ValueError(
-                f"Duplicate affectedFunction '{affected_function}' in vulnerability metadata"
-            )
-        index[affected_function] = entry
-
-    return index
-
-
-def load_vulnerability_report(proof_dir: Path) -> list[dict[str, Any]] | None:
-    """Load vulnerability-report.json and return its vulnerabilities list."""
-    report_path = proof_dir / "vulnerability-report.json"
-    report = load_json(report_path)
-    if report is None or not isinstance(report, dict):
-        return None
-    vulnerabilities = report.get("vulnerabilities")
-    if not isinstance(vulnerabilities, list):
-        return None
-    result: list[dict[str, Any]] = []
-    for item in vulnerabilities:
-        if isinstance(item, dict):
-            result.append(item)
-    return result
-
-
-def is_strict_target_vulnerability_match(
-    vulnerability: dict[str, Any], target: dict[str, Any]
-) -> bool:
-    """Check whether a reported vulnerability matches the metadata target."""
-    code_location = vulnerability.get("code_location")
-    if not isinstance(code_location, dict):
-        return False
-
-    location_file = code_location.get("file")
-    if not isinstance(location_file, str):
-        return False
-    affected_file = target.get("affectedFile")
-    if not isinstance(affected_file, str) or not path_matches_suffix(location_file, affected_file):
-        return False
-
-    manifestation_lines = target.get("manifestationLines")
-    if isinstance(manifestation_lines, list) and manifestation_lines:
-        line = code_location.get("line")
-        if line not in manifestation_lines:
-            return False
-
-    location_function = code_location.get("function")
-    if not isinstance(location_function, str):
-        return False
-    candidate_functions = [
-        value
-        for value in (target.get("sinkFunction"), target.get("affectedFunction"))
-        if isinstance(value, str) and value
-    ]
-    return location_function in candidate_functions
-
-
-def has_partial_target_vulnerability_match(
-    vulnerabilities: list[dict[str, Any]], target: dict[str, Any]
-) -> bool:
-    """Check whether any reported vulnerability description mentions the target variable."""
-    affected_variable = target.get("affectedVariable")
-    if not isinstance(affected_variable, str) or not affected_variable:
-        return False
-
-    normalized_affected_variable = normalize_space(affected_variable)
-    for vulnerability in vulnerabilities:
-        error_type = vulnerability.get("error_type")
-        if not isinstance(error_type, str):
-            continue
-        if affected_variable in error_type:
-            return True
-        if normalized_affected_variable in normalize_space(error_type):
-            return True
-    return False
-
-
-def determine_target_vulnerability_reported(
-    proof_dir: Path,
-    entry: str,
-    metadata_index: dict[str, dict[str, Any]] | None,
-) -> str | bool:
-    """Return the target-vulnerability status for one proof."""
-    if metadata_index is None:
-        return ""
-
-    target = metadata_index.get(entry)
-    if target is None:
-        return ""
-
-    vulnerabilities = load_vulnerability_report(proof_dir)
-    if vulnerabilities is None or not vulnerabilities:
-        return False
-
-    if any(is_strict_target_vulnerability_match(vulnerability, target) for vulnerability in vulnerabilities):
-        return True
-
-    if has_partial_target_vulnerability_match(vulnerabilities, target):
-        return "Partial"
-
-    return False
-
-
-def proof_root_prefix(proof_root: Path) -> str:
+def proof_root_prefix(proof_root: Path, project_root: Path) -> str:
     """Convert a proof root on disk into the corresponding viewer path prefix."""
     try:
-        return norm_viewer_path(str(proof_root.relative_to(VIEWER_SRC_ROOT)))
+        return norm_viewer_path(str(proof_root.relative_to(project_root)))
     except ValueError:
         return norm_viewer_path(str(proof_root))
 
@@ -1051,31 +966,23 @@ def parse_cbmc_xml_status(cbmc_root: ET.Element | None) -> str:
     return ""
 
 
-def parse_cbmc_status(viewer_result_json: dict | None, cbmc_root: ET.Element | None) -> str:
-    """Return the overall CBMC prover status for a proof run."""
-    cbmc_xml_status = parse_cbmc_xml_status(cbmc_root)
-    if cbmc_xml_status:
-        return cbmc_xml_status
-    if viewer_result_json:
-        prover = viewer_result_json.get("viewer-result", {}).get("prover", "")
-        if prover:
-            return prover.strip().upper()
-    return ""
-
-
-def report_generated(build_dir: Path) -> bool:
+def report_generated(report_json_dir: Path | None, report_html_index: Path | None) -> bool:
     """Check whether cbmc-viewer generated both HTML and JSON report artifacts."""
-    report_json_dir = build_dir / "report" / "json"
-    report_html_index = build_dir / "report" / "html" / "index.html"
+    if report_json_dir is None or report_html_index is None:
+        return False
     return report_html_index.is_file() and any(report_json_dir.glob("*.json"))
 
 
-def verification_completed(cbmc_root: ET.Element | None, build_dir: Path) -> bool:
+def verification_completed(
+    cbmc_root: ET.Element | None,
+    report_json_dir: Path | None,
+    report_html_index: Path | None,
+) -> bool:
     """Check whether verification reached a conclusive status and report generation completed."""
     cbmc_status = parse_cbmc_xml_status(cbmc_root)
-    return (
-        cbmc_status in {"SUCCESS", "FAILURE", "FAILED"}
-        and report_generated(build_dir)
+    return cbmc_status in {"SUCCESS", "FAILURE", "FAILED"} and report_generated(
+        report_json_dir,
+        report_html_index,
     )
 
 
@@ -1097,7 +1004,7 @@ def count_reported_error_sites(
     viewer_property_json: dict | None,
 ) -> int | None:
     """Count distinct source sites with counted failing properties."""
-    if not viewer_result_json or not viewer_property_json:
+    if not viewer_result_json:
         return None
 
     false_properties = (
@@ -1105,22 +1012,50 @@ def count_reported_error_sites(
         .get("results", {})
         .get("false", [])
     )
-    properties = viewer_property_json.get("viewer-property", {}).get("properties", {})
+    properties = {}
+    if viewer_property_json:
+        properties = viewer_property_json.get("viewer-property", {}).get("properties", {})
+
     sites: set[tuple[str, str, str]] = set()
+    fallback_count = 0
     for property_id in false_properties:
         property_info = properties.get(property_id)
         if is_excluded_error_property(property_id, property_info):
             continue
         if not property_info:
+            fallback_count += 1
             continue
         location = property_info.get("location")
         if location is None:
+            fallback_count += 1
             continue
         file_name = norm_viewer_path(str(location.get("file", "")))
         function = str(location.get("function", ""))
         line = str(location.get("line", ""))
         sites.add((file_name, function, line))
-    return len(sites)
+    return len(sites) + fallback_count
+
+
+def verification_succeeds(
+    viewer_result_json: dict | None,
+    viewer_property_json: dict | None,
+) -> bool | None:
+    """Check whether all remaining reported failures are excluded categories."""
+    if not viewer_result_json:
+        return None
+    false_properties = (
+        viewer_result_json.get("viewer-result", {})
+        .get("results", {})
+        .get("false", [])
+    )
+    properties = {}
+    if viewer_property_json:
+        properties = viewer_property_json.get("viewer-property", {}).get("properties", {})
+
+    for property_id in false_properties:
+        if not is_excluded_error_property(property_id, properties.get(property_id)):
+            return False
+    return True
 
 
 def aggregate_scope_metrics(
@@ -1157,8 +1092,6 @@ def aggregate_coverage_metrics(
     total_harness_loc = 0
     function_model_count = 0
 
-    # Separate project-under-test coverage from proof-side code while simultaneously
-    # harvesting the sizes of reachable proof-side model functions.
     for file_name, functions in function_coverage.items():
         proof_side = is_proof_side_file(file_name, proof_prefix)
         generated = is_generated_file(file_name)
@@ -1250,27 +1183,7 @@ def aggregate_target_function_coverage(
     )
 
 
-def reachable_proof_side_functions(
-    coverage_json: dict | None,
-    proof_prefix: str,
-) -> dict[str, set[str]]:
-    """Return reachable proof-side functions keyed by viewer path."""
-    result: dict[str, set[str]] = {}
-    if not coverage_json:
-        return result
-    function_coverage = coverage_json.get("viewer-coverage", {}).get("function_coverage", {})
-    for file_name, functions in function_coverage.items():
-        if not is_proof_side_file(file_name, proof_prefix):
-            continue
-        result[norm_viewer_path(file_name)] = set(functions.keys())
-    return result
-
-
-def collect_variable_metrics(
-    proof_dir: Path,
-    entry: str,
-    coverage_json: dict | None,
-) -> tuple[int | None, int | None]:
+def collect_variable_metrics(proof_dir: Path, entry: str) -> tuple[int | None, int | None]:
     """Collect harness-level modeled-variable metrics from the main harness file."""
     harness_file = proof_dir / f"{entry}_harness.c"
     if not harness_file.exists():
@@ -1285,42 +1198,311 @@ def collect_variable_metrics(
     return len(model_vars), len(assumption_vars)
 
 
+def read_experiment_targets(csv_path: Path) -> list[tuple[str, str]]:
+    """Load source_file,function_name targets from the experiment CSV."""
+    with csv_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames is None:
+            raise ValueError(f"Target CSV is empty: {csv_path}")
+        missing = {"source_file", "function_name"} - set(reader.fieldnames)
+        if missing:
+            raise ValueError(
+                f"Target CSV {csv_path} is missing required columns: {', '.join(sorted(missing))}"
+            )
+
+        targets: list[tuple[str, str]] = []
+        for row in reader:
+            source_file = str(row.get("source_file", "")).strip()
+            function_name = str(row.get("function_name", "")).strip()
+            if not source_file or not function_name:
+                continue
+            targets.append((source_file, function_name))
+    return targets
+
+
+def resolve_proof_dir(
+    experiment_dir: Path,
+    target_file: str,
+    target_function: str,
+) -> tuple[Path, str]:
+    """Resolve the proof directory across supported experiment layouts."""
+    file_basename = Path(target_file).stem
+    candidates = [
+        experiment_dir / file_basename / target_function,
+        experiment_dir / target_function,
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate, candidate.relative_to(experiment_dir).as_posix()
+    return candidates[0], f"{file_basename}/{target_function}"
+
+
+def infer_software_name(source_file: str) -> str:
+    """Derive the software label from the first source path segment."""
+    parts = Path(norm_viewer_path(source_file)).parts
+    return parts[0] if parts else ""
+
+
+def infer_project_root(experiment_dir: Path, source_file: str) -> Path:
+    """Infer the project root whose child directory matches the software label."""
+    software = infer_software_name(source_file)
+    for candidate in (experiment_dir, *experiment_dir.parents):
+        if software and (candidate / software).exists():
+            return candidate
+    return experiment_dir.parent
+
+
+def load_model_pricing() -> dict[str, dict[str, float]]:
+    """Load the model pricing table used for metrics cost calculation."""
+    try:
+        payload = load_json_value(MODEL_PRICING_PATH)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    result: dict[str, dict[str, float]] = {}
+    for model_name, pricing in payload.items():
+        if not isinstance(pricing, dict):
+            continue
+        result[model_name] = {
+            "input": float(pricing.get("input", 0.0)),
+            "cached": float(pricing.get("cached", 0.0)),
+            "output": float(pricing.get("output", 0.0)),
+        }
+    return result
+
+
+def recompute_api_cost(metrics_records: list[dict[str, Any]]) -> str:
+    """Recompute API cost using the same token-pricing logic as metric_summary.py."""
+    if not metrics_records:
+        return ""
+
+    prices = load_model_pricing()
+    total_cost = 0.0
+    saw_task_attempt = False
+
+    for entry in metrics_records:
+        if entry.get("type") != "task_attempt":
+            continue
+        saw_task_attempt = True
+        llm_data = entry.get("llm_data", {})
+        if not isinstance(llm_data, dict):
+            continue
+        model_name = llm_data.get("model_name")
+        if not isinstance(model_name, str) or model_name not in prices:
+            continue
+
+        token_usage = llm_data.get("token_usage", {})
+        if not isinstance(token_usage, dict):
+            continue
+
+        input_tokens = int(token_usage.get("input_tokens", 0) or 0)
+        cached_tokens = int(token_usage.get("cached_tokens", 0) or 0)
+        output_tokens = int(token_usage.get("output_tokens", 0) or 0)
+        non_cached_input_tokens = max(0, input_tokens - cached_tokens)
+        pricing = prices[model_name]
+        total_cost += (
+            (non_cached_input_tokens / 1_000_000) * pricing.get("input", 0.0)
+            + (cached_tokens / 1_000_000) * pricing.get("cached", 0.0)
+            + (output_tokens / 1_000_000) * pricing.get("output", 0.0)
+        )
+
+    if not saw_task_attempt:
+        return ""
+    return f"{total_cost:.4f}"
+
+
+def extract_compile_succeeded(metrics_records: list[dict[str, Any]]) -> bool | None:
+    """Read the initial harness compilation result from metrics records."""
+    result: bool | None = None
+    for entry in metrics_records:
+        if entry.get("type") != "agent_result" or entry.get("agent_name") != "InitialHarnessGenerator":
+            continue
+        data = entry.get("data", {})
+        if not isinstance(data, dict):
+            continue
+        compilation_status = data.get("compilation_status")
+        if isinstance(compilation_status, bool):
+            result = compilation_status
+    return result
+
+
+def extract_generation_time(metrics_records: list[dict[str, Any]]) -> float | None:
+    """Sum elapsed time records across all agents in the metrics file."""
+    total = 0.0
+    saw_any = False
+    for entry in metrics_records:
+        raw_value = entry.get("elapsed_time")
+        if raw_value is None:
+            continue
+        try:
+            total += float(raw_value)
+        except (TypeError, ValueError):
+            continue
+        saw_any = True
+    return total if saw_any else None
+
+
+def target_links_target(
+    reachable_json: dict | None,
+    target_file: str,
+    target_function: str,
+) -> bool | None:
+    """Check whether the target file/function pair is reachable in viewer output."""
+    if not reachable_json:
+        return None
+    reachable = reachable_json.get("viewer-reachable", {}).get("reachable", {})
+    for file_name, functions in reachable.items():
+        if not path_matches_suffix(file_name, target_file):
+            continue
+        if isinstance(functions, list):
+            return target_function in functions
+    return False
+
+
+def load_vulnerability_report(proof_dir: Path) -> list[dict[str, Any]] | None:
+    """Load vulnerability-report.json and return its vulnerabilities list."""
+    report = load_json(proof_dir / "vulnerability-report.json")
+    if report is None or not isinstance(report, dict):
+        return None
+    vulnerabilities = report.get("vulnerabilities")
+    if not isinstance(vulnerabilities, list):
+        return None
+    return [item for item in vulnerabilities if isinstance(item, dict)]
+
+
+def count_precondition_violations(proof_dir: Path) -> int | None:
+    """Count distinct reported errors with one or more violated preconditions."""
+    vulnerabilities = load_vulnerability_report(proof_dir)
+    if vulnerabilities is None:
+        return None
+
+    count = 0
+    for vulnerability in vulnerabilities:
+        violated = vulnerability.get("violated_preconditions")
+        if isinstance(violated, list) and violated:
+            count += 1
+    return count
+
+
+def initialize_row(
+    software: str,
+    config: str,
+    tag: str,
+    source_file: str,
+    target_function: str,
+    proof_relpath: str,
+    proof_found: bool,
+) -> dict[str, object]:
+    """Create a row populated with the identifier columns."""
+    row: dict[str, object] = {
+        "software": software,
+        "config": config,
+        "tag": tag,
+        "source_file": source_file,
+        "target_function": target_function,
+        "proof_relpath": proof_relpath,
+        "proof_found": proof_found,
+    }
+    for column_id in COLUMN_ORDER:
+        row.setdefault(column_id, "")
+    return row
+
+
+def mark_missing_proof(row: dict[str, object]) -> None:
+    """Render all proof-derived columns as N/A when no proof directory exists."""
+    for column_id in COLUMN_ORDER:
+        if column_id in {
+            "software",
+            "config",
+            "tag",
+            "source_file",
+            "target_function",
+            "proof_relpath",
+            "proof_found",
+        }:
+            continue
+        row[column_id] = NA_VALUE
+
+
+def none_to_blank(value: object | None) -> object:
+    """Render missing scalar values as an empty CSV cell."""
+    return "" if value is None else value
+
+
+def format_optional_float(value: float | None, digits: int = 6) -> str:
+    """Format a float for CSV output while preserving empty cells for missing values."""
+    return "" if value is None else f"{value:.{digits}f}"
+
+
 def build_row(
     experiment_dir: Path,
     proof_dir: Path,
-    metadata: MakeMetadata,
-    run_result: RunResult,
-    vulnerability_metadata_index: dict[str, dict[str, Any]] | None = None,
+    target_file: str,
+    target_function: str,
+    config: str,
+    experiment_output_dir: Path | None = None,
 ) -> dict[str, object]:
-    """Build one CSV row by combining build results, viewer JSON, and harness parsing."""
-    build_dir = proof_dir / "build"
-    cbmc_xml = build_dir / "reports" / "cbmc.xml"
-    report_json_dir = build_dir / "report" / "json"
+    """Build one CSV row by combining build results, viewer JSON, metrics, and harness parsing."""
+    proof_relpath = proof_dir.relative_to(experiment_dir).as_posix()
+    software = infer_software_name(target_file)
+    row = initialize_row(
+        software=software,
+        config=config,
+        tag=experiment_dir.name,
+        source_file=target_file,
+        target_function=target_function,
+        proof_relpath=proof_relpath,
+        proof_found=True,
+    )
 
-    # Load the structured artifacts emitted by the existing proof Makefiles.
-    cbmc_root = parse_xml(cbmc_xml)
-    viewer_result_json = load_json(report_json_dir / "viewer-result.json")
-    viewer_property_json = load_json(report_json_dir / "viewer-property.json")
-    coverage_json = load_json(report_json_dir / "viewer-coverage.json")
-    reachable_json = load_json(report_json_dir / "viewer-reachable.json")
+    metrics_records = load_metrics_records(experiment_output_dir, target_file, target_function)
+    compile_succeeded = extract_compile_succeeded(metrics_records)
+    generation_time = extract_generation_time(metrics_records)
+    api_cost = recompute_api_cost(metrics_records)
 
-    proof_prefix = proof_root_prefix(metadata.proof_root)
-    cbmc_status = parse_cbmc_status(viewer_result_json, cbmc_root)
-    compile_succeeded = (build_dir / f"{metadata.entry}.goto").exists()
+    try:
+        metadata = read_make_metadata(proof_dir)
+        cbmcflags = metadata.cbmcflags
+        proof_root = metadata.proof_root
+        harness_entry = metadata.entry
+    except Exception:
+        cbmcflags = ""
+        proof_root = proof_dir.parent.resolve()
+        harness_entry = target_function
+
+    project_root = infer_project_root(experiment_dir, target_file)
+    proof_prefix = proof_root_prefix(proof_root, project_root)
+    cbmc_root = parse_xml(resolve_cbmc_xml_path(proof_dir))
+    report_json_dir = resolve_report_json_dir(proof_dir)
+    report_html_index = resolve_report_html_index(proof_dir)
+    viewer_result_json = load_json(report_json_dir / "viewer-result.json" if report_json_dir else None)
+    viewer_property_json = load_json(report_json_dir / "viewer-property.json" if report_json_dir else None)
+    coverage_json = load_json(report_json_dir / "viewer-coverage.json" if report_json_dir else None)
+    reachable_json = load_json(report_json_dir / "viewer-reachable.json" if report_json_dir else None)
+
+    links_target = target_links_target(reachable_json, target_file, target_function)
+    semantic_valid: bool | None
+    if compile_succeeded is None or links_target is None:
+        semantic_valid = None
+    else:
+        semantic_valid = compile_succeeded and links_target
+
+    verification_completes = verification_completed(cbmc_root, report_json_dir, report_html_index)
     verification_time = parse_verification_time(cbmc_root)
-    verification_is_completed = verification_completed(cbmc_root, build_dir)
-    unwindset_count, unwind_min, unwind_max = parse_unwind_metrics(metadata.cbmcflags)
+    verification_success = verification_succeeds(viewer_result_json, viewer_property_json)
+    property_violations = count_reported_error_sites(viewer_result_json, viewer_property_json)
+    precondition_violations = count_precondition_violations(proof_dir)
+    unwindset_count, unwind_min, unwind_max = parse_unwind_metrics(cbmcflags)
     source_files_in_scope, functions_in_scope = aggregate_scope_metrics(reachable_json, proof_prefix)
     (
-        reachable_line_count,
-        covered_line_count,
-        line_coverage_pct,
+        program_reachable_line_count,
+        program_covered_line_count,
+        program_line_coverage_pct,
         function_model_count,
         function_model_avg_loc,
-        total_harness_loc,
+        harness_size_loc,
     ) = aggregate_coverage_metrics(coverage_json, proof_prefix)
-    # Keep three coverage views side by side: filtered program coverage, raw overall
-    # coverage, and target-function-only coverage.
     (
         overall_reachable_line_count,
         overall_covered_line_count,
@@ -1330,61 +1512,46 @@ def build_row(
         target_function_reachable_line_count,
         target_function_covered_line_count,
         target_function_line_coverage_pct,
-    ) = aggregate_target_function_coverage(coverage_json, proof_prefix, metadata.entry)
+    ) = aggregate_target_function_coverage(coverage_json, proof_prefix, target_function)
     model_used_variable_count, assumption_variable_count = collect_variable_metrics(
         proof_dir,
-        metadata.entry,
-        coverage_json,
-    )
-    reported_error_count = count_reported_error_sites(viewer_result_json, viewer_property_json)
-    target_vulnerability_reported = determine_target_vulnerability_reported(
-        proof_dir,
-        metadata.entry,
-        vulnerability_metadata_index,
+        harness_entry,
     )
 
-    return {
-        "experiment": experiment_dir.name,
-        "proof_relpath": proof_dir.relative_to(experiment_dir).as_posix(),
-        "entry": metadata.entry,
-        "compile_succeeded": compile_succeeded,
-        "verification_completed": verification_is_completed,
-        "verification_time": format_optional_float(verification_time),
-        "timed_out": run_result.timed_out,
-        "make_wall_time_s": round(run_result.wall_time_s, 6) if run_result.wall_time_s is not None else "",
-        "cbmc_status": cbmc_status,
-        "source_files_in_scope": none_to_blank(source_files_in_scope),
-        "functions_in_scope": none_to_blank(functions_in_scope),
-        "loop_unwindset_count": unwindset_count,
-        "loop_unwind_min": none_to_blank(unwind_min),
-        "loop_unwind_max": none_to_blank(unwind_max),
-        "model_used_variable_count": none_to_blank(model_used_variable_count),
-        "assumption_variable_count": none_to_blank(assumption_variable_count),
-        "function_model_count": none_to_blank(function_model_count),
-        "function_model_avg_loc": format_optional_float(function_model_avg_loc),
-        "total_harness_loc": none_to_blank(total_harness_loc),
-        "program_reachable_line_count": none_to_blank(reachable_line_count),
-        "program_covered_line_count": none_to_blank(covered_line_count),
-        "program_line_coverage_pct": format_optional_float(line_coverage_pct),
-        "target_function_reachable_line_count": none_to_blank(target_function_reachable_line_count),
-        "target_function_covered_line_count": none_to_blank(target_function_covered_line_count),
-        "target_function_line_coverage_pct": format_optional_float(target_function_line_coverage_pct),
-        "reachable_line_count": none_to_blank(overall_reachable_line_count),
-        "covered_line_count": none_to_blank(overall_covered_line_count),
-        "line_coverage_pct": format_optional_float(overall_line_coverage_pct),
-        "reported_error_count": none_to_blank(reported_error_count),
-        "target_vulnerability_reported": target_vulnerability_reported,
-    }
-
-
-def none_to_blank(value: object | None) -> object:
-    """Render missing scalar values as an empty CSV cell."""
-    return "" if value is None else value
-
-
-def format_optional_float(value: float | None) -> str:
-    """Format a float for CSV output while preserving empty cells for missing values."""
-    return "" if value is None else f"{value:.6f}"
+    row.update(
+        {
+            "compile_succeeded": none_to_blank(compile_succeeded),
+            "links_target": none_to_blank(links_target),
+            "semantic_valid": none_to_blank(semantic_valid),
+            "verification_completes": verification_completes,
+            "verification_time": format_optional_float(verification_time),
+            "verification_succeeds": none_to_blank(verification_success),
+            "target_function_reachable_line_count": none_to_blank(target_function_reachable_line_count),
+            "target_function_covered_line_count": none_to_blank(target_function_covered_line_count),
+            "target_function_line_coverage_pct": format_optional_float(target_function_line_coverage_pct),
+            "program_reachable_line_count": none_to_blank(program_reachable_line_count),
+            "program_covered_line_count": none_to_blank(program_covered_line_count),
+            "program_line_coverage_pct": format_optional_float(program_line_coverage_pct),
+            "overall_reachable_line_count": none_to_blank(overall_reachable_line_count),
+            "overall_covered_line_count": none_to_blank(overall_covered_line_count),
+            "overall_line_coverage_pct": format_optional_float(overall_line_coverage_pct),
+            "property_violations": none_to_blank(property_violations),
+            "precondition_violations": none_to_blank(precondition_violations),
+            "generation_time": format_optional_float(generation_time),
+            "api_cost": api_cost,
+            "harness_size_loc": none_to_blank(harness_size_loc),
+            "source_files_in_scope": none_to_blank(source_files_in_scope),
+            "functions_in_scope": none_to_blank(functions_in_scope),
+            "loop_unwindset_count": unwindset_count,
+            "loop_unwind_min": none_to_blank(unwind_min),
+            "loop_unwind_max": none_to_blank(unwind_max),
+            "model_used_variable_count": none_to_blank(model_used_variable_count),
+            "assumption_variable_count": none_to_blank(assumption_variable_count),
+            "function_model_count": none_to_blank(function_model_count),
+            "function_model_avg_loc": format_optional_float(function_model_avg_loc),
+        }
+    )
+    return row
 
 
 def write_csv(rows: list[dict[str, object]], output_path: Path) -> None:
@@ -1394,90 +1561,70 @@ def write_csv(rows: list[dict[str, object]], output_path: Path) -> None:
         writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS)
         writer.writeheader()
         for row in rows:
-            writer.writerow(row)
+            writer.writerow(
+                {COLUMN_LABELS[column_id]: row.get(column_id, "") for column_id in COLUMN_ORDER}
+            )
 
 
 def main() -> int:
-    """Run the full experiment analysis workflow from discovery through CSV emission."""
+    """Run the full experiment analysis workflow from target CSV through CSV emission."""
     args = parse_args()
     experiment_dir = args.experiment_dir.resolve()
     if not experiment_dir.is_dir():
         print(f"Experiment directory not found: {experiment_dir}", file=sys.stderr)
         return 1
 
-    proof_dirs = discover_proof_dirs(experiment_dir)
-    if not proof_dirs:
-        print(f"No proof directories found under {experiment_dir}", file=sys.stderr)
+    experiment_csv = args.experiment_csv.resolve()
+    if not experiment_csv.is_file():
+        print(f"Experiment CSV not found: {experiment_csv}", file=sys.stderr)
+        return 1
+
+    experiment_output_dir = args.experiment_output_dir.resolve() if args.experiment_output_dir else None
+    if experiment_output_dir is not None and not experiment_output_dir.is_dir():
+        print(f"Experiment output directory not found: {experiment_output_dir}", file=sys.stderr)
+        return 1
+
+    try:
+        targets = read_experiment_targets(experiment_csv)
+    except ValueError as exc:
+        print(f"[error] targets: {exc}", file=sys.stderr)
         return 1
 
     output_path = args.output.resolve() if args.output else experiment_dir / "assessment.csv"
-    vulnerability_metadata_index = None
-    if args.vulnerability_metadata:
-        try:
-            vulnerability_metadata_index = load_vulnerability_metadata_index(
-                args.vulnerability_metadata.resolve()
-            )
-        except ValueError as exc:
-            print(f"[error] vulnerability metadata: {exc}", file=sys.stderr)
-            return 1
-
     rows: list[dict[str, object]] = []
-    for proof_dir in proof_dirs:
-        print(f"[proof] {proof_dir.relative_to(REPO_ROOT)}", file=sys.stderr)
-        try:
-            metadata = read_make_metadata(proof_dir)
-        except Exception as exc:  # pragma: no cover - defensive CLI handling
-            print(f"[error] metadata: {exc}", file=sys.stderr)
-            # Emit an empty row so the CSV still records that the proof directory existed.
-            rows.append(
-                {
-                    "experiment": experiment_dir.name,
-                    "proof_relpath": proof_dir.relative_to(experiment_dir).as_posix(),
-                    "entry": "",
-                    "compile_succeeded": False,
-                    "verification_completed": False,
-                    "verification_time": "",
-                    "timed_out": False,
-                    "make_wall_time_s": "",
-                    "cbmc_status": "",
-                    "source_files_in_scope": "",
-                    "functions_in_scope": "",
-                    "loop_unwindset_count": "",
-                    "loop_unwind_min": "",
-                    "loop_unwind_max": "",
-                    "model_used_variable_count": "",
-                    "assumption_variable_count": "",
-                    "function_model_count": "",
-                    "function_model_avg_loc": "",
-                    "total_harness_loc": "",
-                    "program_reachable_line_count": "",
-                    "program_covered_line_count": "",
-                    "program_line_coverage_pct": "",
-                    "target_function_reachable_line_count": "",
-                    "target_function_covered_line_count": "",
-                    "target_function_line_coverage_pct": "",
-                    "reachable_line_count": "",
-                    "covered_line_count": "",
-                    "line_coverage_pct": "",
-                    "reported_error_count": "",
-                    "target_vulnerability_reported": "",
-                }
+
+    for source_file, target_function in targets:
+        proof_dir, proof_relpath = resolve_proof_dir(experiment_dir, source_file, target_function)
+        if not proof_dir.is_dir():
+            row = initialize_row(
+                software=infer_software_name(source_file),
+                config=args.config,
+                tag=experiment_dir.name,
+                source_file=source_file,
+                target_function=target_function,
+                proof_relpath=proof_relpath,
+                proof_found=False,
             )
+            mark_missing_proof(row)
+            rows.append(row)
             continue
 
+        print(f"[proof] {proof_dir}", file=sys.stderr)
         if (proof_dir / "build").exists() and not args.force_make:
-            print(f"[reuse] {proof_dir.relative_to(REPO_ROOT)}/build", file=sys.stderr)
+            print(f"[reuse] {proof_dir / 'build'}", file=sys.stderr)
         else:
-            print(f"[run] make -j3 in {proof_dir.relative_to(REPO_ROOT)}", file=sys.stderr)
-        run_result = ensure_build(proof_dir, args.timeout, args.force_make)
-        row = build_row(
-            experiment_dir,
-            proof_dir,
-            metadata,
-            run_result,
-            vulnerability_metadata_index,
+            print(f"[run] make -j3 in {proof_dir}", file=sys.stderr)
+        ensure_build(proof_dir, args.timeout, args.force_make)
+        rows.append(
+            build_row(
+                experiment_dir=experiment_dir,
+                proof_dir=proof_dir,
+                target_file=source_file,
+                target_function=target_function,
+                config=args.config,
+                experiment_output_dir=experiment_output_dir,
+            )
         )
-        rows.append(row)
 
     write_csv(rows, output_path)
     print(f"[done] wrote {output_path}", file=sys.stderr)

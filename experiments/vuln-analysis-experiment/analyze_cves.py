@@ -21,27 +21,34 @@ from typing import Any
 
 REPO_ROOT: Path | None = None
 
-CSV_COLUMNS = [
-    "CVE ID",
-    "Tag",
-    "Target Function",
-    "Target File",
-    "Vulnerability Type",
-    "Sink",
-    "Proof Found",
-    "Compile Succeeded",
-    "Verification Completes",
-    "Verification Time",
-    "Reachable Line Count",
-    "Covered Line Count",
-    "Line Coverage %",
-    "Reported Error Count",
-    "Sink Included",
-    "Sink Covered",
-    "Precondition Addressed",
-    "CVE Exposed Strict",
-    "CVE Exposed Partial",
+COLUMN_SPECS = [
+    ("cve_id", "CVE ID"),
+    ("software", "Software"),
+    ("config", "Config"),
+    ("tag", "Tag"),
+    ("target_function", "Target Function"),
+    ("target_file", "Target File"),
+    ("vulnerability_type", "Vulnerability Type"),
+    ("sink", "Sink"),
+    ("proof_found", "Proof Found"),
+    ("compile_succeeded", "Compile Succeeded"),
+    ("verification_completes", "Verification Completes"),
+    ("verification_time", "Verification Time"),
+    ("reachable_line_count", "Reachable Line Count"),
+    ("covered_line_count", "Covered Line Count"),
+    ("line_coverage_pct", "Line Coverage %"),
+    ("api_cost", "API Cost"),
+    ("reported_error_count", "Reported Error Count"),
+    ("sink_included", "Sink Included"),
+    ("sink_covered", "Sink Covered"),
+    ("error_found", "Error Found"),
+    ("precondition_addressed", "Precondition Addressed"),
+    ("cve_exposed_strict", "CVE Exposed Strict"),
+    ("cve_exposed_partial", "CVE Exposed Partial"),
 ]
+CSV_COLUMNS = [label for _, label in COLUMN_SPECS]
+COLUMN_ORDER = [column_id for column_id, _ in COLUMN_SPECS]
+COLUMN_LABELS = dict(COLUMN_SPECS)
 
 CONTROL_KEYWORDS = {"if", "for", "while", "switch", "return", "sizeof"}
 DECL_QUALIFIERS = {
@@ -99,6 +106,24 @@ RUNTIME_MESSAGE_RE = re.compile(
     r"(?P<value>[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*(?:s|sec(?:onds?)?)?\b",
     re.IGNORECASE,
 )
+NA_VALUE = "N/A"
+BACKUP_BUILD_GLOB = "build_backup.*"
+DERIVED_COLUMN_DEFAULTS = {
+    "compile_succeeded": False,
+    "verification_completes": False,
+    "verification_time": "",
+    "reachable_line_count": "",
+    "covered_line_count": "",
+    "line_coverage_pct": "",
+    "api_cost": "",
+    "reported_error_count": "",
+    "sink_included": False,
+    "sink_covered": False,
+    "error_found": False,
+    "precondition_addressed": False,
+    "cve_exposed_strict": False,
+    "cve_exposed_partial": False,
+}
 
 
 @dataclass
@@ -146,6 +171,16 @@ def parse_args() -> argparse.Namespace:
         "--vulnerability-metadata",
         type=Path,
         help="Optional path to vulnerability metadata JSON keyed by affectedFunction",
+    )
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Configuration label to emit in the CSV Config column",
+    )
+    parser.add_argument(
+        "--experiment-output-dir",
+        type=Path,
+        help="Optional AutoUP experiment output directory containing metrics-*.jsonl files",
     )
     parser.add_argument(
         "--force-make",
@@ -286,9 +321,128 @@ def load_json_value(path: Path) -> Any:
     return json.loads(path.read_text())
 
 
-def parse_xml(path: Path) -> ET.Element | None:
+def candidate_build_dirs(proof_dir: Path) -> list[Path]:
+    """Return the primary build directory followed by available backups."""
+    candidates: list[Path] = []
+    build_dir = proof_dir / "build"
+    if build_dir.exists():
+        candidates.append(build_dir)
+    candidates.extend(
+        sorted(
+            (path for path in proof_dir.glob(BACKUP_BUILD_GLOB) if path.is_dir()),
+            reverse=True,
+        )
+    )
+    return candidates
+
+
+def resolve_artifact_path(proof_dir: Path, relative_path: str) -> Path | None:
+    """Resolve an artifact from build/ first, then fall back to build_backup.*."""
+    for build_dir in candidate_build_dirs(proof_dir):
+        candidate = build_dir / relative_path
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def resolve_report_json_dir(proof_dir: Path) -> Path | None:
+    """Locate the cbmc-viewer JSON report directory for a proof."""
+    path = resolve_artifact_path(proof_dir, "report/json")
+    return path if path and path.is_dir() else None
+
+
+def resolve_report_html_index(proof_dir: Path) -> Path | None:
+    """Locate the cbmc-viewer HTML index for a proof."""
+    path = resolve_artifact_path(proof_dir, "report/html/index.html")
+    return path if path and path.is_file() else None
+
+
+def resolve_cbmc_xml_path(proof_dir: Path) -> Path | None:
+    """Locate cbmc.xml for a proof."""
+    path = resolve_artifact_path(proof_dir, "reports/cbmc.xml")
+    return path if path and path.is_file() else None
+
+
+def resolve_metrics_path(
+    experiment_output_dir: Path | None,
+    target_file: str,
+    target_function: str,
+) -> Path | None:
+    """Locate the metrics JSONL for a target proof using filename-function naming."""
+    if experiment_output_dir is None:
+        return None
+    file_stem = Path(target_file).stem
+    metrics_path = experiment_output_dir / f"metrics-{file_stem}-{target_function}.jsonl"
+    return metrics_path if metrics_path.is_file() else None
+
+
+def load_api_cost(
+    experiment_output_dir: Path | None,
+    target_file: str,
+    target_function: str,
+) -> str:
+    """Extract the overall run_result total_cost from a proof's metrics JSONL."""
+    metrics_path = resolve_metrics_path(experiment_output_dir, target_file, target_function)
+    if metrics_path is None:
+        return ""
+
+    api_cost = ""
+    for line in metrics_path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if record.get("type") != "run_result" or record.get("agent_name") != "overall":
+            continue
+        data = record.get("data")
+        if not isinstance(data, dict):
+            continue
+        total_cost = data.get("total_cost")
+        if isinstance(total_cost, str):
+            api_cost = total_cost
+        elif total_cost is not None:
+            api_cost = str(total_cost)
+    return api_cost
+
+
+def initialize_row(
+    repo_name: str,
+    config: str,
+    tag: str,
+    cve_id: str,
+    target_function: str,
+    target_file: str,
+    vuln_type: str,
+    sink: str,
+) -> dict[str, object]:
+    """Create a CSV row with default values for derived proof metrics."""
+    row: dict[str, object] = {
+        "cve_id": cve_id,
+        "software": repo_name,
+        "config": config,
+        "tag": tag,
+        "target_function": target_function,
+        "target_file": target_file,
+        "vulnerability_type": vuln_type,
+        "sink": sink,
+        "proof_found": False,
+    }
+    row.update(DERIVED_COLUMN_DEFAULTS)
+    return row
+
+
+def mark_missing_proof(row: dict[str, object]) -> None:
+    """Render all proof-derived columns as N/A when no proof directory exists."""
+    for column_id in DERIVED_COLUMN_DEFAULTS:
+        row[column_id] = NA_VALUE
+
+
+def parse_xml(path: Path | None) -> ET.Element | None:
     """Parse an XML file and return its root element when available."""
-    if not path.exists():
+    if path is None or not path.exists():
         return None
     try:
         return ET.parse(path).getroot()
@@ -872,6 +1026,79 @@ def path_matches_suffix(candidate: str, target_suffix: str) -> bool:
     )
 
 
+def normalize_line_number(value: Any) -> int | None:
+    """Convert a reported line number into an integer when possible."""
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def target_candidate_functions(target: dict[str, Any]) -> list[str]:
+    """Return the sink-side functions that should count as CVE matches."""
+    return [
+        value
+        for value in (target.get("sinkFunction"), target.get("affectedFunction"))
+        if isinstance(value, str) and value
+    ]
+
+
+def target_manifestation_line_numbers(target: dict[str, Any]) -> set[int]:
+    """Normalize CVE manifestation lines into a set of integers."""
+    manifestation_lines = target.get("manifestationLines")
+    if not isinstance(manifestation_lines, list):
+        return set()
+
+    result: set[int] = set()
+    for value in manifestation_lines:
+        line = normalize_line_number(value)
+        if line is not None:
+            result.add(line)
+    return result
+
+
+def location_matches_target(location: dict[str, Any], target: dict[str, Any]) -> bool:
+    """Check whether a reported source location matches a CVE target location."""
+    location_file = location.get("file")
+    if not isinstance(location_file, str):
+        return False
+
+    location_function = location.get("function")
+    if not isinstance(location_function, str):
+        return False
+
+    affected_function = target.get("affectedFunction")
+    sink_function = target.get("sinkFunction")
+    matches_affected_function = (
+        isinstance(affected_function, str)
+        and affected_function
+        and location_function == affected_function
+    )
+    matches_sink_function = (
+        isinstance(sink_function, str)
+        and sink_function
+        and location_function == sink_function
+    )
+    if not matches_affected_function and not matches_sink_function:
+        return False
+
+    affected_file = target.get("affectedFile")
+    if isinstance(affected_file, str) and affected_file:
+        # Sink helpers may live in a different file than the entry function.
+        if not (matches_sink_function and not matches_affected_function) and not path_matches_suffix(
+            location_file, affected_file
+        ):
+            return False
+
+    manifestation_lines = target_manifestation_line_numbers(target)
+    if manifestation_lines:
+        line = normalize_line_number(location.get("line"))
+        if line not in manifestation_lines:
+            return False
+
+    return True
+
+
 def load_vulnerability_metadata_index(path: Path) -> dict[str, list[dict[str, Any]]]:
     """Load vulnerability metadata and index it by affected function.
 
@@ -935,7 +1162,7 @@ def load_validation_results(proof_dir: Path) -> list[dict[str, Any]]:
             obj, offset = decoder.raw_decode(content, pos)
             if isinstance(obj, dict):
                 results.append(obj)
-            pos += offset
+            pos = offset
             while pos < len(content) and content[pos].isspace():
                 pos += 1
         except json.JSONDecodeError:
@@ -951,29 +1178,7 @@ def is_strict_target_vulnerability_match(
     code_location = vulnerability.get("code_location")
     if not isinstance(code_location, dict):
         return False
-
-    location_file = code_location.get("file")
-    if not isinstance(location_file, str):
-        return False
-    affected_file = target.get("affectedFile")
-    if not isinstance(affected_file, str) or not path_matches_suffix(location_file, affected_file):
-        return False
-
-    manifestation_lines = target.get("manifestationLines")
-    if isinstance(manifestation_lines, list) and manifestation_lines:
-        line = code_location.get("line")
-        if line not in manifestation_lines:
-            return False
-
-    location_function = code_location.get("function")
-    if not isinstance(location_function, str):
-        return False
-    candidate_functions = [
-        value
-        for value in (target.get("sinkFunction"), target.get("affectedFunction"))
-        if isinstance(value, str) and value
-    ]
-    return location_function in candidate_functions
+    return location_matches_target(code_location, target)
 
 
 def has_partial_target_vulnerability_match(
@@ -1090,19 +1295,26 @@ def parse_cbmc_status(viewer_result_json: dict | None, cbmc_root: ET.Element | N
     return ""
 
 
-def report_generated(build_dir: Path) -> bool:
+def report_generated(report_json_dir: Path | None, report_html_index: Path | None) -> bool:
     """Check whether cbmc-viewer generated both HTML and JSON report artifacts."""
-    report_json_dir = build_dir / "report" / "json"
-    report_html_index = build_dir / "report" / "html" / "index.html"
-    return report_html_index.is_file() and any(report_json_dir.glob("*.json"))
+    return (
+        report_json_dir is not None
+        and report_html_index is not None
+        and report_html_index.is_file()
+        and any(report_json_dir.glob("*.json"))
+    )
 
 
-def verification_completed(cbmc_root: ET.Element | None, build_dir: Path) -> bool:
+def verification_completed(
+    cbmc_root: ET.Element | None,
+    report_json_dir: Path | None,
+    report_html_index: Path | None,
+) -> bool:
     """Check whether verification reached a conclusive status and report generation completed."""
     cbmc_status = parse_cbmc_xml_status(cbmc_root)
     return (
         cbmc_status in {"SUCCESS", "FAILURE", "FAILED"}
-        and report_generated(build_dir)
+        and report_generated(report_json_dir, report_html_index)
     )
 
 
@@ -1148,6 +1360,54 @@ def count_reported_error_sites(
         line = str(location.get("line", ""))
         sites.add((file_name, function, line))
     return len(sites)
+
+
+def error_found_for_target(
+    target: dict[str, Any],
+    viewer_result_json: dict | None,
+    viewer_property_json: dict | None,
+    cbmc_root: ET.Element | None,
+) -> bool:
+    """Check whether CBMC reported a non-filtered failure at the target location."""
+    if viewer_result_json and viewer_property_json:
+        false_properties = (
+            viewer_result_json.get("viewer-result", {})
+            .get("results", {})
+            .get("false", [])
+        )
+        properties = viewer_property_json.get("viewer-property", {}).get("properties", {})
+        for property_id in false_properties:
+            property_info = properties.get(property_id)
+            if is_excluded_error_property(property_id, property_info):
+                continue
+            if not isinstance(property_info, dict):
+                continue
+            location = property_info.get("location")
+            if isinstance(location, dict) and location_matches_target(location, target):
+                return True
+
+    if cbmc_root is None:
+        return False
+
+    for result in cbmc_root.findall(".//result"):
+        status = str(result.attrib.get("status", "")).strip().upper()
+        if status not in {"FAILURE", "FAILED"}:
+            continue
+        property_id = str(result.attrib.get("property", ""))
+        if is_excluded_error_property(property_id, None):
+            continue
+        location_elem = result.find("location")
+        if location_elem is None:
+            continue
+        location = {
+            "file": location_elem.attrib.get("file", ""),
+            "function": location_elem.attrib.get("function", ""),
+            "line": location_elem.attrib.get("line", ""),
+        }
+        if location_matches_target(location, target):
+            return True
+
+    return False
 
 
 def aggregate_scope_metrics(
@@ -1411,6 +1671,23 @@ def none_to_blank(value: object | None) -> object:
     return "" if value is None else value
 
 
+def resolve_proof_dir(
+    experiment_dir: Path,
+    target_file: str,
+    target_function: str,
+) -> tuple[Path, str]:
+    """Resolve the proof directory across supported experiment layouts."""
+    file_basename = Path(target_file).stem
+    candidates = [
+        experiment_dir / file_basename / target_function,
+        experiment_dir / target_function,
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate, candidate.relative_to(experiment_dir).as_posix()
+    return candidates[0], f"{file_basename}/{target_function}"
+
+
 def format_optional_float(value: float | None) -> str:
     """Format a float for CSV output while preserving empty cells for missing values."""
     return "" if value is None else f"{value:.6f}"
@@ -1423,7 +1700,9 @@ def write_csv(rows: list[dict[str, object]], output_path: Path) -> None:
         writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS)
         writer.writeheader()
         for row in rows:
-            writer.writerow(row)
+            writer.writerow(
+                {COLUMN_LABELS[column_id]: row.get(column_id, "") for column_id in COLUMN_ORDER}
+            )
 
 
 def main() -> int:
@@ -1442,6 +1721,11 @@ def main() -> int:
 
     if not args.vulnerability_metadata:
         print("Vulnerability metadata json is required for CVE analysis.", file=sys.stderr)
+        return 1
+
+    experiment_output_dir = args.experiment_output_dir.resolve() if args.experiment_output_dir else None
+    if experiment_output_dir is not None and not experiment_output_dir.is_dir():
+        print(f"Experiment output directory not found: {experiment_output_dir}", file=sys.stderr)
         return 1
 
     try:
@@ -1468,39 +1752,27 @@ def main() -> int:
         if not target_file or not target_function:
             continue
         
-        file_basename = Path(target_file).stem
-        proof_dir_rel = f"{file_basename}/{target_function}"
-        proof_dir = experiment_dir / proof_dir_rel
-
-        row = {
-            "CVE ID": cve_id,
-            "Tag": experiment_dir.name,
-            "Target Function": target_function,
-            "Target File": target_file,
-            "Vulnerability Type": vuln_type,
-            "Sink": sink_str,
-            "Proof Found": False,
-            "Compile Succeeded": False,
-            "Verification Completes": False,
-            "Verification Time": "",
-            "Reachable Line Count": "",
-            "Covered Line Count": "",
-            "Line Coverage %": "",
-            "Reported Error Count": "",
-            "Sink Included": False,
-            "Sink Covered": False,
-            "Precondition Addressed": False,
-            "CVE Exposed Strict": False,
-            "CVE Exposed Partial": False,
-        }
+        proof_dir, proof_dir_rel = resolve_proof_dir(experiment_dir, target_file, target_function)
+        row = initialize_row(
+            repo_name=REPO_ROOT.name,
+            config=args.config,
+            tag=experiment_dir.name,
+            cve_id=cve_id,
+            target_function=target_function,
+            target_file=target_file,
+            vuln_type=vuln_type,
+            sink=sink_str,
+        )
 
         if not proof_dir.is_dir():
             print(f"[warning] Proof directory not found for {cve_id}: {proof_dir_rel}", file=sys.stderr)
+            mark_missing_proof(row)
             rows.append(row)
             continue
 
         print(f"[proof] {proof_dir.relative_to(REPO_ROOT)}", file=sys.stderr)
-        row["Proof Found"] = True
+        row["proof_found"] = True
+        row["api_cost"] = load_api_cost(experiment_output_dir, target_file, target_function)
 
         if (proof_dir / "build").exists() and not args.force_make:
             print(f"[reuse] {proof_dir.relative_to(REPO_ROOT)}/build", file=sys.stderr)
@@ -1510,19 +1782,24 @@ def main() -> int:
         run_result = ensure_build(proof_dir, args.timeout, args.force_make)
 
         build_dir = proof_dir / "build"
-        cbmc_xml = build_dir / "reports" / "cbmc.xml"
-        report_json_dir = build_dir / "report" / "json"
+        cbmc_xml = resolve_cbmc_xml_path(proof_dir)
+        report_json_dir = resolve_report_json_dir(proof_dir)
+        report_html_index = resolve_report_html_index(proof_dir)
         compile_succeeded = (build_dir / f"{target_function}.goto").exists()
-        row["Compile Succeeded"] = compile_succeeded
+        row["compile_succeeded"] = compile_succeeded
         
         cbmc_root = parse_xml(cbmc_xml)
-        verification_completes = verification_completed(cbmc_root, build_dir)
-        row["Verification Completes"] = verification_completes
+        verification_completes = verification_completed(
+            cbmc_root,
+            report_json_dir,
+            report_html_index,
+        )
+        row["verification_completes"] = verification_completes
 
         verification_time = parse_verification_time(cbmc_root)
-        row["Verification Time"] = format_optional_float(verification_time)
+        row["verification_time"] = format_optional_float(verification_time)
 
-        viewer_coverage = load_json(report_json_dir / "viewer-coverage.json")
+        viewer_coverage = load_json(report_json_dir / "viewer-coverage.json") if report_json_dir else None
         sink_included = False
         sink_covered = False
         if viewer_coverage and sink_line_str:
@@ -1535,37 +1812,43 @@ def main() -> int:
                             sink_covered = True
                     break
         
-        row["Sink Included"] = sink_included
-        row["Sink Covered"] = sink_covered
+        row["sink_included"] = sink_included
+        row["sink_covered"] = sink_covered
 
         (
             overall_reachable_line_count,
             overall_covered_line_count,
             overall_line_coverage_pct,
         ) = aggregate_overall_coverage(viewer_coverage)
-        row["Reachable Line Count"] = none_to_blank(overall_reachable_line_count)
-        row["Covered Line Count"] = none_to_blank(overall_covered_line_count)
-        row["Line Coverage %"] = format_optional_float(overall_line_coverage_pct)
+        row["reachable_line_count"] = none_to_blank(overall_reachable_line_count)
+        row["covered_line_count"] = none_to_blank(overall_covered_line_count)
+        row["line_coverage_pct"] = format_optional_float(overall_line_coverage_pct)
 
-        viewer_result_json = load_json(report_json_dir / "viewer-result.json")
-        viewer_property_json = load_json(report_json_dir / "viewer-property.json")
+        viewer_result_json = load_json(report_json_dir / "viewer-result.json") if report_json_dir else None
+        viewer_property_json = load_json(report_json_dir / "viewer-property.json") if report_json_dir else None
         reported_error_count = count_reported_error_sites(viewer_result_json, viewer_property_json)
-        row["Reported Error Count"] = none_to_blank(reported_error_count)
+        row["reported_error_count"] = none_to_blank(reported_error_count)
+        row["error_found"] = error_found_for_target(
+            cve,
+            viewer_result_json,
+            viewer_property_json,
+            cbmc_root,
+        )
 
         validation_results = load_validation_results(proof_dir)
         for vr in validation_results:
             error_details = vr.get("error_details", {})
             error_line = error_details.get("error_line")
             if error_line is not None and str(error_line) == sink_line_str:
-                row["Precondition Addressed"] = True
+                row["precondition_addressed"] = True
                 break
 
         vulnerabilities = load_vulnerability_report(proof_dir)
         if vulnerabilities:
             if any(is_strict_target_vulnerability_match(v, cve) for v in vulnerabilities):
-                row["CVE Exposed Strict"] = True
+                row["cve_exposed_strict"] = True
             if has_partial_target_vulnerability_match(vulnerabilities, cve):
-                row["CVE Exposed Partial"] = True
+                row["cve_exposed_partial"] = True
 
         rows.append(row)
 
