@@ -37,6 +37,7 @@ COLUMN_SPECS = [
     ("compile_succeeded", "Compile Succeeded"),
     ("links_target", "Links Target"),
     ("semantic_valid", "Semantic Valid"),
+    ("development_succeeds", "Development Succeeds"),
     ("verification_completes", "Verification Completes"),
     ("verification_time", "Verification Time"),
     ("verification_succeeds", "Verification Succeeds"),
@@ -182,7 +183,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--experiment-output-dir",
         type=Path,
-        help="Optional AutoUP experiment output directory containing metrics-*.jsonl files",
+        help=(
+            "Optional metrics source. Supports either an AutoUP output directory containing "
+            "metrics-*.jsonl files or a CodexUP JSONL metrics file."
+        ),
     )
     parser.add_argument(
         "--force-make",
@@ -371,25 +375,27 @@ def resolve_cbmc_xml_path(proof_dir: Path) -> Path | None:
 
 
 def resolve_metrics_path(
-    experiment_output_dir: Path | None,
+    metrics_source: Path | None,
     target_file: str,
     target_function: str,
 ) -> Path | None:
-    """Locate the metrics JSONL for a target proof using filename-function naming."""
-    if experiment_output_dir is None:
+    """Locate the metrics source for a target proof."""
+    if metrics_source is None:
         return None
+    if metrics_source.is_file():
+        return metrics_source
     file_stem = Path(target_file).stem
-    metrics_path = experiment_output_dir / f"metrics-{file_stem}-{target_function}.jsonl"
+    metrics_path = metrics_source / f"metrics-{file_stem}-{target_function}.jsonl"
     return metrics_path if metrics_path.is_file() else None
 
 
 def load_metrics_records(
-    experiment_output_dir: Path | None,
+    metrics_source: Path | None,
     target_file: str,
     target_function: str,
 ) -> list[dict[str, Any]]:
-    """Load the matching metrics JSONL file into memory."""
-    metrics_path = resolve_metrics_path(experiment_output_dir, target_file, target_function)
+    """Load the matching metrics data into memory."""
+    metrics_path = resolve_metrics_path(metrics_source, target_file, target_function)
     if metrics_path is None:
         return []
 
@@ -402,8 +408,13 @@ def load_metrics_records(
             record = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(record, dict):
-            records.append(record)
+        if not isinstance(record, dict):
+            continue
+        if metrics_path.is_file() and metrics_source is not None and metrics_source.is_file():
+            function_name = record.get("function")
+            if isinstance(function_name, str) and function_name != target_function:
+                continue
+        records.append(record)
     return records
 
 
@@ -1426,6 +1437,16 @@ def recompute_api_cost(metrics_records: list[dict[str, Any]]) -> str:
     if not metrics_records:
         return ""
 
+    for entry in metrics_records:
+        costs = entry.get("costs")
+        if not isinstance(costs, dict):
+            continue
+        total_cost = costs.get("total_cost")
+        try:
+            return f"{float(total_cost):.4f}"
+        except (TypeError, ValueError):
+            continue
+
     prices = load_model_pricing()
     total_cost = 0.0
     saw_task_attempt = False
@@ -1465,6 +1486,9 @@ def extract_compile_succeeded(metrics_records: list[dict[str, Any]]) -> bool | N
     """Read the initial harness compilation result from metrics records."""
     result: bool | None = None
     for entry in metrics_records:
+        if "compile_success" in entry and isinstance(entry.get("compile_success"), bool):
+            result = entry["compile_success"]
+            continue
         if entry.get("type") != "agent_result" or entry.get("agent_name") != "InitialHarnessGenerator":
             continue
         data = entry.get("data", {})
@@ -1476,8 +1500,34 @@ def extract_compile_succeeded(metrics_records: list[dict[str, Any]]) -> bool | N
     return result
 
 
+def extract_development_succeeds(
+    metrics_records: list[dict[str, Any]],
+    metrics_source: Path | None,
+) -> bool:
+    """Determine whether harness development completed successfully."""
+    if metrics_source is None:
+        return True
+
+    if metrics_source.is_file():
+        return bool(metrics_records)
+
+    for entry in metrics_records:
+        if entry.get("type") == "agent_result" and entry.get("agent_name") == "debugger":
+            return True
+    return False
+
+
 def extract_generation_time(metrics_records: list[dict[str, Any]]) -> float | None:
     """Sum elapsed time records across all agents in the metrics file."""
+    for entry in metrics_records:
+        raw_duration = entry.get("duration_sec")
+        if raw_duration is None:
+            continue
+        try:
+            return float(raw_duration)
+        except (TypeError, ValueError):
+            continue
+
     total = 0.0
     saw_any = False
     for entry in metrics_records:
@@ -1590,7 +1640,7 @@ def build_row(
     target_file: str,
     target_function: str,
     config: str,
-    experiment_output_dir: Path | None = None,
+    metrics_source: Path | None = None,
 ) -> dict[str, object]:
     """Build one CSV row by combining build results, viewer JSON, metrics, and harness parsing."""
     proof_relpath = proof_dir.relative_to(experiment_dir).as_posix()
@@ -1605,8 +1655,9 @@ def build_row(
         proof_found=True,
     )
 
-    metrics_records = load_metrics_records(experiment_output_dir, target_file, target_function)
+    metrics_records = load_metrics_records(metrics_source, target_file, target_function)
     compile_succeeded = extract_compile_succeeded(metrics_records)
+    development_succeeds = extract_development_succeeds(metrics_records, metrics_source)
     generation_time = extract_generation_time(metrics_records)
     api_cost = recompute_api_cost(metrics_records)
     proof_file_size = compute_proof_file_size(proof_dir)
@@ -1691,6 +1742,7 @@ def build_row(
             "compile_succeeded": none_to_blank(compile_succeeded),
             "links_target": none_to_blank(links_target),
             "semantic_valid": none_to_blank(semantic_valid),
+            "development_succeeds": development_succeeds,
             "verification_completes": verification_completes,
             "verification_time": format_optional_float(verification_time),
             "verification_succeeds": none_to_blank(verification_success),
@@ -1755,9 +1807,9 @@ def main() -> int:
         print(f"Experiment CSV not found: {experiment_csv}", file=sys.stderr)
         return 1
 
-    experiment_output_dir = args.experiment_output_dir.resolve() if args.experiment_output_dir else None
-    if experiment_output_dir is not None and not experiment_output_dir.is_dir():
-        print(f"Experiment output directory not found: {experiment_output_dir}", file=sys.stderr)
+    metrics_source = args.experiment_output_dir.resolve() if args.experiment_output_dir else None
+    if metrics_source is not None and not metrics_source.exists():
+        print(f"Metrics source not found: {metrics_source}", file=sys.stderr)
         return 1
 
     try:
@@ -1798,7 +1850,7 @@ def main() -> int:
                 target_file=source_file,
                 target_function=target_function,
                 config=args.config,
-                experiment_output_dir=experiment_output_dir,
+                metrics_source=metrics_source,
             )
         )
 
