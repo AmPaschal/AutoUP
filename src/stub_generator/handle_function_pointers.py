@@ -14,6 +14,10 @@ from stub_generator.makefile_helpers import (
     get_h_def_entries,
     get_h_inc_entries,
 )
+from stub_generator.source_locations import (
+    is_builtin_source_location,
+    resolve_source_path,
+)
 
 logger = setup_logger(__name__)
 
@@ -68,6 +72,33 @@ class FunctionPointerHandler(AIAgent, Generable):
 
         return system_prompt, user_prompt
 
+    def _sanitize_function_pointers(self, function_pointers):
+        sanitized = []
+        for fp in function_pointers:
+            fp_copy = dict(fp)
+            file_path = fp_copy.get("file", "")
+
+            if is_builtin_source_location(file_path):
+                logger.info(
+                    "Skipping function-pointer candidate from builtin pseudo-file '%s'.",
+                    file_path,
+                )
+                continue
+
+            resolved_path = resolve_source_path(file_path)
+            if file_path and resolved_path and not os.path.isfile(resolved_path):
+                logger.warning(
+                    "Function-pointer candidate file not found; clearing file hint: %s",
+                    resolved_path,
+                )
+                fp_copy["file"] = ""
+            elif resolved_path:
+                fp_copy["file"] = resolved_path
+
+            sanitized.append(fp_copy)
+
+        return sanitized
+
     def generate(self, verify_after_generation: bool = True) -> bool:
         logger.info(f"Analyzing file: {self.target_file_path} for entry point: {self.target_function}")
         makefile_content = self.get_makefile()
@@ -113,6 +144,8 @@ class FunctionPointerHandler(AIAgent, Generable):
                 analysis_result.get("stdout", "").strip(),
             )
             return False
+
+        fp_results = self._sanitize_function_pointers(fp_results)
         
         if not fp_results:
             logger.info("No function pointers found.")

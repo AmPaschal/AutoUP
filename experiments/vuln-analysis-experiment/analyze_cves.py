@@ -450,8 +450,49 @@ def parse_xml(path: Path | None) -> ET.Element | None:
         return None
 
 
-def parse_verification_time(cbmc_root: ET.Element | None) -> float | None:
-    """Sum the individual runtime values reported in cbmc.xml."""
+def parse_runtime_message_sum_texts(texts: Any) -> float | None:
+    """Sum every `Runtime ...` value found in a sequence of text messages."""
+    if not isinstance(texts, list):
+        return None
+
+    runtime_sum = 0.0
+    saw_any_runtime = False
+
+    for text in texts:
+        if not isinstance(text, str):
+            continue
+        match = RUNTIME_MESSAGE_RE.search(text)
+        if match is None:
+            continue
+        try:
+            value = float(match.group("value"))
+        except ValueError:
+            continue
+
+        saw_any_runtime = True
+        runtime_sum += value
+
+    if saw_any_runtime:
+        return runtime_sum
+    return None
+
+
+def parse_viewer_runtime_message_sum(viewer_result_json: dict | None) -> float | None:
+    """Sum runtime messages embedded in cbmc-viewer's `viewer-result.json`."""
+    if not viewer_result_json:
+        return None
+    status_messages = viewer_result_json.get("viewer-result", {}).get("status")
+    return parse_runtime_message_sum_texts(status_messages)
+
+
+def parse_verification_time(
+    viewer_result_json: dict | None,
+    cbmc_root: ET.Element | None,
+) -> float | None:
+    """Sum CBMC runtime messages, preferring viewer JSON and falling back to cbmc.xml."""
+    viewer_runtime = parse_viewer_runtime_message_sum(viewer_result_json)
+    if viewer_runtime is not None:
+        return viewer_runtime
     if cbmc_root is None:
         return None
 
@@ -1283,16 +1324,22 @@ def parse_cbmc_xml_status(cbmc_root: ET.Element | None) -> str:
     return ""
 
 
+def parse_viewer_status(viewer_result_json: dict | None) -> str:
+    """Return the overall prover status reported by cbmc-viewer."""
+    if not viewer_result_json:
+        return ""
+    prover = viewer_result_json.get("viewer-result", {}).get("prover", "")
+    if prover:
+        return prover.strip().upper()
+    return ""
+
+
 def parse_cbmc_status(viewer_result_json: dict | None, cbmc_root: ET.Element | None) -> str:
     """Return the overall CBMC prover status for a proof run."""
-    cbmc_xml_status = parse_cbmc_xml_status(cbmc_root)
-    if cbmc_xml_status:
-        return cbmc_xml_status
-    if viewer_result_json:
-        prover = viewer_result_json.get("viewer-result", {}).get("prover", "")
-        if prover:
-            return prover.strip().upper()
-    return ""
+    viewer_status = parse_viewer_status(viewer_result_json)
+    if viewer_status:
+        return viewer_status
+    return parse_cbmc_xml_status(cbmc_root)
 
 
 def report_generated(report_json_dir: Path | None, report_html_index: Path | None) -> bool:
@@ -1306,12 +1353,13 @@ def report_generated(report_json_dir: Path | None, report_html_index: Path | Non
 
 
 def verification_completed(
+    viewer_result_json: dict | None,
     cbmc_root: ET.Element | None,
     report_json_dir: Path | None,
     report_html_index: Path | None,
 ) -> bool:
     """Check whether verification reached a conclusive status and report generation completed."""
-    cbmc_status = parse_cbmc_xml_status(cbmc_root)
+    cbmc_status = parse_cbmc_status(viewer_result_json, cbmc_root)
     return (
         cbmc_status in {"SUCCESS", "FAILURE", "FAILED"}
         and report_generated(report_json_dir, report_html_index)
@@ -1583,19 +1631,41 @@ def build_row(
     build_dir = proof_dir / "build"
     cbmc_xml = build_dir / "reports" / "cbmc.xml"
     report_json_dir = build_dir / "report" / "json"
+    report_html_index = build_dir / "report" / "html" / "index.html"
 
     # Load the structured artifacts emitted by the existing proof Makefiles.
-    cbmc_root = parse_xml(cbmc_xml)
     viewer_result_json = load_json(report_json_dir / "viewer-result.json")
     viewer_property_json = load_json(report_json_dir / "viewer-property.json")
     coverage_json = load_json(report_json_dir / "viewer-coverage.json")
     reachable_json = load_json(report_json_dir / "viewer-reachable.json")
+    cbmc_root: ET.Element | None = None
 
     proof_prefix = proof_root_prefix(metadata.proof_root)
-    cbmc_status = parse_cbmc_status(viewer_result_json, cbmc_root)
     compile_succeeded = (build_dir / f"{metadata.entry}.goto").exists()
-    verification_time = parse_verification_time(cbmc_root)
-    verification_is_completed = verification_completed(cbmc_root, build_dir)
+    cbmc_status = parse_cbmc_status(viewer_result_json, None)
+    verification_time = parse_verification_time(viewer_result_json, None)
+    verification_is_completed = verification_completed(
+        viewer_result_json,
+        None,
+        report_json_dir,
+        report_html_index,
+    )
+    if (
+        not cbmc_status
+        or verification_time is None
+        or not verification_is_completed
+        or (viewer_result_json is None and cbmc_xml.exists())
+        or (viewer_property_json is None and cbmc_xml.exists())
+    ):
+        cbmc_root = parse_xml(cbmc_xml)
+        cbmc_status = parse_cbmc_status(viewer_result_json, cbmc_root)
+        verification_time = parse_verification_time(viewer_result_json, cbmc_root)
+        verification_is_completed = verification_completed(
+            viewer_result_json,
+            cbmc_root,
+            report_json_dir,
+            report_html_index,
+        )
     unwindset_count, unwind_min, unwind_max = parse_unwind_metrics(metadata.cbmcflags)
     source_files_in_scope, functions_in_scope = aggregate_scope_metrics(reachable_json, proof_prefix)
     (
@@ -1787,16 +1857,34 @@ def main() -> int:
         report_html_index = resolve_report_html_index(proof_dir)
         compile_succeeded = (build_dir / f"{target_function}.goto").exists()
         row["compile_succeeded"] = compile_succeeded
-        
-        cbmc_root = parse_xml(cbmc_xml)
+
+        viewer_result_json = load_json(report_json_dir / "viewer-result.json") if report_json_dir else None
+        viewer_property_json = load_json(report_json_dir / "viewer-property.json") if report_json_dir else None
+        cbmc_root: ET.Element | None = None
         verification_completes = verification_completed(
+            viewer_result_json,
             cbmc_root,
             report_json_dir,
             report_html_index,
         )
+        verification_time = parse_verification_time(viewer_result_json, cbmc_root)
+        if (
+            parse_cbmc_status(viewer_result_json, cbmc_root) == ""
+            or verification_time is None
+            or not verification_completes
+            or (viewer_result_json is None and cbmc_xml is not None)
+            or (viewer_property_json is None and cbmc_xml is not None)
+        ):
+            cbmc_root = parse_xml(cbmc_xml)
+            verification_completes = verification_completed(
+                viewer_result_json,
+                cbmc_root,
+                report_json_dir,
+                report_html_index,
+            )
+            verification_time = parse_verification_time(viewer_result_json, cbmc_root)
         row["verification_completes"] = verification_completes
 
-        verification_time = parse_verification_time(cbmc_root)
         row["verification_time"] = format_optional_float(verification_time)
 
         viewer_coverage = load_json(report_json_dir / "viewer-coverage.json") if report_json_dir else None
@@ -1824,8 +1912,6 @@ def main() -> int:
         row["covered_line_count"] = none_to_blank(overall_covered_line_count)
         row["line_coverage_pct"] = format_optional_float(overall_line_coverage_pct)
 
-        viewer_result_json = load_json(report_json_dir / "viewer-result.json") if report_json_dir else None
-        viewer_property_json = load_json(report_json_dir / "viewer-property.json") if report_json_dir else None
         reported_error_count = count_reported_error_sites(viewer_result_json, viewer_property_json)
         row["reported_error_count"] = none_to_blank(reported_error_count)
         row["error_found"] = error_found_for_target(

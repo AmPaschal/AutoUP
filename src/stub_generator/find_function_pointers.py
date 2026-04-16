@@ -20,6 +20,7 @@ from stub_generator.makefile_helpers import (
     build_analysis_args,
     resolve_linked_source_files,
 )
+from stub_generator.source_locations import is_builtin_source_location
 
 _LIBCLANG_CONFIGURED = False
 
@@ -166,21 +167,24 @@ def _walk_function_body(func_cursor, func_name, file_contents):
             # Get line content
             if node.location.file:
                 fname = node.location.file.name
-                if fname not in file_contents:
+                if is_builtin_source_location(fname):
+                    line_content = ""
+                    fname = ""
+                elif fname not in file_contents:
                     try:
                         with open(fname, 'r', encoding='utf-8', errors='ignore') as f:
                             file_contents[fname] = f.readlines()
                     except IOError:
                         file_contents[fname] = []
 
-                lines = file_contents[fname]
+                lines = file_contents.get(fname, [])
                 line_idx = node.location.line - 1
                 line_content = lines[line_idx].strip() if 0 <= line_idx < len(lines) else ""
 
                 if not callee_name and 'callee' in dir():
                     start = callee.extent.start
                     end = callee.extent.end
-                    if start.file and start.file.name == fname:
+                    if fname and start.file and start.file.name == fname:
                         s_line = start.line - 1
                         s_col = start.column - 1
                         e_line = end.line - 1
@@ -208,7 +212,7 @@ def _walk_function_body(func_cursor, func_name, file_contents):
                     "line": node.location.line,
                     "line_content": line_content,
                     "containing_function": func_name,
-                    "file": node.location.file.name if node.location.file else "",
+                    "file": fname if node.location.file else "",
                 })
         else:
             # Direct call

@@ -12,6 +12,10 @@ from commons.models import GPT, Generable
 from makefile.output_models import HarnessResponse
 from logger import setup_logger
 from commons.utils import Status
+from stub_generator.source_locations import (
+    is_builtin_source_location,
+    resolve_source_path,
+)
 
 logger = setup_logger(__name__)
 
@@ -35,6 +39,22 @@ class StubGenerator(AIAgent, Generable):
         
         Returns the full signature as a single string (without the body).
         """
+
+        if is_builtin_source_location(file_path):
+            logger.warning(
+                "Skipping signature extraction for builtin pseudo-file '%s' (%s).",
+                file_path,
+                func_name,
+            )
+            return ""
+
+        if not file_path or not os.path.isfile(file_path):
+            logger.warning(
+                "Skipping signature extraction for '%s': source file not found: %s",
+                func_name,
+                file_path,
+            )
+            return ""
 
         signature_lines = []
         inside_signature = False
@@ -77,9 +97,14 @@ class StubGenerator(AIAgent, Generable):
         stubs_list = []
 
         for func in functions_to_stub:
+            signature = self.extract_function_signature(
+                func.get('file', ''),
+                func.get('name', ''),
+                func.get('line', 0),
+            ) or "<signature unavailable>"
             stub_info = f"""
             Function Name: {func['name']}
-            Signature: {self.extract_function_signature(func['file'], func['name'], func['line'])}
+            Signature: {signature}
             Source File: {func['file']}
             """
             stubs_list.append(stub_info)
@@ -218,10 +243,37 @@ class StubGenerator(AIAgent, Generable):
             ret_type = func_type.get("namedSub", {}).get("return_type", {})
 
             if ret_type.get("id") == "pointer":
-                file_rel_path = func_symbol.get("location", {}).get("namedSub", {}).get("file", {}).get("id", "")
-                base_path = func_symbol.get("location", {}).get("namedSub", {}).get("working_directory", {}).get("id", "")
-                file_abs_path = os.path.normpath(os.path.join(base_path, file_rel_path))
-                signature_line_str = func_symbol.get("location", {}).get("namedSub", {}).get("line", {}).get("id", "")
+                location = func_symbol.get("location", {}).get("namedSub", {})
+                file_rel_path = location.get("file", {}).get("id", "")
+                base_path = location.get("working_directory", {}).get("id", "")
+                signature_line_str = location.get("line", {}).get("id", "")
+                file_abs_path = resolve_source_path(file_rel_path, base_path)
+
+                if is_builtin_source_location(file_rel_path):
+                    logger.info(
+                        "Skipping pointer-returning builtin function '%s' from pseudo-file '%s'.",
+                        func_name,
+                        file_rel_path,
+                    )
+                    continue
+
+                if not file_abs_path:
+                    logger.warning(
+                        "Skipping pointer-returning function '%s': unresolved source location (file=%r, wd=%r).",
+                        func_name,
+                        file_rel_path,
+                        base_path,
+                    )
+                    continue
+
+                if not os.path.isfile(file_abs_path):
+                    logger.warning(
+                        "Skipping pointer-returning function '%s': source file not found: %s",
+                        func_name,
+                        file_abs_path,
+                    )
+                    continue
+
                 line_number = int(signature_line_str) if signature_line_str.isdigit() else 0
                 result.append({
                     "name": func_name,

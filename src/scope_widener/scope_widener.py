@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
 from logger import setup_logger
+from stub_generator.source_locations import resolve_source_path
 
 logger = setup_logger(__name__)
 
@@ -184,9 +185,10 @@ class ScopeWidener:
             file_rel = named.get("file", {}).get("id", "")
             wd = named.get("working_directory", {}).get("id", "")
             line_id = named.get("line", {}).get("id", "")
-            if file_rel and wd:
+            resolved_path = resolve_source_path(file_rel, wd)
+            if resolved_path and os.path.isfile(resolved_path):
                 locations[fn] = {
-                    "file": os.path.normpath(os.path.join(wd, file_rel)),
+                    "file": resolved_path,
                     "line": line_id,
                 }
 

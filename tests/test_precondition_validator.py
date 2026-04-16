@@ -210,6 +210,43 @@ class PreconditionValidatorTests(unittest.TestCase):
         self.assertIn("Makefile updates are not allowed", result["message"])
         self.assertEqual(validator.get_harness(), "original harness")
 
+    def test_handle_proof_validator_restores_build_tree_after_failed_verification(self):
+        tmp_path = Path(self._testMethodName)
+        tmp_path.mkdir(exist_ok=True)
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp_path, ignore_errors=True))
+
+        validator = make_validator(tmp_path, DummyLLM([]))
+        validator._validated_harness_baseline = validator.get_harness()
+
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+        (build_dir / "state.txt").write_text("baseline build", encoding="utf-8")
+
+        def failing_run_make(compile_only=False):
+            (build_dir / "state.txt").write_text("failed candidate build", encoding="utf-8")
+            return {
+                "status": Status.FAILURE,
+                "exit_code": 2,
+                "stderr": "make failed",
+                "stdout": "partial output",
+            }
+
+        validator.run_make = failing_run_make
+
+        result = validator.handle_proof_validator(
+            harness_content="candidate harness",
+            makefile_content=None,
+            compile_only=False,
+        )
+
+        self.assertFalse(result["compilation"]["success"])
+        self.assertEqual(validator.get_harness(), "original harness")
+        self.assertEqual(
+            (build_dir / "state.txt").read_text(encoding="utf-8"),
+            "baseline build",
+        )
+        self.assertFalse(any(tmp_path.glob("build_backup.*")))
+
     def test_validate_retries_and_restores_failed_candidate_then_keeps_successful_one(self):
         tmp_path = Path(self._testMethodName)
         tmp_path.mkdir(exist_ok=True)

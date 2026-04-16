@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 
+REPO_ROOT: Path | None = None
 AUTOUP_ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE_ROOT = AUTOUP_ROOT.parent
 MODEL_PRICING_PATH = AUTOUP_ROOT / "model_pricing.json"
@@ -26,11 +27,11 @@ BACKUP_BUILD_GLOB = "build_backup.*"
 NA_VALUE = "N/A"
 
 COLUMN_SPECS = [
+    ("target_function", "Target Function"),
     ("software", "Software"),
     ("config", "Config"),
     ("tag", "Tag"),
     ("source_file", "Source File"),
-    ("target_function", "Target Function"),
     ("proof_relpath", "Proof Relpath"),
     ("proof_found", "Proof Found"),
     ("compile_succeeded", "Compile Succeeded"),
@@ -52,6 +53,8 @@ COLUMN_SPECS = [
     ("precondition_violations", "Precondition Violations"),
     ("generation_time", "Generation Time"),
     ("api_cost", "API Cost"),
+    ("proof_size_loc", "Proof Size LOC"),
+    ("proof_file_size", "Proof File Size"),
     ("harness_size_loc", "Harness Size LOC"),
     ("source_files_in_scope", "Source Files In Scope"),
     ("functions_in_scope", "Functions In Scope"),
@@ -153,6 +156,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Analyze CBMC experiment outputs and emit an RQ1-aligned CSV."
     )
+    parser.add_argument("repo_root", type=Path, help="Path to the repository root (e.g. RIOT)")
     parser.add_argument("experiment_dir", type=Path, help="Path to experiment dir, e.g. zephyr/cbmc/exp-0413")
     parser.add_argument(
         "experiment_csv",
@@ -167,7 +171,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        help="Destination CSV path. Defaults to <experiment_dir>/assessment.csv",
+        help="Destination CSV path. Defaults to <experiment_dir>/target-assessment.csv",
     )
     parser.add_argument(
         "--timeout",
@@ -193,7 +197,7 @@ def run_command(cmd: list[str], timeout: int | None = None) -> subprocess.Comple
     """Run a command and capture its text output."""
     return subprocess.run(
         cmd,
-        cwd=AUTOUP_ROOT,
+        cwd=REPO_ROOT,
         check=False,
         capture_output=True,
         text=True,
@@ -205,7 +209,7 @@ def run_quiet_command(cmd: list[str], timeout: int | None = None) -> subprocess.
     """Run a command with stdout/stderr discarded and kill the full process group on timeout."""
     proc = subprocess.Popen(
         cmd,
-        cwd=AUTOUP_ROOT,
+        cwd=REPO_ROOT,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
@@ -408,6 +412,52 @@ def parse_verification_time(cbmc_root: ET.Element | None) -> float | None:
     if cbmc_root is None:
         return None
     return parse_runtime_message_sum(cbmc_root)
+
+
+def parse_runtime_message_sum_texts(texts: Any) -> float | None:
+    """Sum every `Runtime ...` value found in a sequence of text messages."""
+    if not isinstance(texts, list):
+        return None
+
+    runtime_sum = 0.0
+    saw_any_runtime = False
+
+    for text in texts:
+        if not isinstance(text, str):
+            continue
+        match = RUNTIME_MESSAGE_RE.search(text)
+        if match is None:
+            continue
+        try:
+            value = float(match.group("value"))
+        except ValueError:
+            continue
+
+        saw_any_runtime = True
+        runtime_sum += value
+
+    if saw_any_runtime:
+        return runtime_sum
+    return None
+
+
+def parse_viewer_runtime_message_sum(viewer_result_json: dict | None) -> float | None:
+    """Sum runtime messages embedded in cbmc-viewer's `viewer-result.json`."""
+    if not viewer_result_json:
+        return None
+    status_messages = viewer_result_json.get("viewer-result", {}).get("status")
+    return parse_runtime_message_sum_texts(status_messages)
+
+
+def parse_verification_time_with_fallback(
+    viewer_result_json: dict | None,
+    cbmc_root: ET.Element | None,
+) -> float | None:
+    """Sum CBMC runtime messages, preferring viewer JSON and falling back to cbmc.xml."""
+    viewer_runtime = parse_viewer_runtime_message_sum(viewer_result_json)
+    if viewer_runtime is not None:
+        return viewer_runtime
+    return parse_verification_time(cbmc_root)
 
 
 def parse_runtime_message_sum(cbmc_root: ET.Element) -> float | None:
@@ -646,6 +696,16 @@ def split_path_root(path: str) -> tuple[str, str]:
     return match.group(1), match.group(2)
 
 
+def strip_array_subscripts(expr: str) -> str:
+    """Collapse array indexing so `buf[0].next` can be treated as `buf.next`."""
+    stripped = expr
+    while True:
+        updated = re.sub(r"\[[^\[\]]*\]", "", stripped)
+        if updated == stripped:
+            return stripped
+        stripped = updated
+
+
 def is_simple_declared_variable(path: str, declared: set[str]) -> bool:
     """Check whether a path names a declared local directly rather than a field access."""
     root, suffix = split_path_root(path)
@@ -677,10 +737,11 @@ def strip_leading_casts(expr: str) -> str:
 def extract_access_paths(expr: str) -> set[str]:
     """Extract dotted or arrow-based access paths from a statement or expression."""
     paths: set[str] = set()
-    for match in PATH_RE.finditer(expr):
+    normalized = strip_array_subscripts(expr)
+    for match in PATH_RE.finditer(normalized):
         path = match.group(0)
         start = match.start()
-        prev = expr[start - 1] if start > 0 else ""
+        prev = normalized[start - 1] if start > 0 else ""
         if prev in {'"', "'", "#"}:
             continue
         if path.startswith("__CPROVER_"):
@@ -702,7 +763,8 @@ def extract_primary_path(expr: str) -> str | None:
 
 def extract_lvalue_path(expr: str) -> str | None:
     """Return the path most likely to represent the assigned lvalue in a statement prefix."""
-    matches = [path for path in PATH_RE.findall(expr) if path not in CONTROL_KEYWORDS]
+    normalized = strip_array_subscripts(expr)
+    matches = [path for path in PATH_RE.findall(normalized) if path not in CONTROL_KEYWORDS]
     if not matches:
         return None
     candidate = matches[-1]
@@ -813,14 +875,31 @@ def build_substitutions(function: FunctionInfo) -> dict[str, set[str]]:
                 if is_simple_declared_variable(lhs_path, declared):
                     if rhs_path:
                         rhs_expanded = expand_path(rhs_path, substitutions)
+                        rhs_expanded = {
+                            path
+                            for path in rhs_expanded
+                            if split_path_root(path)[0] != lhs_path
+                        }
+                        if not rhs_expanded:
+                            continue
                         before = set(substitutions.get(lhs_path, set()))
                         substitutions.setdefault(lhs_path, set()).update(rhs_expanded)
                         if substitutions[lhs_path] != before:
                             changed = True
                 elif rhs_path:
                     lhs_expanded = expand_path(lhs_path, substitutions)
+                    lhs_root, _ = split_path_root(lhs_path)
                     rhs_root, _ = split_path_root(rhs_path)
                     if rhs_root in declared:
+                        if lhs_root == rhs_root:
+                            continue
+                        lhs_expanded = {
+                            path
+                            for path in lhs_expanded
+                            if split_path_root(path)[0] != rhs_root
+                        }
+                        if not lhs_expanded:
+                            continue
                         before = set(substitutions.get(rhs_root, set()))
                         substitutions.setdefault(rhs_root, set()).update(lhs_expanded)
                         if substitutions[rhs_root] != before:
@@ -920,12 +999,16 @@ def path_matches_suffix(candidate: str, target_suffix: str) -> bool:
     )
 
 
-def proof_root_prefix(proof_root: Path, project_root: Path) -> str:
+def proof_root_prefix(proof_root: Path, experiment_dir: Path) -> str:
     """Convert a proof root on disk into the corresponding viewer path prefix."""
     try:
-        return norm_viewer_path(str(proof_root.relative_to(project_root)))
+        return norm_viewer_path(str(proof_root.relative_to(REPO_ROOT)))
     except ValueError:
-        return norm_viewer_path(str(proof_root))
+        try:
+            proof_root_rel = proof_root.relative_to(experiment_dir)
+        except ValueError:
+            return norm_viewer_path(str(proof_root))
+        return norm_viewer_path(str(Path("cbmc") / experiment_dir.name / proof_root_rel))
 
 
 def is_proof_side_file(viewer_path: str, proof_prefix: str) -> bool:
@@ -966,6 +1049,24 @@ def parse_cbmc_xml_status(cbmc_root: ET.Element | None) -> str:
     return ""
 
 
+def parse_viewer_status(viewer_result_json: dict | None) -> str:
+    """Return the overall prover status reported by cbmc-viewer."""
+    if not viewer_result_json:
+        return ""
+    prover = viewer_result_json.get("viewer-result", {}).get("prover", "")
+    if prover:
+        return prover.strip().upper()
+    return ""
+
+
+def parse_cbmc_status(viewer_result_json: dict | None, cbmc_root: ET.Element | None) -> str:
+    """Return the overall CBMC prover status for a proof run."""
+    viewer_status = parse_viewer_status(viewer_result_json)
+    if viewer_status:
+        return viewer_status
+    return parse_cbmc_xml_status(cbmc_root)
+
+
 def report_generated(report_json_dir: Path | None, report_html_index: Path | None) -> bool:
     """Check whether cbmc-viewer generated both HTML and JSON report artifacts."""
     if report_json_dir is None or report_html_index is None:
@@ -974,15 +1075,16 @@ def report_generated(report_json_dir: Path | None, report_html_index: Path | Non
 
 
 def verification_completed(
+    viewer_result_json: dict | None,
     cbmc_root: ET.Element | None,
     report_json_dir: Path | None,
     report_html_index: Path | None,
 ) -> bool:
     """Check whether verification reached a conclusive status and report generation completed."""
-    cbmc_status = parse_cbmc_xml_status(cbmc_root)
-    return cbmc_status in {"SUCCESS", "FAILURE", "FAILED"} and report_generated(
-        report_json_dir,
-        report_html_index,
+    cbmc_status = parse_cbmc_status(viewer_result_json, cbmc_root)
+    return (
+        cbmc_status in {"SUCCESS", "FAILURE", "FAILED"}
+        and report_generated(report_json_dir, report_html_index)
     )
 
 
@@ -1003,7 +1105,7 @@ def count_reported_error_sites(
     viewer_result_json: dict | None,
     viewer_property_json: dict | None,
 ) -> int | None:
-    """Count distinct source sites with counted failing properties."""
+    """Count distinct source lines with counted failing properties."""
     if not viewer_result_json:
         return None
 
@@ -1016,7 +1118,7 @@ def count_reported_error_sites(
     if viewer_property_json:
         properties = viewer_property_json.get("viewer-property", {}).get("properties", {})
 
-    sites: set[tuple[str, str, str]] = set()
+    sites: set[tuple[str, str]] = set()
     fallback_count = 0
     for property_id in false_properties:
         property_info = properties.get(property_id)
@@ -1030,9 +1132,8 @@ def count_reported_error_sites(
             fallback_count += 1
             continue
         file_name = norm_viewer_path(str(location.get("file", "")))
-        function = str(location.get("function", ""))
         line = str(location.get("line", ""))
-        sites.add((file_name, function, line))
+        sites.add((file_name, line))
     return len(sites) + fallback_count
 
 
@@ -1080,16 +1181,17 @@ def aggregate_scope_metrics(
 def aggregate_coverage_metrics(
     coverage_json: dict | None,
     proof_prefix: str,
-) -> tuple[int | None, int | None, float | None, int | None, float | None, int | None]:
+) -> tuple[int | None, int | None, float | None, int | None, float | None, int | None, int | None]:
     """Compute filtered program coverage and proof-side model-size metrics."""
     if not coverage_json:
-        return None, None, None, None, None, None
+        return None, None, None, None, None, None, None
 
     function_coverage = coverage_json.get("viewer-coverage", {}).get("function_coverage", {})
     reachable_line_count = 0
     covered_line_count = 0
     model_line_totals: list[int] = []
-    total_harness_loc = 0
+    proof_size_loc = 0
+    harness_function_loc = 0
     function_model_count = 0
 
     for file_name, functions in function_coverage.items():
@@ -1099,7 +1201,10 @@ def aggregate_coverage_metrics(
             total = int(metrics.get("total", 0))
             hit = int(metrics.get("hit", 0))
             if proof_side:
-                total_harness_loc += total
+                if not is_excluded_model_file(file_name):
+                    proof_size_loc += total
+                    if function_name == "harness":
+                        harness_function_loc += total
                 if function_name != "harness" and not is_excluded_model_file(file_name):
                     function_model_count += 1
                     model_line_totals.append(total)
@@ -1121,7 +1226,8 @@ def aggregate_coverage_metrics(
         line_coverage_pct,
         function_model_count,
         function_model_avg_loc,
-        total_harness_loc,
+        proof_size_loc,
+        harness_function_loc,
     )
 
 
@@ -1238,18 +1344,11 @@ def resolve_proof_dir(
 
 
 def infer_software_name(source_file: str) -> str:
-    """Derive the software label from the first source path segment."""
+    """Derive the software label from the explicit repository root when available."""
+    if REPO_ROOT is not None:
+        return REPO_ROOT.name
     parts = Path(norm_viewer_path(source_file)).parts
     return parts[0] if parts else ""
-
-
-def infer_project_root(experiment_dir: Path, source_file: str) -> Path:
-    """Infer the project root whose child directory matches the software label."""
-    software = infer_software_name(source_file)
-    for candidate in (experiment_dir, *experiment_dir.parents):
-        if software and (candidate / software).exists():
-            return candidate
-    return experiment_dir.parent
 
 
 def load_model_pricing() -> dict[str, dict[str, float]]:
@@ -1270,6 +1369,56 @@ def load_model_pricing() -> dict[str, dict[str, float]]:
             "output": float(pricing.get("output", 0.0)),
         }
     return result
+
+
+def list_proof_source_files(proof_dir: Path) -> list[Path]:
+    """List source/header files under the proof directory, excluding generated artifacts and general stubs."""
+    files: set[Path] = set()
+
+    excluded_dirs = {"build", "snapshots"}
+    for root, dirnames, filenames in os.walk(proof_dir):
+        dirnames[:] = [
+            dirname
+            for dirname in dirnames
+            if dirname not in excluded_dirs and not dirname.startswith("build_backup.")
+        ]
+        root_path = Path(root)
+        for filename in filenames:
+            path = root_path / filename
+            if path.name == "general-stubs.c":
+                continue
+            if path.suffix not in {".c", ".h"}:
+                continue
+            files.add(path)
+
+    return sorted(files)
+
+
+def compute_proof_file_size(proof_dir: Path) -> int | None:
+    """Use cloc to count proof-side C/C header LOC, excluding general-stubs.c."""
+    proof_files = list_proof_source_files(proof_dir)
+    if not proof_files:
+        return None
+
+    proc = run_command(["cloc", "--json", "--quiet", *[str(path) for path in proof_files]])
+    if proc.returncode != 0:
+        return None
+
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    summary = payload.get("SUM", {})
+    if not isinstance(summary, dict):
+        return None
+    code = summary.get("code")
+    try:
+        return int(code)
+    except (TypeError, ValueError):
+        return None
 
 
 def recompute_api_cost(metrics_records: list[dict[str, Any]]) -> str:
@@ -1460,6 +1609,7 @@ def build_row(
     compile_succeeded = extract_compile_succeeded(metrics_records)
     generation_time = extract_generation_time(metrics_records)
     api_cost = recompute_api_cost(metrics_records)
+    proof_file_size = compute_proof_file_size(proof_dir)
 
     try:
         metadata = read_make_metadata(proof_dir)
@@ -1471,15 +1621,14 @@ def build_row(
         proof_root = proof_dir.parent.resolve()
         harness_entry = target_function
 
-    project_root = infer_project_root(experiment_dir, target_file)
-    proof_prefix = proof_root_prefix(proof_root, project_root)
-    cbmc_root = parse_xml(resolve_cbmc_xml_path(proof_dir))
+    proof_prefix = proof_root_prefix(proof_root, experiment_dir)
     report_json_dir = resolve_report_json_dir(proof_dir)
     report_html_index = resolve_report_html_index(proof_dir)
     viewer_result_json = load_json(report_json_dir / "viewer-result.json" if report_json_dir else None)
     viewer_property_json = load_json(report_json_dir / "viewer-property.json" if report_json_dir else None)
     coverage_json = load_json(report_json_dir / "viewer-coverage.json" if report_json_dir else None)
     reachable_json = load_json(report_json_dir / "viewer-reachable.json" if report_json_dir else None)
+    cbmc_root: ET.Element | None = None
 
     links_target = target_links_target(reachable_json, target_file, target_function)
     semantic_valid: bool | None
@@ -1488,8 +1637,26 @@ def build_row(
     else:
         semantic_valid = compile_succeeded and links_target
 
-    verification_completes = verification_completed(cbmc_root, report_json_dir, report_html_index)
-    verification_time = parse_verification_time(cbmc_root)
+    verification_completes = verification_completed(
+        viewer_result_json,
+        None,
+        report_json_dir,
+        report_html_index,
+    )
+    verification_time = parse_verification_time_with_fallback(viewer_result_json, None)
+    if (
+        verification_time is None
+        or not verification_completes
+        or (viewer_result_json is None and resolve_cbmc_xml_path(proof_dir) is not None)
+    ):
+        cbmc_root = parse_xml(resolve_cbmc_xml_path(proof_dir))
+        verification_completes = verification_completed(
+            viewer_result_json,
+            cbmc_root,
+            report_json_dir,
+            report_html_index,
+        )
+        verification_time = parse_verification_time_with_fallback(viewer_result_json, cbmc_root)
     verification_success = verification_succeeds(viewer_result_json, viewer_property_json)
     property_violations = count_reported_error_sites(viewer_result_json, viewer_property_json)
     precondition_violations = count_precondition_violations(proof_dir)
@@ -1501,6 +1668,7 @@ def build_row(
         program_line_coverage_pct,
         function_model_count,
         function_model_avg_loc,
+        proof_size_loc,
         harness_size_loc,
     ) = aggregate_coverage_metrics(coverage_json, proof_prefix)
     (
@@ -1539,6 +1707,8 @@ def build_row(
             "precondition_violations": none_to_blank(precondition_violations),
             "generation_time": format_optional_float(generation_time),
             "api_cost": api_cost,
+            "proof_size_loc": none_to_blank(proof_size_loc),
+            "proof_file_size": none_to_blank(proof_file_size),
             "harness_size_loc": none_to_blank(harness_size_loc),
             "source_files_in_scope": none_to_blank(source_files_in_scope),
             "functions_in_scope": none_to_blank(functions_in_scope),
@@ -1568,7 +1738,13 @@ def write_csv(rows: list[dict[str, object]], output_path: Path) -> None:
 
 def main() -> int:
     """Run the full experiment analysis workflow from target CSV through CSV emission."""
+    global REPO_ROOT
     args = parse_args()
+    REPO_ROOT = args.repo_root.resolve()
+    if not REPO_ROOT.is_dir():
+        print(f"Repository root not found: {REPO_ROOT}", file=sys.stderr)
+        return 1
+
     experiment_dir = args.experiment_dir.resolve()
     if not experiment_dir.is_dir():
         print(f"Experiment directory not found: {experiment_dir}", file=sys.stderr)
@@ -1590,7 +1766,7 @@ def main() -> int:
         print(f"[error] targets: {exc}", file=sys.stderr)
         return 1
 
-    output_path = args.output.resolve() if args.output else experiment_dir / "assessment.csv"
+    output_path = args.output.resolve() if args.output else experiment_dir / "target-assessment.csv"
     rows: list[dict[str, object]] = []
 
     for source_file, target_function in targets:

@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from typing import Optional
 
 from agent import AIAgent
@@ -150,8 +151,6 @@ class PreconditionValidator(AIAgent, Generable):
         makefile_content: Optional[str],
         compile_only: bool,
     ) -> dict:
-        baseline_harness = self._validated_harness_baseline or self.get_harness()
-
         result = {
             "compilation": {
                 "success": False,
@@ -173,98 +172,103 @@ class PreconditionValidator(AIAgent, Generable):
             result["message"] = result["compilation"]["stderr"]
             return result
 
-        self.update_harness(harness_content)
-        logger.info("Harness updated via proof_validator tool.")
+        backup_tag = uuid.uuid4().hex[:8].upper()
+        self.create_backup(backup_tag)
+        try:
+            self.update_harness(harness_content)
+            logger.info("Harness updated via proof_validator tool.")
 
-        make_results = self.run_make(compile_only=compile_only)
-        status_code = make_results.get("status", Status.ERROR)
-        exit_code = make_results.get("exit_code", -1)
-        timed_out = status_code == Status.TIMEOUT
+            make_results = self.run_make(compile_only=compile_only)
+            status_code = make_results.get("status", Status.ERROR)
+            exit_code = make_results.get("exit_code", -1)
+            timed_out = status_code == Status.TIMEOUT
 
-        result["compilation"] = {
-            "success": exit_code == 0 and status_code == Status.SUCCESS,
-            "exit_code": exit_code,
-            "stderr": make_results.get("stderr", ""),
-        }
-        if not result["compilation"]["success"]:
-            result["compilation"]["stdout"] = make_results.get("stdout", "")
-        result["timed_out"] = timed_out
+            result["compilation"] = {
+                "success": exit_code == 0 and status_code == Status.SUCCESS,
+                "exit_code": exit_code,
+                "stderr": make_results.get("stderr", ""),
+            }
+            if not result["compilation"]["success"]:
+                result["compilation"]["stdout"] = make_results.get("stdout", "")
+            result["timed_out"] = timed_out
 
-        if compile_only:
-            self.update_harness(baseline_harness)
-            result["message"] = (
-                "Compilation succeeded (compile-only mode)."
-                if result["compilation"]["success"]
-                else "Compilation failed. Review the errors above."
-            )
-            return result
-
-        if timed_out:
-            self.update_harness(baseline_harness)
-            result["message"] = (
-                "Verification timed out. Refine the harness without changing the Makefile."
-            )
-            return result
-
-        if not result["compilation"]["success"]:
-            self.update_harness(baseline_harness)
-            result["message"] = (
-                "Compilation or verification failed. Review the build logs and fix the harness."
-            )
-            return result
-
-        messages = []
-        error = self._current_error
-
-        if error and self._error_covered_initially:
-            error_covered = self._is_error_covered(error)
-            result["error_covered"] = error_covered
-            if not error_covered:
-                messages.append(
-                    "ERROR: The harness no longer reaches the line where the error occurred."
+            if compile_only:
+                self.restore_backup(backup_tag)
+                result["message"] = (
+                    "Compilation succeeded (compile-only mode)."
+                    if result["compilation"]["success"]
+                    else "Compilation failed. Review the errors above."
                 )
+                return result
 
-        if self._current_coverage:
-            new_coverage = self.get_overall_coverage()
-            cov_hit_ok = new_coverage.get("hit", 0.0) >= self._current_coverage.get(
-                "hit", 0.0
-            )
-            cov_pct_ok = new_coverage.get(
-                "percentage", 0.0
-            ) >= self._current_coverage.get("percentage", 0.0)
-            result["coverage_maintained"] = cov_hit_ok and cov_pct_ok
-            if not result["coverage_maintained"]:
-                messages.append(
-                    "ERROR: Overall coverage decreased after applying the harness update."
+            if timed_out:
+                self.restore_backup(backup_tag)
+                result["message"] = (
+                    "Verification timed out. Refine the harness without changing the Makefile."
                 )
+                return result
 
-        if self._initial_property_count >= 0:
-            new_property_count = self.get_property_count()
-            result["properties_maintained"] = (
-                new_property_count >= 0
-                and new_property_count >= self._initial_property_count
-            )
-            if not result["properties_maintained"]:
-                messages.append(
-                    "ERROR: Property count decreased after applying the harness update."
+            if not result["compilation"]["success"]:
+                self.restore_backup(backup_tag)
+                result["message"] = (
+                    "Compilation or verification failed. Review the build logs and fix the harness."
                 )
+                return result
 
-        if error:
-            error_resolved = self._is_error_solved(error)
-            result["error_resolved"] = error_resolved
-            if not error_resolved:
-                messages.append("ERROR: The error is no longer resolved.")
+            messages = []
+            error = self._current_error
 
-        if messages:
-            self.update_harness(baseline_harness)
-            result["message"] = " | ".join(messages)
+            if error and self._error_covered_initially:
+                error_covered = self._is_error_covered(error)
+                result["error_covered"] = error_covered
+                if not error_covered:
+                    messages.append(
+                        "ERROR: The harness no longer reaches the line where the error occurred."
+                    )
+
+            if self._current_coverage:
+                new_coverage = self.get_overall_coverage()
+                cov_hit_ok = new_coverage.get("hit", 0.0) >= self._current_coverage.get(
+                    "hit", 0.0
+                )
+                cov_pct_ok = new_coverage.get(
+                    "percentage", 0.0
+                ) >= self._current_coverage.get("percentage", 0.0)
+                result["coverage_maintained"] = cov_hit_ok and cov_pct_ok
+                if not result["coverage_maintained"]:
+                    messages.append(
+                        "ERROR: Overall coverage decreased after applying the harness update."
+                    )
+
+            if self._initial_property_count >= 0:
+                new_property_count = self.get_property_count()
+                result["properties_maintained"] = (
+                    new_property_count >= 0
+                    and new_property_count >= self._initial_property_count
+                )
+                if not result["properties_maintained"]:
+                    messages.append(
+                        "ERROR: Property count decreased after applying the harness update."
+                    )
+
+            if error:
+                error_resolved = self._is_error_solved(error)
+                result["error_resolved"] = error_resolved
+                if not error_resolved:
+                    messages.append("ERROR: The error is no longer resolved.")
+
+            if messages:
+                self.restore_backup(backup_tag)
+                result["message"] = " | ".join(messages)
+                return result
+
+            self._validated_harness_baseline = harness_content
+            result["message"] = (
+                "All checks passed. The harness update is valid and the error remains resolved."
+            )
             return result
-
-        self._validated_harness_baseline = harness_content
-        result["message"] = (
-            "All checks passed. The harness update is valid and the error remains resolved."
-        )
-        return result
+        finally:
+            self.discard_backup(backup_tag)
 
     def handle_tool_calls(self, tool_name, function_args):
         logging_text = f"""
