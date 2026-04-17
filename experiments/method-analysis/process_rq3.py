@@ -130,6 +130,25 @@ def load_rows(csv_path: Path) -> tuple[list[dict[str, str]], list[str]]:
     return rows, list(reader.fieldnames)
 
 
+def normalize_key(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().lower()
+
+
+def dedupe_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Keep only the last row for each target/config/stage triple while preserving order."""
+    deduped: OrderedDict[tuple[str, str, str], dict[str, str]] = OrderedDict()
+    for row in rows:
+        key = (
+            normalize_key(row.get("Target Function")),
+            normalize_key(row.get("Config")),
+            normalize_key(row.get("Stage")),
+        )
+        deduped[key] = row
+    return list(deduped.values())
+
+
 def filter_rows(rows: list[dict[str, str]], config: str | None) -> list[dict[str, str]]:
     filtered = [row for row in rows if parse_bool(row.get("Snapshot Present")) is not False]
     if config is None:
@@ -516,7 +535,7 @@ def plot_stage_contributions(summary_rows: list[dict[str, object]], output_path:
 def main() -> int:
     args = parse_args()
     rows, _fieldnames = load_rows(args.component_csv.resolve())
-    filtered_rows = filter_rows(rows, args.config)
+    filtered_rows = dedupe_rows(filter_rows(rows, args.config))
     if not filtered_rows:
         config_note = f" for config {args.config!r}" if args.config else ""
         raise SystemExit(f"No component rows available{config_note}.")
