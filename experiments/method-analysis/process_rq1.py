@@ -107,6 +107,10 @@ def load_rows(csv_path: Path) -> tuple[list[dict[str, str]], list[str]]:
         return [dict(row) for row in reader], list(reader.fieldnames)
 
 
+def row_has_development_cost(row: dict[str, str]) -> bool:
+    return parse_bool(row.get("Development Succeeds")) is not False
+
+
 def parse_series_labels(raw_mapping: str) -> dict[str, str]:
     result: dict[str, str] = {}
     if not raw_mapping.strip():
@@ -154,9 +158,20 @@ def percent_true(rows: list[dict[str, str]], column: str) -> float | None:
     return 100.0 * sum(1 for value in filtered if value) / len(filtered)
 
 
-def mean_numeric(rows: list[dict[str, str]], column: str, scale: float = 1.0) -> float | None:
+def mean_numeric(
+    rows: list[dict[str, str]],
+    column: str,
+    scale: float = 1.0,
+    require_development_succeeds: bool = False,
+) -> float | None:
     values = [parse_float(row.get(column)) for row in rows]
-    filtered = [value / scale for value in values if value is not None]
+    filtered: list[float] = []
+    for row, value in zip(rows, values):
+        if value is None:
+            continue
+        if require_development_succeeds and not row_has_development_cost(row):
+            continue
+        filtered.append(value / scale)
     return mean_or_none(filtered)
 
 
@@ -227,9 +242,18 @@ def build_summary_table(
             elif metric == "Avg num. violations (#)":
                 value = mean_or_none(violation_totals(rows))
             elif metric == "Avg gen. time (min)":
-                value = mean_numeric(rows, "Generation Time", scale=60.0)
+                value = mean_numeric(
+                    rows,
+                    "Generation Time",
+                    scale=60.0,
+                    require_development_succeeds=True,
+                )
             elif metric == "Avg API cost ($)":
-                value = mean_numeric(rows, "API Cost")
+                value = mean_numeric(
+                    rows,
+                    "API Cost",
+                    require_development_succeeds=True,
+                )
             elif metric == "Avg proof size (loc)":
                 value = mean_numeric(rows, proof_size_col)
             else:
@@ -303,12 +327,15 @@ def grouped_numeric_values(
     column: str,
     scale: float = 1.0,
     require_completed: bool = False,
+    require_development_succeeds: bool = False,
 ) -> list[list[float]]:
     values: list[list[float]] = []
     for config in configs:
         config_values: list[float] = []
         for row in grouped_rows[config]:
             if require_completed and parse_bool(row.get("Verification Completes")) is not True:
+                continue
+            if require_development_succeeds and not row_has_development_cost(row):
                 continue
             raw = parse_float(row.get(column))
             if raw is None:
@@ -334,23 +361,26 @@ def plot_rq1_coverage(
     overall_reachable_col: str,
     output_stem: Path,
 ) -> None:
+    label_fontsize = 18
+    tick_fontsize = 15
     metrics = [
-        (overall_reachable_col, "Overall Reachable LOC", 1.0, False, "#c46b2c"),
-        ("Verification Time", "Verification Time (s)", 1.0, True, "#4d8fcb"),
-        ("Generation Time", "Development Time (min)", 60.0, False, "#4aa564"),
-        ("API Cost", "API Cost ($)", 1.0, False, "#b567c0"),
+        (overall_reachable_col, "Overall Reachable LOC", 1.0, False, False, "#c46b2c"),
+        ("Verification Time", "Verification Time (s)", 1.0, True, False, "#4d8fcb"),
+        ("Generation Time", "Development Time (min)", 60.0, False, True, "#4aa564"),
+        ("API Cost", "API Cost ($)", 1.0, False, True, "#b567c0"),
     ]
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     x_positions = list(range(1, len(configs) + 1))
     labels = [display_names.get(config, config) for config in configs]
 
-    for axis, (column, ylabel, scale, require_completed, color) in zip(axes.flat, metrics):
+    for axis, (column, ylabel, scale, require_completed, require_development_succeeds, color) in zip(axes.flat, metrics):
         values = grouped_numeric_values(
             grouped_rows,
             configs,
             column,
             scale=scale,
             require_completed=require_completed,
+            require_development_succeeds=require_development_succeeds,
         )
         nonempty_positions = [pos for pos, group in zip(x_positions, values) if group]
         nonempty_values = [group for group in values if group]
@@ -363,12 +393,12 @@ def plot_rq1_coverage(
             )
             style_boxplot(parts, color)
         axis.set_xticks(x_positions)
-        axis.set_xticklabels(labels)
-        axis.set_ylabel(ylabel)
+        axis.set_xticklabels(labels, fontsize=tick_fontsize)
+        axis.tick_params(axis="y", labelsize=tick_fontsize)
+        axis.set_ylabel(ylabel, fontsize=label_fontsize)
         axis.grid(axis="y", linestyle=":", linewidth=0.7, alpha=0.6)
 
-    fig.suptitle("RQ1 Coverage and Cost Distributions", y=0.98)
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.tight_layout()
     save_figure(fig, output_stem)
 
 
@@ -379,12 +409,15 @@ def normalize_metric_pairs(
     y_column: str,
     scale: float = 1.0,
     require_completed: bool = False,
+    require_development_succeeds: bool = False,
 ) -> dict[str, list[tuple[float, float]]]:
     pairs_by_config: dict[str, list[tuple[float, float]]] = {}
     for config in configs:
         pairs: list[tuple[float, float]] = []
         for row in grouped_rows[config]:
             if require_completed and parse_bool(row.get("Verification Completes")) is not True:
+                continue
+            if require_development_succeeds and not row_has_development_cost(row):
                 continue
             x_value = parse_float(row.get(x_column))
             y_value = parse_float(row.get(y_column))
@@ -405,11 +438,14 @@ def plot_harness_analysis_figure(
     proof_size_col: str,
     output_stem: Path,
 ) -> None:
+    label_fontsize = 18
+    tick_fontsize = 15
+    legend_fontsize = 14
     metric_specs = [
-        (proof_size_col, "Proof Size (LOC)", 1.0, False, "#1b9e77"),
-        ("Verification Time", "Verification Time (s)", 1.0, True, "#d95f02"),
-        ("Generation Time", "Development Time (min)", 60.0, False, "#7570b3"),
-        ("API Cost", "API Cost ($)", 1.0, False, "#e7298a"),
+        (proof_size_col, "Proof Size (LOC)", 1.0, False, False, "#1b9e77"),
+        ("Verification Time", "Verification Time (s)", 1.0, True, False, "#d95f02"),
+        ("Generation Time", "Development Time (min)", 60.0, False, True, "#7570b3"),
+        ("API Cost", "API Cost ($)", 1.0, False, True, "#e7298a"),
     ]
 
     linestyles = ["-", "--", "-.", ":"]
@@ -424,7 +460,7 @@ def plot_harness_analysis_figure(
     axes[3].yaxis.set_label_position("left")
     axes[3].yaxis.set_ticks_position("left")
 
-    for axis, (metric_column, metric_label, scale, require_completed, color) in zip(axes, metric_specs):
+    for axis, (metric_column, metric_label, scale, require_completed, require_development_succeeds, color) in zip(axes, metric_specs):
         metric_pairs = normalize_metric_pairs(
             grouped_rows,
             configs,
@@ -432,6 +468,7 @@ def plot_harness_analysis_figure(
             metric_column,
             scale=scale,
             require_completed=require_completed,
+            require_development_succeeds=require_development_succeeds,
         )
         for config in configs:
             pairs = metric_pairs.get(config, [])
@@ -449,17 +486,24 @@ def plot_harness_analysis_figure(
                 linestyle=config_styles[config],
                 alpha=0.9,
             )
-        axis.set_ylabel(metric_label, color=color)
-        axis.tick_params(axis="y", colors=color)
+        axis.set_ylabel(metric_label, color=color, fontsize=label_fontsize)
+        axis.tick_params(axis="y", colors=color, labelsize=tick_fontsize)
 
-    base_ax.set_xlabel(x_label)
+    base_ax.set_xlabel(x_label, fontsize=label_fontsize)
+    base_ax.tick_params(axis="x", labelsize=tick_fontsize)
     base_ax.grid(True, linestyle=":", linewidth=0.7, alpha=0.6)
 
     metric_handles = [
         Line2D([0], [0], color=color, linewidth=2.0, marker="o", markersize=4, label=label)
-        for _, label, _, _, color in metric_specs
+        for _, label, _, _, _, color in metric_specs
     ]
-    first_legend = base_ax.legend(handles=metric_handles, loc="upper left", title="Metric")
+    first_legend = base_ax.legend(
+        handles=metric_handles,
+        loc="upper left",
+        title="Metric",
+        fontsize=legend_fontsize,
+        title_fontsize=legend_fontsize,
+    )
 
     if len(configs) > 1:
         config_handles = [
@@ -473,11 +517,16 @@ def plot_harness_analysis_figure(
             )
             for config in configs
         ]
-        base_ax.legend(handles=config_handles, loc="lower right", title="Config")
+        base_ax.legend(
+            handles=config_handles,
+            loc="lower right",
+            title="Config",
+            fontsize=legend_fontsize,
+            title_fontsize=legend_fontsize,
+        )
         base_ax.add_artist(first_legend)
 
-    fig.suptitle(f"RQ1 Harness Analysis vs {x_label}", y=0.98)
-    fig.tight_layout(rect=(0.05, 0.02, 0.95, 0.96))
+    fig.tight_layout(rect=(0.05, 0.02, 0.95, 1.0))
     save_figure(fig, output_stem)
 
 
