@@ -416,6 +416,7 @@ def count_preconditions_in_harness(function: Any) -> int | None:
 
 def count_harness_symbols(
     helper: Any,
+    experiment_dir: Path,
     proof_dir: Path,
     target_function: str,
     symbol_json: dict | None,
@@ -436,17 +437,18 @@ def count_harness_symbols(
     if not isinstance(symbols, dict):
         return None
 
-    try:
-        harness_rel = helper.norm_viewer_path(str(harness_path.resolve().relative_to(helper.REPO_ROOT.resolve())))
-    except ValueError:
-        harness_rel = helper.norm_viewer_path(harness_path.name)
+    harness_candidates = helper.viewer_path_candidates(harness_path, experiment_dir)
+    if not harness_candidates:
+        harness_candidates = (helper.norm_viewer_path(harness_path.name),)
 
     count = 0
     for symbol_name, details in symbols.items():
         if not isinstance(details, dict):
             continue
         file_name = str(details.get("file", "")).strip()
-        if not file_name or not helper.path_matches_suffix(file_name, harness_rel):
+        if not file_name or not any(
+            helper.path_matches_suffix(file_name, candidate) for candidate in harness_candidates
+        ):
             continue
         if any(symbol_name == fn_name or symbol_name.startswith(f"{fn_name}::") for fn_name in function_names):
             count += 1
@@ -551,7 +553,7 @@ def collect_metrics_from_proof_dir(
     except Exception:
         proof_root = proof_dir.parent.resolve()
 
-    proof_prefix = helper.proof_root_prefix(proof_root, experiment_dir)
+    proof_prefixes = helper.proof_root_prefixes(proof_root, experiment_dir)
     report_json_dir = helper.resolve_report_json_dir(proof_dir)
     report_html_index = helper.resolve_report_html_index(proof_dir)
     viewer_result_json = helper.load_json(report_json_dir / "viewer-result.json" if report_json_dir else None)
@@ -571,7 +573,7 @@ def collect_metrics_from_proof_dir(
     verification_succeeds = helper.verification_succeeds(viewer_result_json, viewer_property_json)
     property_violations = helper.count_reported_error_sites(viewer_result_json, viewer_property_json)
     precondition_violations = helper.count_precondition_violations(proof_dir)
-    source_files_in_scope, functions_in_scope = helper.aggregate_scope_metrics(reachable_json, proof_prefix)
+    source_files_in_scope, functions_in_scope = helper.aggregate_scope_metrics(reachable_json, proof_prefixes)
     (
         program_reachable_line_count,
         program_covered_line_count,
@@ -580,7 +582,7 @@ def collect_metrics_from_proof_dir(
         _function_model_avg_loc_from_cov,
         _proof_size_loc_from_cov,
         _harness_size_loc_from_cov,
-    ) = helper.aggregate_coverage_metrics(coverage_json, proof_prefix)
+    ) = helper.aggregate_coverage_metrics(coverage_json, proof_prefixes)
     (
         overall_reachable_line_count,
         overall_covered_line_count,
@@ -590,8 +592,14 @@ def collect_metrics_from_proof_dir(
         target_function_reachable_line_count,
         target_function_covered_line_count,
         target_function_line_coverage_pct,
-    ) = helper.aggregate_target_function_coverage(coverage_json, proof_prefix, target_function)
-    harness_symbol_count = count_harness_symbols(helper, proof_dir, target_function, symbol_json)
+    ) = helper.aggregate_target_function_coverage(coverage_json, proof_prefixes, target_function)
+    harness_symbol_count = count_harness_symbols(
+        helper,
+        experiment_dir,
+        proof_dir,
+        target_function,
+        symbol_json,
+    )
 
     return {
         "verification_completes": verification_completes,

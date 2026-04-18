@@ -107,6 +107,24 @@ def load_rows(csv_path: Path) -> tuple[list[dict[str, str]], list[str]]:
         return [dict(row) for row in reader], list(reader.fieldnames)
 
 
+def normalize_key(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().lower()
+
+
+def dedupe_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Keep only the last row for each target/config pair while preserving order."""
+    deduped: OrderedDict[tuple[str, str], dict[str, str]] = OrderedDict()
+    for row in rows:
+        key = (
+            normalize_key(row.get("Target Function")),
+            normalize_key(row.get("Config")),
+        )
+        deduped[key] = row
+    return list(deduped.values())
+
+
 def row_has_development_cost(row: dict[str, str]) -> bool:
     return parse_bool(row.get("Development Succeeds")) is not False
 
@@ -677,6 +695,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     rows, fieldnames = load_rows(merged_csv)
+    rows = dedupe_rows(rows)
     if "Config" not in fieldnames:
         raise ValueError("Merged CSV must include a 'Config' column")
 

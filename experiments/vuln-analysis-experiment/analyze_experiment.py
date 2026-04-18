@@ -1010,22 +1010,86 @@ def path_matches_suffix(candidate: str, target_suffix: str) -> bool:
     )
 
 
-def proof_root_prefix(proof_root: Path, experiment_dir: Path) -> str:
-    """Convert a proof root on disk into the corresponding viewer path prefix."""
-    try:
-        return norm_viewer_path(str(proof_root.relative_to(REPO_ROOT)))
-    except ValueError:
+def _append_viewer_path_candidate(candidates: list[str], value: str) -> None:
+    """Normalize and append a candidate viewer path while preserving order."""
+    normalized = norm_viewer_path(value)
+    if normalized and normalized not in {".", ".."} and normalized not in candidates:
+        candidates.append(normalized)
+
+
+def _experiment_dir_suffixes(experiment_dir: Path) -> tuple[Path, ...]:
+    """Return plausible relative viewer roots derived from an experiment directory."""
+    parts = experiment_dir.resolve().parts
+    suffixes: list[Path] = []
+    start_index = 1 if parts and parts[0] == Path("/").anchor else 0
+    for idx in range(start_index, len(parts)):
+        suffix = Path(*parts[idx:])
+        if suffix not in suffixes:
+            suffixes.append(suffix)
+    return tuple(suffixes)
+
+
+def viewer_path_candidates(path: Path, experiment_dir: Path | None = None) -> tuple[str, ...]:
+    """Return plausible viewer path spellings for a local path."""
+    resolved_path = path.resolve()
+    candidates: list[str] = []
+
+    if REPO_ROOT is not None:
         try:
-            proof_root_rel = proof_root.relative_to(experiment_dir)
+            _append_viewer_path_candidate(candidates, str(resolved_path.relative_to(REPO_ROOT.resolve())))
         except ValueError:
-            return norm_viewer_path(str(proof_root))
-        return norm_viewer_path(str(Path("cbmc") / experiment_dir.name / proof_root_rel))
+            pass
+
+    if experiment_dir is not None:
+        resolved_experiment_dir = experiment_dir.resolve()
+        try:
+            relative_to_experiment = resolved_path.relative_to(resolved_experiment_dir)
+        except ValueError:
+            relative_to_experiment = None
+        if relative_to_experiment is not None:
+            if REPO_ROOT is not None:
+                try:
+                    experiment_rel = resolved_experiment_dir.relative_to(REPO_ROOT.resolve())
+                    _append_viewer_path_candidate(
+                        candidates,
+                        str(experiment_rel / relative_to_experiment),
+                    )
+                except ValueError:
+                    pass
+
+            for experiment_suffix in _experiment_dir_suffixes(resolved_experiment_dir):
+                _append_viewer_path_candidate(
+                    candidates,
+                    str(experiment_suffix / relative_to_experiment),
+                )
+
+    _append_viewer_path_candidate(candidates, str(resolved_path))
+    return tuple(candidates)
 
 
-def is_proof_side_file(viewer_path: str, proof_prefix: str) -> bool:
+def proof_root_prefixes(proof_root: Path, experiment_dir: Path) -> tuple[str, ...]:
+    """Convert a proof root on disk into all plausible viewer path prefixes."""
+    return viewer_path_candidates(proof_root, experiment_dir)
+
+
+def proof_root_prefix(proof_root: Path, experiment_dir: Path) -> str:
+    """Return one viewer path prefix for compatibility with older callers."""
+    prefixes = proof_root_prefixes(proof_root, experiment_dir)
+    return prefixes[0] if prefixes else norm_viewer_path(str(proof_root))
+
+
+def is_proof_side_file(viewer_path: str, proof_prefixes: str | tuple[str, ...] | list[str]) -> bool:
     """Check whether a viewer path belongs to the proof-side CBMC directory."""
     normalized = norm_viewer_path(viewer_path)
-    return normalized == proof_prefix or normalized.startswith(f"{proof_prefix}/")
+    if isinstance(proof_prefixes, str):
+        prefixes = (proof_prefixes,)
+    else:
+        prefixes = tuple(proof_prefixes)
+    for prefix in prefixes:
+        normalized_prefix = norm_viewer_path(prefix)
+        if normalized == normalized_prefix or normalized.startswith(f"{normalized_prefix}/"):
+            return True
+    return False
 
 
 def is_generated_file(viewer_path: str) -> bool:
@@ -1172,7 +1236,7 @@ def verification_succeeds(
 
 def aggregate_scope_metrics(
     reachable_json: dict | None,
-    proof_prefix: str,
+    proof_prefixes: str | tuple[str, ...] | list[str],
 ) -> tuple[int | None, int | None]:
     """Count in-scope source files and reachable functions for the project under test."""
     if not reachable_json:
@@ -1181,7 +1245,7 @@ def aggregate_scope_metrics(
     source_files = 0
     functions = 0
     for file_name, file_functions in reachable.items():
-        if is_proof_side_file(file_name, proof_prefix) or is_generated_file(file_name):
+        if is_proof_side_file(file_name, proof_prefixes) or is_generated_file(file_name):
             continue
         if is_c_source_file(file_name):
             source_files += 1
@@ -1191,7 +1255,7 @@ def aggregate_scope_metrics(
 
 def aggregate_coverage_metrics(
     coverage_json: dict | None,
-    proof_prefix: str,
+    proof_prefixes: str | tuple[str, ...] | list[str],
 ) -> tuple[int | None, int | None, float | None, int | None, float | None, int | None, int | None]:
     """Compute filtered program coverage and proof-side model-size metrics."""
     if not coverage_json:
@@ -1206,7 +1270,7 @@ def aggregate_coverage_metrics(
     function_model_count = 0
 
     for file_name, functions in function_coverage.items():
-        proof_side = is_proof_side_file(file_name, proof_prefix)
+        proof_side = is_proof_side_file(file_name, proof_prefixes)
         generated = is_generated_file(file_name)
         for function_name, metrics in functions.items():
             total = int(metrics.get("total", 0))
@@ -1270,7 +1334,7 @@ def aggregate_overall_coverage(
 
 def aggregate_target_function_coverage(
     coverage_json: dict | None,
-    proof_prefix: str,
+    proof_prefixes: str | tuple[str, ...] | list[str],
     target_function: str,
 ) -> tuple[int | None, int | None, float | None]:
     """Compute coverage for the target function itself."""
@@ -1282,7 +1346,7 @@ def aggregate_target_function_coverage(
     covered_line_count = 0
 
     for file_name, functions in function_coverage.items():
-        if is_proof_side_file(file_name, proof_prefix) or is_generated_file(file_name):
+        if is_proof_side_file(file_name, proof_prefixes) or is_generated_file(file_name):
             continue
         metrics = functions.get(target_function)
         if not metrics:
@@ -1672,7 +1736,7 @@ def build_row(
         proof_root = proof_dir.parent.resolve()
         harness_entry = target_function
 
-    proof_prefix = proof_root_prefix(proof_root, experiment_dir)
+    proof_prefixes = proof_root_prefixes(proof_root, experiment_dir)
     report_json_dir = resolve_report_json_dir(proof_dir)
     report_html_index = resolve_report_html_index(proof_dir)
     viewer_result_json = load_json(report_json_dir / "viewer-result.json" if report_json_dir else None)
@@ -1712,7 +1776,7 @@ def build_row(
     property_violations = count_reported_error_sites(viewer_result_json, viewer_property_json)
     precondition_violations = count_precondition_violations(proof_dir)
     unwindset_count, unwind_min, unwind_max = parse_unwind_metrics(cbmcflags)
-    source_files_in_scope, functions_in_scope = aggregate_scope_metrics(reachable_json, proof_prefix)
+    source_files_in_scope, functions_in_scope = aggregate_scope_metrics(reachable_json, proof_prefixes)
     (
         program_reachable_line_count,
         program_covered_line_count,
@@ -1721,7 +1785,7 @@ def build_row(
         function_model_avg_loc,
         proof_size_loc,
         harness_size_loc,
-    ) = aggregate_coverage_metrics(coverage_json, proof_prefix)
+    ) = aggregate_coverage_metrics(coverage_json, proof_prefixes)
     (
         overall_reachable_line_count,
         overall_covered_line_count,
@@ -1731,7 +1795,7 @@ def build_row(
         target_function_reachable_line_count,
         target_function_covered_line_count,
         target_function_line_coverage_pct,
-    ) = aggregate_target_function_coverage(coverage_json, proof_prefix, target_function)
+    ) = aggregate_target_function_coverage(coverage_json, proof_prefixes, target_function)
     model_used_variable_count, assumption_variable_count = collect_variable_metrics(
         proof_dir,
         harness_entry,
