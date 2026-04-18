@@ -15,6 +15,18 @@ SUMMARY_ROWS = [
     "Number of CVEs",
     "Number exposed",
 ]
+ROOT_CAUSE_DISPLAY_NAMES = {
+    "incomplete cve recreation": "Incomplete CVE recreation",
+    "precondition validation error": "Precondition validation error",
+    "bmc tool limitation": "BMC tool limitation",
+    "limited scope": "Limited scope",
+    "limited loop unwinding": "Limited loop unwinding",
+    "over-constrained environment": "Over-constrained environment",
+    "resource exhaustion": "Resource exhaustion",
+    "semantic invalidity": "Semantic invalidity",
+    "limited property modelling": "Limited property modeling",
+    "limited property model": "Limited property modeling",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -73,6 +85,13 @@ def normalize_key(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip().lower()
+
+
+def canonicalize_root_cause(value: Any) -> str:
+    normalized = normalize_key(value)
+    if not normalized:
+        return ""
+    return ROOT_CAUSE_DISPLAY_NAMES.get(normalized, str(value).strip())
 
 
 def latex_escape(text: str) -> str:
@@ -187,7 +206,7 @@ def collect_root_cause_rows(rows: list[dict[str, str]]) -> list[str]:
     for row in rows:
         if parse_bool(row.get("Exposed")) is not False:
             continue
-        root_cause = str(row.get("Non-exposure Root Cause", "")).strip()
+        root_cause = canonicalize_root_cause(row.get("Non-exposure Root Cause"))
         if root_cause:
             root_causes.setdefault(root_cause, None)
     return list(root_causes)
@@ -208,7 +227,7 @@ def build_counts(
         for row in rows:
             if parse_bool(row.get("Exposed")) is not False:
                 continue
-            root_cause_raw = str(row.get("Non-exposure Root Cause", "")).strip()
+            root_cause_raw = canonicalize_root_cause(row.get("Non-exposure Root Cause"))
             if not root_cause_raw:
                 continue
             root_cause_key = normalize_key(root_cause_raw)

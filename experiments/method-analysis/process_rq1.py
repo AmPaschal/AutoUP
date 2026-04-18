@@ -358,13 +358,13 @@ def plot_rq1_coverage(
     grouped_rows: dict[str, list[dict[str, str]]],
     configs: list[str],
     display_names: dict[str, str],
-    overall_reachable_col: str,
+    reachable_col: str,
     output_stem: Path,
 ) -> None:
     label_fontsize = 18
     tick_fontsize = 15
     metrics = [
-        (overall_reachable_col, "Overall Reachable LOC", 1.0, False, False, "#c46b2c"),
+        (reachable_col, "Program Reachable LOC", 1.0, False, False, "#c46b2c"),
         ("Verification Time", "Verification Time (s)", 1.0, True, False, "#4d8fcb"),
         ("Generation Time", "Development Time (min)", 60.0, False, True, "#4aa564"),
         ("API Cost", "API Cost ($)", 1.0, False, True, "#b567c0"),
@@ -530,6 +530,113 @@ def plot_harness_analysis_figure(
     save_figure(fig, output_stem)
 
 
+def plot_cost_time_analysis_figure(
+    grouped_rows: dict[str, list[dict[str, str]]],
+    configs: list[str],
+    display_names: dict[str, str],
+    x_column: str,
+    x_label: str,
+    output_stem: Path,
+    x_log_scale: bool = False,
+    merge_configs: bool = False,
+) -> None:
+    label_fontsize = 18
+    tick_fontsize = 15
+    legend_fontsize = 14
+    metric_specs = [
+        ("Verification Time", "Verification Time (s)", 1.0, True, False, "#d95f02"),
+        ("Generation Time", "Development Time (min)", 60.0, False, True, "#7570b3"),
+        ("API Cost", "API Cost ($)", 1.0, False, True, "#e7298a"),
+    ]
+
+    fig, base_ax = plt.subplots(figsize=(12.5, 7.0))
+    axes = [base_ax, base_ax.twinx(), base_ax.twinx()]
+    axes[2].spines["right"].set_position(("axes", 1.10))
+
+    for axis, (metric_column, metric_label, scale, require_completed, require_development_succeeds, color) in zip(axes, metric_specs):
+        metric_pairs = normalize_metric_pairs(
+            grouped_rows,
+            configs,
+            x_column,
+            metric_column,
+            scale=scale,
+            require_completed=require_completed,
+            require_development_succeeds=require_development_succeeds,
+        )
+        series_list: list[list[tuple[float, float]]]
+        if merge_configs:
+            merged_pairs: list[tuple[float, float]] = []
+            for config in configs:
+                merged_pairs.extend(metric_pairs.get(config, []))
+            series_list = [sorted(merged_pairs, key=lambda item: item[0])]
+        else:
+            series_list = [metric_pairs.get(config, []) for config in configs]
+
+        for pairs in series_list:
+            if x_log_scale:
+                pairs = [pair for pair in pairs if pair[0] > 0]
+            if not pairs:
+                continue
+            xs = [pair[0] for pair in pairs]
+            ys = [pair[1] for pair in pairs]
+            axis.plot(
+                xs,
+                ys,
+                marker="o",
+                markersize=3.8,
+                linewidth=1.8,
+                color=color,
+                linestyle="-",
+                alpha=0.9,
+            )
+        axis.set_ylabel(metric_label, color=color, fontsize=label_fontsize)
+        axis.tick_params(axis="y", colors=color, labelsize=tick_fontsize)
+
+    if x_log_scale:
+        base_ax.set_xscale("log")
+    base_ax.set_xlabel(x_label, fontsize=label_fontsize)
+    base_ax.tick_params(axis="x", labelsize=tick_fontsize)
+    base_ax.grid(True, linestyle=":", linewidth=0.7, alpha=0.6)
+
+    metric_handles = [
+        Line2D([0], [0], color=color, linewidth=2.0, marker="o", markersize=4, label=label)
+        for _, label, _, _, _, color in metric_specs
+    ]
+    first_legend = base_ax.legend(
+        handles=metric_handles,
+        loc="upper left",
+        title="Metric",
+        fontsize=legend_fontsize,
+        title_fontsize=legend_fontsize,
+    )
+
+    if len(configs) > 1 and not merge_configs:
+        linestyles = ["-", "--", "-.", ":"]
+        config_styles = {config: linestyles[index % len(linestyles)] for index, config in enumerate(configs)}
+        config_handles = [
+            Line2D(
+                [0],
+                [0],
+                color="black",
+                linewidth=2.0,
+                linestyle=config_styles[config],
+                label=display_names.get(config, config),
+            )
+            for config in configs
+        ]
+        base_ax.legend(
+            handles=config_handles,
+            loc="lower right",
+            title="Config",
+            fontsize=legend_fontsize,
+            title_fontsize=legend_fontsize,
+        )
+        base_ax.add_artist(first_legend)
+
+    fig.tight_layout(rect=(0.05, 0.02, 0.95, 1.0))
+    save_figure(fig, output_stem)
+
+
 def write_metadata_note(
     path: Path,
     configs: list[str],
@@ -546,12 +653,14 @@ def write_metadata_note(
         f"Table total-size column: {total_size_col}",
         f"Table covered-size column: {covered_size_col}",
         f"Proof-size column: {proof_size_col}",
-        f"Coverage figure overall reachable column: {overall_reachable_col}",
+        f"Coverage figure reachable column: {total_size_col}",
         f"Line figure overall reachable column: {overall_reachable_col}",
         f"Line figure overall covered column: {overall_covered_col or 'N/A'}",
-        f"Line figure program reachable column: {total_size_col}",
+        f"Line figure program reachable column: {total_size_col} (verification time + development time + API cost; autoup-s* merged; log-x)",
+        f"Line figure program reachable log-x column: {total_size_col} (verification time + development time + API cost; autoup-s* merged)",
         f"Line figure program covered column: {covered_size_col}",
-        "Line figures use four raw-value y-axes, one per metric.",
+        "The overall-reachable and overall-covered figures use four raw-value y-axes, one per metric.",
+        "The program-reachable figure uses three raw-value y-axes for verification time, development time, and API cost with AutoUP configurations merged.",
         "Grouping column: Config",
     ]
     path.write_text("\n".join(lines) + "\n")
@@ -615,11 +724,13 @@ def main() -> None:
     write_table_csv(output_dir / "rq1_harness_utility.csv", summary_rows, configs, display_names)
     write_table_latex(output_dir / "rq1_harness_utility.tex", summary_rows, configs, display_names)
 
+    autoup_configs = [config for config in configs if config.lower().startswith("autoup-s")]
+
     plot_rq1_coverage(
         grouped_rows,
         configs,
         display_names,
-        overall_reachable_col,
+        total_size_col,
         output_dir / "rq1_coverage",
     )
     plot_harness_analysis_figure(
@@ -641,14 +752,25 @@ def main() -> None:
             proof_size_col,
             output_dir / "rq1_harness_analysis_overall_covered",
         )
-    plot_harness_analysis_figure(
+    plot_cost_time_analysis_figure(
         grouped_rows,
-        configs,
+        autoup_configs,
         display_names,
         total_size_col,
         "Program Reachable LOC",
-        proof_size_col,
         output_dir / "rq1_harness_analysis_program_reachable",
+        x_log_scale=True,
+        merge_configs=True,
+    )
+    plot_cost_time_analysis_figure(
+        grouped_rows,
+        autoup_configs,
+        display_names,
+        total_size_col,
+        "Program Reachable LOC",
+        output_dir / "rq1_harness_analysis_program_reachable_logx",
+        x_log_scale=True,
+        merge_configs=True,
     )
     plot_harness_analysis_figure(
         grouped_rows,

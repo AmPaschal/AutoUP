@@ -48,6 +48,7 @@ SUMMARY_COLUMNS = [
     "Source Files In Scope",
     "Loop Unwindset Count",
     "Loop Unwind Max",
+    "Model Used Variable Count",
     "Assumption Variable Count",
     "Precondition Count",
     "Function Model Count",
@@ -69,6 +70,7 @@ COST_SUMMARY_COLUMNS = [
     "Mean",
     "Median",
 ]
+SECONDS_PER_MINUTE = 60.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -195,6 +197,7 @@ def summarize_stage_rows(rows: list[dict[str, str]]) -> list[dict[str, object]]:
 
     summary_rows: list[dict[str, object]] = []
     for stage_num, stage_rows in by_stage.items():
+        development_time = mean_numeric(stage_rows, "Development Time")
         summary_rows.append(
             {
                 "Stage Order": stage_num,
@@ -206,6 +209,7 @@ def summarize_stage_rows(rows: list[dict[str, str]]) -> list[dict[str, object]]:
                 "Source Files In Scope": mean_numeric(stage_rows, "Source Files In Scope"),
                 "Loop Unwindset Count": mean_numeric(stage_rows, "Loop Unwindset Count"),
                 "Loop Unwind Max": mean_numeric(stage_rows, "Loop Unwind Max"),
+                "Model Used Variable Count": mean_numeric(stage_rows, "Model Used Variable Count"),
                 "Assumption Variable Count": mean_numeric(stage_rows, "Assumption Variable Count"),
                 "Precondition Count": mean_numeric(stage_rows, "Precondition Count"),
                 "Function Model Count": mean_numeric(stage_rows, "Function Model Count"),
@@ -217,7 +221,9 @@ def summarize_stage_rows(rows: list[dict[str, str]]) -> list[dict[str, object]]:
                 "Property Violations": mean_numeric(stage_rows, "Property Violations"),
                 "Precondition Violations": mean_numeric(stage_rows, "Precondition Violations"),
                 "Verification Time": mean_numeric(stage_rows, "Verification Time"),
-                "Development Time": mean_numeric(stage_rows, "Development Time"),
+                "Development Time": development_time / SECONDS_PER_MINUTE
+                if development_time is not None
+                else None,
                 "API Cost": mean_numeric(stage_rows, "API Cost"),
             }
         )
@@ -272,13 +278,11 @@ def render_stage_table_tex(summary_rows: list[dict[str, object]], output_path: P
         (
             "Harness",
             [
-                ("Harness Size LOC", "Harness LOC"),
-                ("Source Files In Scope", "Files In Scope"),
-                ("Loop Unwindset Count", "Loop Unwindsets"),
+                ("Proof Size LOC", "Proof Size (LOC)"),
+                ("Loop Unwindset Count", "# Custom Loop Bounds"),
                 ("Loop Unwind Max", "Max Unwind"),
-                ("Function Model Count", "Function Models"),
-                ("Precondition Count", "Preconditions"),
-                ("Harness Symbol Count", "Harness Symbols"),
+                ("Assumption Variable Count", "# Variable Models"),
+                ("Function Model Count", "# Function Models"),
             ],
         ),
         (
@@ -343,7 +347,11 @@ def collect_stage_distributions(
     for stage_num, _stage_name in ordered_stages:
         stage_rows = [row for row in rows if parse_float(row.get("Stage Order")) == float(stage_num)]
         time_groups.append(
-            [value for value in (parse_float(row.get("Development Time")) for row in stage_rows) if value is not None]
+            [
+                value / SECONDS_PER_MINUTE
+                for value in (parse_float(row.get("Development Time")) for row in stage_rows)
+                if value is not None
+            ]
         )
         cost_groups.append(
             [value for value in (parse_float(row.get("API Cost")) for row in stage_rows) if value is not None]
@@ -367,7 +375,11 @@ def collect_stage_distributions(
             bucket["API Cost"] += api_cost
             bucket["cost_seen"] += 1.0
 
-    total_times = [item["Development Time"] for item in totals_by_target.values() if item["time_seen"] > 0.0]
+    total_times = [
+        item["Development Time"] / SECONDS_PER_MINUTE
+        for item in totals_by_target.values()
+        if item["time_seen"] > 0.0
+    ]
     total_costs = [item["API Cost"] for item in totals_by_target.values() if item["cost_seen"] > 0.0]
     labels.append("Total")
     time_groups.append(total_times)
