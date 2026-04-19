@@ -1,0 +1,13 @@
+The updated harness increased the number of unresolved grouped verification errors from {initial_count} to {new_count}.
+
+This is a regression. Even if the original target error was resolved, the change exposed or introduced {added_count} additional unresolved error group(s), so it cannot be accepted as-is.
+
+The newly introduced unresolved function:line groups are:
+{introduced_lines}
+
+Review the changes you proposed and identify which new or broadened precondition caused these additional failures to appear.
+
+Try again with a weaker or more targeted refinement that:
+1. Resolves the original target error
+2. Does not increase the unresolved error count
+3. Does not introduce new unresolved function:line groups

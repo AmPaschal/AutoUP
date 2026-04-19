@@ -333,21 +333,16 @@ def build_stage_definitions(proof_dir: Path, target_function: str) -> list[dict[
 
 
 def extract_stage_development_metrics(
+    helper: Any,
     metrics_records: list[dict[str, Any]],
     stage_defs: list[dict[str, Any]],
 ) -> dict[int, dict[str, float | None]]:
-    run_costs: dict[str, float | None] = {}
+    task_attempt_costs = extract_task_attempt_costs(helper, metrics_records)
     elapsed: dict[str, float | None] = {}
 
     for record in metrics_records:
         if "elapsed_time" in record:
             elapsed[str(record.get("agent_name", ""))] = parse_float(record.get("elapsed_time"))
-        if record.get("type") != "run_result":
-            continue
-        agent_name = str(record.get("agent_name", ""))
-        data = record.get("data", {})
-        if isinstance(data, dict):
-            run_costs[agent_name] = parse_currency(data.get("total_cost"))
 
     stage2_tag = stage_defs[1]["snapshot_tag"]
     stage3_present = stage_defs[2]["snapshot_present"]
@@ -356,8 +351,8 @@ def extract_stage_development_metrics(
         1: {
             "development_time": elapsed.get("InitialHarnessGenerator"),
             "api_cost": sum_optional(
-                run_costs.get("InitialHarnessGenerator"),
-                run_costs.get("MakefileGenerator"),
+                task_attempt_costs.get("InitialHarnessGenerator"),
+                task_attempt_costs.get("MakefileGenerator"),
             ),
         },
         2: {
@@ -366,15 +361,15 @@ def extract_stage_development_metrics(
                 elapsed.get("VulnAwareRefiner") if stage2_tag == "vuln_refiner" else None,
             ),
             "api_cost": sum_optional(
-                run_costs.get("CoverageDebugger"),
-                run_costs.get("VulnAwareRefiner") if stage2_tag == "vuln_refiner" else None,
+                task_attempt_costs.get("CoverageDebugger"),
+                task_attempt_costs.get("VulnAwareRefiner") if stage2_tag == "vuln_refiner" else None,
             ),
         },
         3: {
             "development_time": elapsed.get("ProofDebugger") if stage3_present else None,
             "api_cost": sum_optional(
-                run_costs.get("debugger"),
-                run_costs.get("PreconditionValidator"),
+                task_attempt_costs.get("debugger"),
+                task_attempt_costs.get("PreconditionValidator"),
             )
             if stage3_present
             else None,
@@ -387,6 +382,45 @@ def sum_optional(*values: float | None) -> float | None:
     if not filtered:
         return None
     return sum(filtered)
+
+
+def extract_task_attempt_costs(
+    helper: Any,
+    metrics_records: list[dict[str, Any]],
+) -> dict[str, float]:
+    prices = helper.load_model_pricing()
+    costs: dict[str, float] = {}
+
+    for record in metrics_records:
+        if record.get("type") != "task_attempt":
+            continue
+
+        llm_data = record.get("llm_data", {})
+        if not isinstance(llm_data, dict):
+            continue
+        model_name = llm_data.get("model_name")
+        if not isinstance(model_name, str) or model_name not in prices:
+            continue
+
+        token_usage = llm_data.get("token_usage", {})
+        if not isinstance(token_usage, dict):
+            continue
+
+        input_tokens = int(token_usage.get("input_tokens", 0) or 0)
+        cached_tokens = int(token_usage.get("cached_tokens", 0) or 0)
+        output_tokens = int(token_usage.get("output_tokens", 0) or 0)
+        non_cached_input_tokens = max(0, input_tokens - cached_tokens)
+        pricing = prices[model_name]
+        cost = (
+            (non_cached_input_tokens / 1_000_000) * pricing.get("input", 0.0)
+            + (cached_tokens / 1_000_000) * pricing.get("cached", 0.0)
+            + (output_tokens / 1_000_000) * pricing.get("output", 0.0)
+        )
+
+        agent_name = str(record.get("agent_name", ""))
+        costs[agent_name] = costs.get(agent_name, 0.0) + cost
+
+    return costs
 
 
 def stage_snapshot_proof_files(helper: Any, proof_dir: Path, target_function: str) -> list[Path]:
@@ -930,7 +964,7 @@ def main() -> int:
         print(f"[proof] {proof_dir}")
         stage_defs = build_stage_definitions(proof_dir, target_function)
         metrics_records = helper.load_metrics_records(autoup_output_dir, target_file, target_function)
-        stage_dev = extract_stage_development_metrics(metrics_records, stage_defs)
+        stage_dev = extract_stage_development_metrics(helper, metrics_records, stage_defs)
         log_path = autoup_output_dir / f"{Path(target_file).stem}-{target_function}.log"
 
         final_stage_order = 0

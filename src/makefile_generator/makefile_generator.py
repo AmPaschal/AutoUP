@@ -21,6 +21,12 @@ logger = setup_logger(__name__)
 
 
 class MakefileGenerator(AIAgent, Generable):
+    VALIDATION_TARGET_ALIASES = {
+        (
+            "os/net/mac/ble/ble-l2cap.c",
+            "PROCESS_THREAD",
+        ): "process_thread_ble_l2cap_tx_process",
+    }
 
     def __init__(self, args, project_container):
         super().__init__(
@@ -29,6 +35,15 @@ class MakefileGenerator(AIAgent, Generable):
             project_container
         )
         self._max_attempts = 10
+
+    def get_validation_target_function(self) -> str:
+        return self.VALIDATION_TARGET_ALIASES.get(
+            (
+                os.path.relpath(self.target_file_path, self.root_dir),
+                self.target_function,
+            ),
+            self.target_function,
+        )
 
     def prepare_prompt(self):
         """Prepare system and user prompts for the LLM."""
@@ -204,7 +219,8 @@ class MakefileGenerator(AIAgent, Generable):
             logger.info("Makefile compilation succeeded. Running validation checks...")
 
             # Validate that the target function is correctly linked and called
-            if not self.validate_linked_target() or not self.validate_called_target():
+            validation_target = self.get_validation_target_function()
+            if not self.validate_linked_target(validation_target) or not self.validate_called_target(validation_target):
                 logger.error("The target function is not linked or called in the compiled binary.")
                 user_prompt = (
                     f"The generated harness does not call the function {self.target_function} "

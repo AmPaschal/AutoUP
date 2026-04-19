@@ -293,7 +293,9 @@ class AIAgent(ABC):
         )
         return make_results
 
-    def validate_linked_target(self) -> bool:
+    def validate_linked_target(self, linked_target_function: Optional[str] = None) -> bool:
+
+        target_symbol = linked_target_function or self.target_function
 
         goto_file = os.path.join(self.harness_dir, "build", f"{self.target_function}.goto")
         if not os.path.exists(goto_file):
@@ -320,12 +322,12 @@ class AIAgent(ABC):
             return False
 
         goto_symbols_dict = goto_symbols[2].get("symbolTable", {})
-        if not goto_symbols_dict or self.target_function not in goto_symbols_dict:
-            logger.error(f"Target function {self.target_function} not found in GOTO binary.")
+        if not goto_symbols_dict or target_symbol not in goto_symbols_dict:
+            logger.error(f"Target function {target_symbol} not found in GOTO binary.")
             return False
 
         target_function_location = (
-            goto_symbols_dict.get(self.target_function, {})
+            goto_symbols_dict.get(target_symbol, {})
             .get("location", {})
             .get("namedSub", {})
         )
@@ -335,7 +337,7 @@ class AIAgent(ABC):
 
         if not file_rel or not wd:
             logger.error(
-                f"Missing location info for {self.target_function}: "
+                f"Missing location info for {target_symbol}: "
                 f"file={file_rel!r}, working_directory={wd!r}"
             )
             return False
@@ -355,11 +357,12 @@ class AIAgent(ABC):
 
         return True
 
-    def validate_called_target(self) -> bool:
+    def validate_called_target(self, called_target_function: Optional[str] = None) -> bool:
         """
         Validates that the harness calls the target function by checking the
         reachable call graph output contains: 'harness -> <target_function>'.
         """
+        target_symbol = called_target_function or self.target_function
         goto_path = os.path.join("build", f"{self.target_function}.goto")
 
         callgraph_result = self.execute_command(
@@ -376,7 +379,7 @@ class AIAgent(ABC):
             return False
 
         stdout = callgraph_result.get("stdout", "")
-        needle = f"harness -> {self.target_function}"
+        needle = f"harness -> {target_symbol}"
 
         for line in stdout.splitlines():
             if line.strip() == needle:

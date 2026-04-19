@@ -198,10 +198,27 @@ class ProofDebugger(AIAgent, Generable):
             logger.error(f"[ERROR] Failed to extract removed properties: {e}")
         
         return removed_properties, diff_output
+
+    def _get_unresolved_error_snapshot(self) -> tuple[int, set[str]]:
+        """Return the current unresolved error count and grouped function:line keys."""
+        error_clusters = extract_errors_and_payload(self.harness_file_name, self.harness_file_path)
+        error_report = ErrorReport(error_clusters)
+        return len(error_report.errors_by_line), set(error_report.errors_by_line.keys())
+
+    def _get_unresolved_error_regression(
+        self,
+        baseline_count: int,
+        baseline_lines: set[str],
+    ) -> tuple[bool, int, list[str]]:
+        """Detect whether the current harness regressed unresolved grouped errors."""
+        current_count, current_lines = self._get_unresolved_error_snapshot()
+        introduced_lines = sorted(current_lines - baseline_lines)
+        return current_count > baseline_count, current_count, introduced_lines
     
     def generate_fix_programmatically(self, error: CBMCError, current_coverage: dict) -> bool:
             
         """Generate the fix of a given error using programmatic handler"""
+        baseline_error_count, baseline_error_lines = self._get_unresolved_error_snapshot()
         updated_harness = self.programmatic_handler.analyze(error)
         if not updated_harness:
             logger.error("Programmatic handler could not analyze the error.")
@@ -217,6 +234,18 @@ class ProofDebugger(AIAgent, Generable):
         new_coverage = self.get_overall_coverage()
         if new_coverage.get("hit", 0.0) < current_coverage.get("hit", 0.0):
             logger.error("Overall coverage decreased after programmatic fix.")
+            return False
+        has_regression, new_error_count, introduced_lines = self._get_unresolved_error_regression(
+            baseline_error_count,
+            baseline_error_lines,
+        )
+        if has_regression:
+            logger.error(
+                "Unresolved errors increased after programmatic fix: %s -> %s. Introduced groups: %s",
+                baseline_error_count,
+                new_error_count,
+                introduced_lines,
+            )
             return False
         if not self.__is_error_solved(error):
             logger.error("Error not solved after programmatic fix.")
@@ -469,6 +498,7 @@ class ProofDebugger(AIAgent, Generable):
         cause_of_failure = None
         conversation_history = []
         attempt = 0
+        baseline_error_count, baseline_error_lines = self._get_unresolved_error_snapshot()
 
         self.create_error_trace_file(error)
 
@@ -552,6 +582,19 @@ class ProofDebugger(AIAgent, Generable):
             if not self.__is_error_solved(error):
                 self.log_task_attempt(error.error_id, attempt, chat_data, error="error_not_fixed")
                 cause_of_failure = {"reason": "error_not_fixed"}
+                continue
+            has_regression, new_error_count, introduced_lines = self._get_unresolved_error_regression(
+                baseline_error_count,
+                baseline_error_lines,
+            )
+            if has_regression:
+                self.log_task_attempt(error.error_id, attempt, chat_data, error="unresolved_errors_increased")
+                cause_of_failure = {
+                    "reason": "unresolved_errors_increased",
+                    "initial_count": baseline_error_count,
+                    "new_count": new_error_count,
+                    "introduced_lines": introduced_lines,
+                }
                 continue
             logger.info("Error resolved! Validating proposed preconditions...")
             validation_status = self.validate_preconditions(error, tag, output.analysis)
@@ -668,6 +711,25 @@ class ProofDebugger(AIAgent, Generable):
                 props_text = "  (Unable to determine specific removed properties)"
             user_prompt = user_prompt.replace("{removed_properties}", props_text)
             user_prompt = user_prompt.replace("{diff}", diff)
+            return user_prompt
+        if cause_of_failure["reason"] == "unresolved_errors_increased":
+            logger.info("Reason: unresolved_errors_increased")
+            user_prompt = self.__get_prompt("unresolved_errors_increased")
+            initial_count = cause_of_failure.get("initial_count", 0)
+            new_count = cause_of_failure.get("new_count", 0)
+            introduced_lines = cause_of_failure.get("introduced_lines", [])
+
+            user_prompt = user_prompt.replace("{initial_count}", str(initial_count))
+            user_prompt = user_prompt.replace("{new_count}", str(new_count))
+            user_prompt = user_prompt.replace("{added_count}", str(new_count - initial_count))
+
+            if introduced_lines:
+                introduced_text = "\n".join(f"  - {line}" for line in introduced_lines[:20])
+                if len(introduced_lines) > 20:
+                    introduced_text += f"\n  ... and {len(introduced_lines) - 20} more"
+            else:
+                introduced_text = "  (Unable to determine specific introduced function:line groups)"
+            user_prompt = user_prompt.replace("{introduced_lines}", introduced_text)
             return user_prompt
         raise ValueError(
             f"Unknown cause_of_failure reason: {cause_of_failure['reason']}",
