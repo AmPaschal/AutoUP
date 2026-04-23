@@ -24,6 +24,9 @@ You will be provided the following tools to explore the verification and project
 1. Bash tool: This tool will allow you to run bash commands such as grep that can help search the repo for relevant information. 
 2. CScope tool: The target repository has already been indexed with cscope. This tool allows you to run cscope commands to retrieve type definitions, function cross-references, and full paths to specific files.
 
+The tools are read-only inspection tools. Do not create, modify, or delete files with tool calls.
+After completing your analysis, return the modified harness only in the expected output field.
+
 Here are sample cscope commands to run:
 # --- Symbol and function lookups ---
 cscope -dL -1 <symbol>        # Find where symbol/function is defined

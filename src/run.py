@@ -168,11 +168,17 @@ def main():
 
     
     try:
-        # validate_environment returns dict like: {'keys_in_environment': True, 'missing_keys': []}
-        validation = validate_environment(args.llm_model)
-        if not validation['keys_in_environment']:
-            missing = validation['missing_keys']
-            raise EnvironmentError(f"Missing API key for model '{args.llm_model}'. Please set: {missing}")
+        if args.llm_model.startswith("zai/"):
+            if not os.getenv("ZAI_API_KEY"):
+                raise EnvironmentError(
+                    f"Missing API key for model '{args.llm_model}'. Please set: ['ZAI_API_KEY']"
+                )
+        else:
+            # validate_environment returns dict like: {'keys_in_environment': True, 'missing_keys': []}
+            validation = validate_environment(args.llm_model)
+            if not validation['keys_in_environment']:
+                missing = validation['missing_keys']
+                raise EnvironmentError(f"Missing API key for model '{args.llm_model}'. Please set: {missing}")
     except Exception as e:
         # Fallback if validation fails (e.g. unknown model), but allow execution to proceed 
         # so the agent can try initializing it anyway.

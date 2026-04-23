@@ -2,6 +2,7 @@ import json
 import os
 import time
 import subprocess
+import shlex
 from abc import ABC
 from typing import Any, Callable, Type
 
@@ -10,11 +11,35 @@ import tiktoken
 from commons.docker_tool import ProjectContainer
 from logger import setup_logger
 from commons.utils import Status
-from commons.models import GPT, LiteLLM
+from commons.models import GPT, LiteLLM, ZAIChatCompletions
 
 from litellm import get_llm_provider
 
 logger = setup_logger(__name__)
+
+READ_ONLY_COMMANDS = {
+    "awk",
+    "basename",
+    "cat",
+    "cscope",
+    "cut",
+    "dirname",
+    "find",
+    "grep",
+    "head",
+    "jq",
+    "ls",
+    "nl",
+    "pwd",
+    "readlink",
+    "realpath",
+    "rg",
+    "sed",
+    "sort",
+    "tail",
+    "uniq",
+    "wc",
+}
 
 class AIAgent(ABC):
     """
@@ -37,13 +62,17 @@ class AIAgent(ABC):
         self.makefile_path = os.path.join(self.harness_dir, 'Makefile')
 
         try:
-            result = get_llm_provider(args.llm_model)
-            if result[1] == "openai":
-                logger.info(f"Using model '{args.llm_model}' with OpenAI specification")
-                self.llm = GPT(name=args.llm_model, max_input_tokens=270000)
+            if args.llm_model.startswith("zai/"):
+                logger.info(f"Using model '{args.llm_model}' with Z.AI OpenAI-compatible chat completions.")
+                self.llm = ZAIChatCompletions(name=args.llm_model, max_input_tokens=270000)
             else:
-                logger.info(f"Using model '{args.llm_model}' with Litellm wrapper.")
-                self.llm = LiteLLM(name=args.llm_model, max_input_tokens=270000)
+                result = get_llm_provider(args.llm_model)
+                if result[1] == "openai":
+                    logger.info(f"Using model '{args.llm_model}' with OpenAI specification")
+                    self.llm = GPT(name=args.llm_model, max_input_tokens=270000)
+                else:
+                    logger.info(f"Using model '{args.llm_model}' with Litellm wrapper.")
+                    self.llm = LiteLLM(name=args.llm_model, max_input_tokens=270000)
         except Exception as e:
             logger.error(f"Error. Model '{args.llm_model}' not supported: {e}")
             raise e
@@ -104,6 +133,16 @@ class AIAgent(ABC):
 
     def run_bash_command(self, cmd):
         """Run a command-line command and return the output."""
+        validation_error = self._validate_read_only_command(cmd)
+        if validation_error:
+            logger.warning("Rejected non-read-only tool command: %s", cmd)
+            return {
+                "cmd": cmd,
+                "exit_code": 1,
+                "stdout": "",
+                "stderr": validation_error,
+            }
+
         try:
             logger.info(f"Running command: {cmd}")
             result = self.project_container.execute(cmd)
@@ -111,6 +150,55 @@ class AIAgent(ABC):
         except subprocess.CalledProcessError as e:
             print(f"Command failed with error:\n{e.stderr}")
             return None
+
+    def _validate_read_only_command(self, cmd: str) -> str | None:
+        """Validate that a tool-issued shell command is read-only."""
+        try:
+            lexer = shlex.shlex(cmd, posix=True, punctuation_chars="|&;<>")
+            lexer.whitespace_split = True
+            tokens = list(lexer)
+        except ValueError as e:
+            return f"Invalid shell command: {e}"
+
+        if not tokens:
+            return "Empty command is not allowed."
+
+        segments: list[list[str]] = []
+        current_segment: list[str] = []
+        separators = {"|", "||", "&&", ";"}
+        redirections = {"<", ">", "<<", ">>", "<<<"}
+
+        for token in tokens:
+            if token in redirections:
+                return (
+                    "This tool is read-only. Do not modify files directly or use shell redirection. "
+                    "Return changes in the structured output fields instead."
+                )
+            if token == "&":
+                return "Background execution is not allowed in this read-only tool."
+            if token in separators:
+                if not current_segment:
+                    return "Invalid shell command."
+                segments.append(current_segment)
+                current_segment = []
+                continue
+            current_segment.append(token)
+
+        if current_segment:
+            segments.append(current_segment)
+
+        for segment in segments:
+            command_name = segment[0]
+            if command_name not in READ_ONLY_COMMANDS:
+                return (
+                    f"Command '{command_name}' is not allowed. This tool is read-only and only supports "
+                    "repo inspection commands. Return harness or makefile changes in the structured output fields."
+                )
+
+            if command_name == "sed" and any(arg == "-i" or arg.startswith("-i") for arg in segment[1:]):
+                return "In-place file edits are not allowed in this read-only tool."
+
+        return None
         
     def handle_condition_retrieval_tool(self, function_name, line_number):
 

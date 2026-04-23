@@ -13,6 +13,12 @@ Automatic Unit Proof Writer
   ```bash
   export OPENAI_API_KEY="your_api_key_here"
   ```
+- For direct Z.AI / GLM usage via the OpenAI SDK-compatible endpoint:
+  ```bash
+  export ZAI_API_KEY="your_zai_api_key_here"
+  # Optional: override the default general endpoint
+  export ZAI_BASE_URL="https://api.z.ai/api/paas/v4/"
+  ```
 
 ### Setup
 ```bash
@@ -43,6 +49,7 @@ python src/run.py
 --target_file_path <target_source>
 --log_file <log_file_name>
 --metrics_file <metrics_file_name>
+--llm_model <model_name>
 ```
 
 ### Modes
@@ -81,5 +88,16 @@ harness
 
 To automatically fix coverage gaps or generate preconditions fixing errors, replace `harness` with `coverage` or `debugger` respectively.
 To run all the agents sequentially, use the `all` mode.
+
+For direct GLM usage without LiteLLM, pass a Z.AI-prefixed model name such as:
+
+```bash
+python src/run.py harness \
+  --target_function_name _receive \
+  --root_dir /path/to/project \
+  --harness_path /path/to/harness \
+  --target_file_path /path/to/source.c \
+  --llm_model zai/glm-5.1
+```
 
 ---

@@ -81,4 +81,3 @@ def summarize_metrics_file(metrics_file):
     metrics = [json.loads(line) for line in metrics_logs if line.strip()]
 
     return process_metrics(metrics)
-
