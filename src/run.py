@@ -173,6 +173,11 @@ def main():
                 raise EnvironmentError(
                     f"Missing API key for model '{args.llm_model}'. Please set: ['ZAI_API_KEY']"
                 )
+        elif args.llm_model.startswith("minimax/"):
+            if not os.getenv("MINIMAX_API_KEY"):
+                raise EnvironmentError(
+                    f"Missing API key for model '{args.llm_model}'. Please set: ['MINIMAX_API_KEY']"
+                )
         else:
             # validate_environment returns dict like: {'keys_in_environment': True, 'missing_keys': []}
             validation = validate_environment(args.llm_model)

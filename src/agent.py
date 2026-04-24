@@ -11,7 +11,7 @@ import tiktoken
 from commons.docker_tool import ProjectContainer
 from logger import setup_logger
 from commons.utils import Status
-from commons.models import GPT, LiteLLM, ZAIChatCompletions
+from commons.models import GPT, LiteLLM, MiniMaxChatCompletions, ZAIChatCompletions
 
 from litellm import get_llm_provider
 
@@ -65,6 +65,9 @@ class AIAgent(ABC):
             if args.llm_model.startswith("zai/"):
                 logger.info(f"Using model '{args.llm_model}' with Z.AI OpenAI-compatible chat completions.")
                 self.llm = ZAIChatCompletions(name=args.llm_model, max_input_tokens=270000)
+            elif args.llm_model.startswith("minimax/"):
+                logger.info(f"Using model '{args.llm_model}' with MiniMax OpenAI-compatible chat completions.")
+                self.llm = MiniMaxChatCompletions(name=args.llm_model, max_input_tokens=270000)
             else:
                 result = get_llm_provider(args.llm_model)
                 if result[1] == "openai":

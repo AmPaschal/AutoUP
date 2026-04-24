@@ -838,6 +838,265 @@ class ZAIChatCompletions(LLM):
         )
 
 
+class MiniMaxChatCompletions(LLM):
+    """LLM implementation using MiniMax's OpenAI-compatible chat completions API."""
+
+    def __init__(self, name: str, max_input_tokens: int):
+        super().__init__(name, max_input_tokens)
+        minimax_api_key = os.getenv("MINIMAX_API_KEY", None)
+        if not minimax_api_key:
+            raise EnvironmentError("No MiniMax API key found")
+
+        self.model_name = name.removeprefix("minimax/")
+        self.base_url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
+        self.client = openai.OpenAI(api_key=minimax_api_key, base_url=self.base_url)
+        self._minimax_repair_attempts = 2
+
+    def _build_llm_data(self, function_calls_count: int, token_usage: dict) -> dict:
+        return {
+            "function_call_count": function_calls_count,
+            "token_usage": token_usage,
+        }
+
+    def _update_token_usage(self, token_usage: dict, usage: Any) -> None:
+        if not usage:
+            return
+
+        token_usage["input_tokens"] += getattr(usage, "prompt_tokens", 0)
+        token_usage["output_tokens"] += getattr(usage, "completion_tokens", 0)
+        token_usage["total_tokens"] += getattr(usage, "total_tokens", 0)
+
+        prompt_details = getattr(usage, "prompt_tokens_details", None)
+        if prompt_details:
+            token_usage["cached_tokens"] += getattr(prompt_details, "cached_tokens", 0)
+
+        completion_details = getattr(usage, "completion_tokens_details", None)
+        if completion_details:
+            token_usage["reasoning_tokens"] += getattr(completion_details, "reasoning_tokens", 0)
+
+    def _request_completion(self, system_messages: str, messages: list[dict], *,
+                            temperature: float, response_format: dict | None = None,
+                            tools: list | None = None, tool_choice: str | None = None) -> Any:
+        return self.with_retry_on_error(
+            lambda: self.client.chat.completions.create(**{
+                "model": self.model_name,
+                "messages": [{"role": "system", "content": system_messages}] + messages,
+                "temperature": temperature,
+                "extra_body": {"reasoning_split": True},
+                **({"tools": tools} if tools is not None else {}),
+                **({"tool_choice": tool_choice} if tool_choice is not None else {}),
+                **({"response_format": response_format} if response_format is not None else {}),
+            }),
+            [
+                openai.RateLimitError,
+                openai.APIConnectionError,
+                openai.APITimeoutError,
+                openai.InternalServerError,
+                pydantic_core._pydantic_core.ValidationError,
+            ],
+        )
+
+    def _serialize_assistant_message(self, response_message: Any) -> dict:
+        if hasattr(response_message, "model_dump"):
+            return response_message.model_dump(exclude_none=True)
+        if hasattr(response_message, "dict"):
+            return response_message.dict(exclude_none=True)
+        return {
+            key: value
+            for key, value in dict(response_message).items()
+            if value is not None
+        }
+
+    def _top_level_fields(self, output_format: Type[BaseModel]) -> list[str]:
+        schema = output_format.model_json_schema()
+        return list(schema.get("properties", {}).keys())
+
+    def _schema_example_value(self, schema: dict) -> Any:
+        variants = schema.get("anyOf") or schema.get("oneOf")
+        if variants:
+            non_null_variant = next((item for item in variants if item.get("type") != "null"), variants[0])
+            return self._schema_example_value(non_null_variant)
+
+        if "enum" in schema:
+            return schema["enum"][0]
+
+        schema_type = schema.get("type")
+        if schema_type == "object":
+            return {
+                key: self._schema_example_value(value)
+                for key, value in schema.get("properties", {}).items()
+            }
+        if schema_type == "array":
+            items = schema.get("items", {})
+            return [self._schema_example_value(items)] if items else []
+        if schema_type == "integer":
+            return 0
+        if schema_type == "number":
+            return 0
+        if schema_type == "boolean":
+            return False
+        if schema_type == "null":
+            return None
+
+        return "<string>"
+
+    def _make_schema_prompt(self, output_format: Type[BaseModel]) -> str:
+        schema = output_format.model_json_schema()
+        example = self._schema_example_value(schema)
+        top_level_keys = self._top_level_fields(output_format)
+        return (
+            "Return ONLY one valid JSON object instance matching the requested output.\n"
+            "Do not include markdown fences, prose, comments, or any text before or after the JSON.\n"
+            "Do not return a JSON Schema.\n"
+            f"The top-level JSON object must contain these fields: {', '.join(top_level_keys)}.\n"
+            "For code fields, include the complete file contents as a single JSON string.\n"
+            "Use this example JSON shape:\n"
+            f"{json.dumps(example, indent=2)}"
+        )
+
+    def _build_repair_prompt(self, output_format: Type[BaseModel], invalid_payload: str,
+                             validation_error: str) -> str:
+        example = self._schema_example_value(output_format.model_json_schema())
+        top_level_keys = self._top_level_fields(output_format)
+        return (
+            "Your previous response was not valid for the required output format.\n"
+            f"Expected top-level keys: {', '.join(top_level_keys)}\n"
+            "Return ONLY one valid JSON object instance.\n"
+            "Do not return a JSON Schema.\n"
+            "Do not include markdown fences, prose, or comments.\n"
+            f"Validation error:\n{validation_error}\n"
+            f"Previous response:\n{invalid_payload}\n"
+            f"Minimal valid example:\n{json.dumps(example, indent=2)}"
+        )
+
+    def _parse_final_output(self, final_content: Any, output_format: Type[BaseModel]) -> BaseModel:
+        if not final_content:
+            raise ValueError("MiniMax returned an empty final response.")
+
+        payload = json.loads(final_content)
+        return output_format.model_validate(payload)
+
+    def chat_llm(
+        self,
+        system_messages: str,
+        input_messages: str,
+        output_format: Type[BaseModel],
+        llm_tools: list = [],
+        call_function: Optional[Callable] = None,
+        conversation_history: Optional[list] = None
+    ):
+        new_message = {"role": "user", "content": input_messages}
+
+        logger.info(f"LLM Prompt:\n{input_messages}")
+
+        if conversation_history is None:
+            conversation_history = []
+
+        conversation_history.append(new_message)
+        input_list = list(conversation_history)
+
+        function_calls_count = 0
+        token_usage = {
+            "input_tokens": 0,
+            "cached_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "total_tokens": 0
+        }
+
+        if llm_tools:
+            while True:
+                try:
+                    client_response = self._request_completion(
+                        system_messages,
+                        input_list,
+                        temperature=1.0,
+                        tools=llm_tools,
+                        tool_choice="auto",
+                    )
+                except openai.BadRequestError as bad_req_err:
+                    logger.error(f"Bad request error from LLM: {bad_req_err}")
+                    return None, self._build_llm_data(function_calls_count, token_usage)
+                except Exception as e:
+                    logger.error(f"Unexpected error from LLM: {e}")
+                    return None, self._build_llm_data(function_calls_count, token_usage)
+
+                self._update_token_usage(token_usage, getattr(client_response, "usage", None))
+
+                response_message = client_response.choices[0].message
+                tool_calls = getattr(response_message, "tool_calls", None) or []
+
+                input_list.append(self._serialize_assistant_message(response_message))
+
+                if not tool_calls:
+                    break
+
+                for item in tool_calls:
+                    if call_function is None:
+                        raise ValueError("call_function must be provided when tools are used.")
+                    function_result = call_function(item.function.name, item.function.arguments)
+                    function_calls_count += 1
+                    input_list.append({
+                        "role": "tool",
+                        "tool_call_id": item.id,
+                        "content": function_result,
+                    })
+
+        final_messages = input_list + [{
+            "role": "user",
+            "content": self._make_schema_prompt(output_format),
+        }]
+        repair_messages = list(final_messages)
+        parsed_output = None
+
+        for attempt in range(self._minimax_repair_attempts + 1):
+            try:
+                final_response = self._request_completion(
+                    system_messages,
+                    repair_messages,
+                    temperature=0.1,
+                )
+            except openai.BadRequestError as bad_req_err:
+                logger.error(f"Bad request error from LLM: {bad_req_err}")
+                return None, self._build_llm_data(function_calls_count, token_usage)
+            except Exception as e:
+                logger.error(f"Unexpected error from LLM: {e}")
+                return None, self._build_llm_data(function_calls_count, token_usage)
+
+            self._update_token_usage(token_usage, getattr(final_response, "usage", None))
+
+            final_content = final_response.choices[0].message.content
+            try:
+                parsed_output = self._parse_final_output(final_content, output_format)
+                break
+            except (ValueError, TypeError, json.JSONDecodeError, pydantic_core._pydantic_core.ValidationError) as e:
+                if attempt == self._minimax_repair_attempts:
+                    logger.error(f"Failed to parse MiniMax JSON response: {e}")
+                    return None, self._build_llm_data(function_calls_count, token_usage)
+
+                repair_messages = repair_messages + [
+                    {
+                        "role": "assistant",
+                        "content": final_content or "",
+                    },
+                    {
+                        "role": "user",
+                        "content": self._build_repair_prompt(
+                            output_format,
+                            final_content or "<empty response>",
+                            str(e),
+                        ),
+                    },
+                ]
+
+        parsed_output_dict = parsed_output.model_dump_json(indent=2) if parsed_output else {}
+        logger.info(f"LLM Response:\n{parsed_output_dict}")
+
+        conversation_history.append({"role": "assistant", "content": str(parsed_output)})
+
+        return parsed_output, self._build_llm_data(function_calls_count, token_usage)
+
+
 class Generable(ABC):
     """Generable interface """
 
