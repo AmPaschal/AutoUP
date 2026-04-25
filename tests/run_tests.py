@@ -3,6 +3,7 @@ import csv
 import enum
 import glob
 import os
+import sys
 import logging
 import subprocess
 import json
@@ -110,19 +111,22 @@ def run_proof_command(entry, args, output_root):
     base_dir = Path(args.base_dir)
     function_name = entry["function_name"]
     src_file = Path(entry["source_file"])
+    if not src_file.is_absolute():
+        src_file = base_dir / src_file
     src_file_name = src_file.stem
     proof_dir = Path(os.path.join(args.proof_dir, src_file_name, function_name))
 
     log_file = output_root / f"{src_file_name}-{function_name}.log"
     metrics_file = output_root / f"metrics-{src_file_name}-{function_name}.jsonl"
     cmd = [
-        "python", "src/run.py",
+        sys.executable, "src/run.py",
         args.mode,
         "--target_function_name", function_name,
         "--root_dir", str(base_dir),
         "--harness_path", str(proof_dir),
         "--target_file_path", str(src_file),
-        "--metrics_file", str(metrics_file)
+        "--metrics_file", str(metrics_file),
+        "--llm_model", args.llm_model,
     ]
 
 
@@ -153,7 +157,10 @@ def main():
     parser.add_argument("-b", "--base_dir", default="../RIOT", help="Base project directory (default: ../RIOT)")
     parser.add_argument("-o", "--output", help="Directory to store logs (default: output-${timestamp})")
     parser.add_argument("-j", "--jobs", type=int, default=10, help="Number of parallel jobs")
+    parser.add_argument("--llm_model", default="gpt-5", help="LLM model to use for src/run.py (default: gpt-5)")
     args = parser.parse_args()
+
+    logger.info("Using LLM model for batch run: %s", args.llm_model)
 
     # Determine output directory
     if args.output:

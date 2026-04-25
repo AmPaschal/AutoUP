@@ -29,6 +29,16 @@ class GLMResponseValidationError(Exception):
         self.payload = payload
 
 
+class MiniMaxResponseValidationError(Exception):
+    """Raised when a MiniMax response cannot be normalized into the target schema."""
+
+    def __init__(self, classification: str, detail: str, payload: Any = None):
+        super().__init__(detail)
+        self.classification = classification
+        self.detail = detail
+        self.payload = payload
+
+
 class LLM(ABC):
 
     name: str
@@ -852,11 +862,49 @@ class MiniMaxChatCompletions(LLM):
         self.client = openai.OpenAI(api_key=minimax_api_key, base_url=self.base_url)
         self._minimax_repair_attempts = 2
 
-    def _build_llm_data(self, function_calls_count: int, token_usage: dict) -> dict:
-        return {
+    def _build_llm_data(self, function_calls_count: int, token_usage: dict,
+                        minimax_response_metrics: dict | None = None) -> dict:
+        response = {
             "function_call_count": function_calls_count,
             "token_usage": token_usage,
         }
+        if minimax_response_metrics is not None:
+            response["minimax_response_metrics"] = minimax_response_metrics
+        return response
+
+    def _new_minimax_response_metrics(self, output_format: Type[BaseModel]) -> dict:
+        return {
+            "target_schema": output_format.__name__,
+            "malformed_response_counts": {},
+            "normalization_successes": 0,
+            "repair_successes": 0,
+            "provider_error_count": 0,
+            "repair_attempts": 0,
+        }
+
+    def _increment_metric_count(self, counts: dict, key: str) -> None:
+        counts[key] = counts.get(key, 0) + 1
+
+    def _record_minimax_failure(self, metrics: dict, classification: str, detail: str,
+                                recovered_via: str | None = None) -> None:
+        self._increment_metric_count(metrics["malformed_response_counts"], classification)
+        logger.warning(
+            "MiniMax final response issue for schema '%s': %s. detail=%s recovered_via=%s",
+            metrics["target_schema"],
+            classification,
+            detail,
+            recovered_via or "no",
+        )
+
+    def _record_minimax_provider_error(self, metrics: dict, err: Exception, phase: str) -> None:
+        metrics["provider_error_count"] += 1
+        self._increment_metric_count(metrics["malformed_response_counts"], "provider_error")
+        logger.warning(
+            "MiniMax provider error for schema '%s' during %s: %s",
+            metrics["target_schema"],
+            phase,
+            err,
+        )
 
     def _update_token_usage(self, token_usage: dict, usage: Any) -> None:
         if not usage:
@@ -911,6 +959,10 @@ class MiniMaxChatCompletions(LLM):
         schema = output_format.model_json_schema()
         return list(schema.get("properties", {}).keys())
 
+    def _required_top_level_fields(self, output_format: Type[BaseModel]) -> list[str]:
+        schema = output_format.model_json_schema()
+        return list(schema.get("required", []))
+
     def _schema_example_value(self, schema: dict) -> Any:
         variants = schema.get("anyOf") or schema.get("oneOf")
         if variants:
@@ -954,27 +1006,288 @@ class MiniMaxChatCompletions(LLM):
             f"{json.dumps(example, indent=2)}"
         )
 
-    def _build_repair_prompt(self, output_format: Type[BaseModel], invalid_payload: str,
+    def _minimax_schema_specific_rules(self, output_format: Type[BaseModel]) -> str:
+        schema_name = output_format.__name__
+        if schema_name == "HarnessResponse":
+            return "Required top-level keys: analysis, harness_code."
+        if schema_name == "ModelOutput":
+            return (
+                "All top-level keys are mandatory. Required top-level keys: "
+                "analysis, fix_recomendation, updated_harness."
+            )
+        if schema_name == "PreconditionValidatorResponse":
+            return (
+                "Required top-level keys: preconditions_analyzed, validation_result. "
+                "validation_result must be a JSON array of objects, not strings."
+            )
+        if schema_name == "CoverageDebuggerResponse":
+            return (
+                "Required top-level keys: analysis, proposed_modifications. "
+                "updated_harness and updated_makefile are optional."
+            )
+        return f"Required top-level keys: {', '.join(self._top_level_fields(output_format))}."
+
+    def _build_repair_prompt(self, output_format: Type[BaseModel], invalid_payload: Any,
                              validation_error: str) -> str:
         example = self._schema_example_value(output_format.model_json_schema())
         top_level_keys = self._top_level_fields(output_format)
+        payload_text = (
+            json.dumps(invalid_payload, indent=2)
+            if invalid_payload is not None and not isinstance(invalid_payload, str)
+            else (invalid_payload if invalid_payload is not None else "<empty response>")
+        )
         return (
             "Your previous response was not valid for the required output format.\n"
-            f"Expected top-level keys: {', '.join(top_level_keys)}\n"
+            f"Target schema: {output_format.__name__}\n"
+            f"Expected top-level keys only: {', '.join(top_level_keys)}\n"
+            f"{self._minimax_schema_specific_rules(output_format)}\n"
             "Return ONLY one valid JSON object instance.\n"
+            "Return an instance, not a schema.\n"
             "Do not return a JSON Schema.\n"
+            "Do not wrap objects in strings.\n"
             "Do not include markdown fences, prose, or comments.\n"
             f"Validation error:\n{validation_error}\n"
-            f"Previous response:\n{invalid_payload}\n"
+            f"Previous response:\n{payload_text}\n"
             f"Minimal valid example:\n{json.dumps(example, indent=2)}"
         )
 
-    def _parse_final_output(self, final_content: Any, output_format: Type[BaseModel]) -> BaseModel:
-        if not final_content:
-            raise ValueError("MiniMax returned an empty final response.")
+    def _is_schema_wrapper_payload(self, payload: Any, output_format: Type[BaseModel]) -> bool:
+        if not isinstance(payload, dict):
+            return False
 
-        payload = json.loads(final_content)
-        return output_format.model_validate(payload)
+        expected_fields = set(self._top_level_fields(output_format))
+        schema_keys = {"properties", "required", "type", "title", "$defs"}
+        payload_keys = set(payload.keys())
+        return "properties" in payload and payload_keys.issubset(schema_keys) and not (payload_keys & expected_fields)
+
+    def _missing_required_fields(self, payload: Any, output_format: Type[BaseModel]) -> list[str]:
+        if not isinstance(payload, dict):
+            return []
+
+        return [
+            field for field in self._required_top_level_fields(output_format)
+            if field not in payload
+        ]
+
+    def _normalize_minimax_value(self, value: Any, annotation: Any) -> tuple[Any, bool, bool]:
+        if value is None:
+            return value, False, False
+
+        origin = get_origin(annotation)
+        if origin in (list,):
+            if not isinstance(value, list):
+                return value, False, False
+
+            args = get_args(annotation)
+            item_annotation = args[0] if args else Any
+            normalized_items = []
+            changed = False
+            stringified_object = False
+            for item in value:
+                normalized_item, item_changed, item_stringified = self._normalize_minimax_value(
+                    item, item_annotation
+                )
+                normalized_items.append(normalized_item)
+                changed = changed or item_changed
+                stringified_object = stringified_object or item_stringified
+            return normalized_items, changed, stringified_object
+
+        if origin in (dict,):
+            return value, False, False
+
+        if origin in (types.UnionType, Union):
+            for candidate in [arg for arg in get_args(annotation) if arg is not type(None)]:
+                normalized_value, changed, stringified_object = self._normalize_minimax_value(
+                    value, candidate
+                )
+                if changed or stringified_object:
+                    return normalized_value, changed, stringified_object
+            return value, False, False
+
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            if isinstance(value, str):
+                try:
+                    decoded_value = json.loads(value)
+                except json.JSONDecodeError:
+                    return value, False, False
+                if not isinstance(decoded_value, dict):
+                    return value, False, False
+                normalized_value, _, _ = self._normalize_minimax_model_payload(decoded_value, annotation)
+                return normalized_value, True, True
+
+            if isinstance(value, dict):
+                return self._normalize_minimax_model_payload(value, annotation)
+
+        return value, False, False
+
+    def _normalize_minimax_model_payload(self, payload: dict,
+                                         model_cls: Type[BaseModel]) -> tuple[dict, bool, bool]:
+        normalized_payload = dict(payload)
+        changed = False
+        stringified_object = False
+
+        for field_name, field_info in model_cls.model_fields.items():
+            if field_name not in normalized_payload:
+                continue
+
+            normalized_value, value_changed, value_stringified = self._normalize_minimax_value(
+                normalized_payload[field_name], field_info.annotation
+            )
+            if value_changed:
+                normalized_payload[field_name] = normalized_value
+                changed = True
+            stringified_object = stringified_object or value_stringified
+
+        return normalized_payload, changed, stringified_object
+
+    def _validate_minimax_payload(self, payload: Any, output_format: Type[BaseModel],
+                                  metrics: dict) -> BaseModel:
+        if self._is_schema_wrapper_payload(payload, output_format):
+            detail = "Model returned a JSON Schema wrapper instead of a response instance."
+            self._record_minimax_failure(metrics, "schema_instead_of_instance", detail)
+            raise MiniMaxResponseValidationError("schema_instead_of_instance", detail, payload)
+
+        missing_fields = self._missing_required_fields(payload, output_format)
+        if missing_fields:
+            detail = f"Missing required top-level fields: {', '.join(missing_fields)}"
+            self._record_minimax_failure(metrics, "missing_required_field", detail)
+            raise MiniMaxResponseValidationError("missing_required_field", detail, payload)
+
+        normalized_payload = payload
+        normalization_changed = False
+        stringified_nested_object = False
+        if isinstance(payload, dict):
+            normalized_payload, normalization_changed, stringified_nested_object = (
+                self._normalize_minimax_model_payload(payload, output_format)
+            )
+
+        if stringified_nested_object:
+            self._record_minimax_failure(
+                metrics,
+                "stringified_nested_object",
+                "Nested JSON objects were wrapped in strings.",
+                recovered_via="normalization",
+            )
+
+        try:
+            parsed_output = output_format.model_validate(normalized_payload)
+        except pydantic_core._pydantic_core.ValidationError as e:
+            classification = "stringified_nested_object" if stringified_nested_object else "validation_error"
+            if classification == "validation_error":
+                self._record_minimax_failure(metrics, classification, str(e))
+            raise MiniMaxResponseValidationError(classification, str(e), normalized_payload) from e
+
+        if normalization_changed:
+            metrics["normalization_successes"] += 1
+            logger.info(
+                "MiniMax normalization succeeded for schema '%s'.",
+                metrics["target_schema"],
+            )
+
+        return parsed_output
+
+    def _content_to_text(self, content: Any) -> str:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            fragments = []
+            for item in content:
+                if isinstance(item, str):
+                    fragments.append(item)
+                    continue
+                if isinstance(item, dict):
+                    if isinstance(item.get("text"), str):
+                        fragments.append(item["text"])
+                        continue
+                    nested_content = item.get("content")
+                    if isinstance(nested_content, str):
+                        fragments.append(nested_content)
+                        continue
+            return "".join(fragments)
+        return str(content)
+
+    def _strip_markdown_fences(self, content: str) -> str:
+        stripped = content.strip()
+        if not stripped.startswith("```"):
+            return stripped
+
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+
+    def _extract_first_json_object(self, content: str) -> str:
+        start = content.find("{")
+        if start == -1:
+            return content
+
+        depth = 0
+        in_string = False
+        escape = False
+
+        for index, char in enumerate(content[start:], start=start):
+            if escape:
+                escape = False
+                continue
+            if char == "\\":
+                escape = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return content[start:index + 1]
+        return content[start:]
+
+    def _parse_minimax_final_content(self, final_content: Any, output_format: Type[BaseModel],
+                                     metrics: dict) -> BaseModel:
+        content_text = self._content_to_text(final_content).strip()
+        if not content_text:
+            detail = "MiniMax returned an empty final response."
+            self._record_minimax_failure(metrics, "empty_response", detail)
+            raise MiniMaxResponseValidationError("empty_response", detail)
+
+        candidates = []
+        for candidate in (
+            content_text,
+            self._strip_markdown_fences(content_text),
+            self._extract_first_json_object(self._strip_markdown_fences(content_text)),
+        ):
+            candidate = candidate.strip()
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+
+        last_error = None
+        normalized_input = any(candidate != content_text for candidate in candidates[1:])
+        for candidate in candidates:
+            try:
+                payload = json.loads(candidate)
+            except json.JSONDecodeError as e:
+                last_error = e
+                continue
+
+            parsed_output = self._validate_minimax_payload(payload, output_format, metrics)
+            if normalized_input:
+                metrics["normalization_successes"] += 1
+                logger.info(
+                    "MiniMax content extraction succeeded for schema '%s'.",
+                    metrics["target_schema"],
+                )
+            return parsed_output
+
+        detail = str(last_error) if last_error else "MiniMax returned invalid JSON."
+        self._record_minimax_failure(metrics, "invalid_json", detail)
+        raise MiniMaxResponseValidationError("invalid_json", detail, content_text)
 
     def chat_llm(
         self,
@@ -1003,6 +1316,7 @@ class MiniMaxChatCompletions(LLM):
             "reasoning_tokens": 0,
             "total_tokens": 0
         }
+        minimax_response_metrics = self._new_minimax_response_metrics(output_format)
 
         if llm_tools:
             while True:
@@ -1016,10 +1330,19 @@ class MiniMaxChatCompletions(LLM):
                     )
                 except openai.BadRequestError as bad_req_err:
                     logger.error(f"Bad request error from LLM: {bad_req_err}")
-                    return None, self._build_llm_data(function_calls_count, token_usage)
+                    return None, self._build_llm_data(
+                        function_calls_count,
+                        token_usage,
+                        minimax_response_metrics,
+                    )
                 except Exception as e:
+                    self._record_minimax_provider_error(minimax_response_metrics, e, "tool_call")
                     logger.error(f"Unexpected error from LLM: {e}")
-                    return None, self._build_llm_data(function_calls_count, token_usage)
+                    return None, self._build_llm_data(
+                        function_calls_count,
+                        token_usage,
+                        minimax_response_metrics,
+                    )
 
                 self._update_token_usage(token_usage, getattr(client_response, "usage", None))
 
@@ -1058,33 +1381,58 @@ class MiniMaxChatCompletions(LLM):
                 )
             except openai.BadRequestError as bad_req_err:
                 logger.error(f"Bad request error from LLM: {bad_req_err}")
-                return None, self._build_llm_data(function_calls_count, token_usage)
+                return None, self._build_llm_data(
+                    function_calls_count,
+                    token_usage,
+                    minimax_response_metrics,
+                )
             except Exception as e:
+                self._record_minimax_provider_error(minimax_response_metrics, e, "final_response")
                 logger.error(f"Unexpected error from LLM: {e}")
-                return None, self._build_llm_data(function_calls_count, token_usage)
+                return None, self._build_llm_data(
+                    function_calls_count,
+                    token_usage,
+                    minimax_response_metrics,
+                )
 
             self._update_token_usage(token_usage, getattr(final_response, "usage", None))
 
             final_content = final_response.choices[0].message.content
             try:
-                parsed_output = self._parse_final_output(final_content, output_format)
+                parsed_output = self._parse_minimax_final_content(
+                    final_content,
+                    output_format,
+                    minimax_response_metrics,
+                )
+                if attempt > 0:
+                    minimax_response_metrics["repair_successes"] += 1
+                    logger.info(
+                        "MiniMax repair succeeded for schema '%s' after %i repair attempt(s).",
+                        minimax_response_metrics["target_schema"],
+                        attempt,
+                    )
                 break
-            except (ValueError, TypeError, json.JSONDecodeError, pydantic_core._pydantic_core.ValidationError) as e:
+            except MiniMaxResponseValidationError as e:
                 if attempt == self._minimax_repair_attempts:
-                    logger.error(f"Failed to parse MiniMax JSON response: {e}")
-                    return None, self._build_llm_data(function_calls_count, token_usage)
+                    logger.error(f"Failed to parse MiniMax JSON response: {e.detail}")
+                    return None, self._build_llm_data(
+                        function_calls_count,
+                        token_usage,
+                        minimax_response_metrics,
+                    )
 
+                minimax_response_metrics["repair_attempts"] += 1
                 repair_messages = repair_messages + [
                     {
                         "role": "assistant",
-                        "content": final_content or "",
+                        "content": self._content_to_text(final_content),
                     },
                     {
                         "role": "user",
                         "content": self._build_repair_prompt(
                             output_format,
-                            final_content or "<empty response>",
-                            str(e),
+                            e.payload,
+                            e.detail,
                         ),
                     },
                 ]
@@ -1094,7 +1442,11 @@ class MiniMaxChatCompletions(LLM):
 
         conversation_history.append({"role": "assistant", "content": str(parsed_output)})
 
-        return parsed_output, self._build_llm_data(function_calls_count, token_usage)
+        return parsed_output, self._build_llm_data(
+            function_calls_count,
+            token_usage,
+            minimax_response_metrics,
+        )
 
 
 class Generable(ABC):

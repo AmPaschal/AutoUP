@@ -1,0 +1,3 @@
+source_file,function_name
+sys/net/application_layer/gcoap/forward_proxy.c,_gcoap_forward_proxy_copy_options
+sys/net/application_layer/dhcpv6/client.c,_parse_advertise

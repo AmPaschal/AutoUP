@@ -7,7 +7,8 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from commons.models import MiniMaxChatCompletions
-from makefile.output_models import HarnessResponse
+from debugger.output_models import ModelOutput
+from makefile.output_models import CoverageDebuggerResponse, HarnessResponse, PreconditionValidatorResponse
 
 
 class FakeResponse:
@@ -148,6 +149,138 @@ class MiniMaxChatCompletionsTests(unittest.TestCase):
         self.assertEqual(repair_turn_messages[-1]["role"], "user")
         self.assertIn("Return ONLY one valid JSON object instance.", repair_turn_messages[-1]["content"])
 
+    def test_prose_wrapped_json_is_extracted_and_parsed(self):
+        minimax = build_minimax()
+        metrics = minimax._new_minimax_response_metrics(HarnessResponse)
+
+        parsed = minimax._parse_minimax_final_content(
+            "Here is the result:\n```json\n{\"analysis\": \"ok\", \"harness_code\": \"void harness(void) {}\"}\n```\nDone.",
+            HarnessResponse,
+            metrics,
+        )
+
+        self.assertEqual(parsed.analysis, "ok")
+        self.assertEqual(metrics["normalization_successes"], 1)
+
+    def test_missing_required_field_triggers_repair(self):
+        minimax = build_minimax()
+        captured_messages = []
+        responses = iter([
+            FakeResponse(json.dumps({
+                "analysis": "missing field",
+                "updated_harness": "void harness(void) {}",
+            })),
+            FakeResponse(json.dumps({
+                "analysis": "fixed",
+                "fix_recomendation": "add field",
+                "updated_harness": "void harness(void) {}",
+            })),
+        ])
+
+        def fake_request(system_messages, messages, **kwargs):
+            captured_messages.append((messages, kwargs))
+            return next(responses)
+
+        minimax._request_completion = fake_request
+
+        parsed, llm_data = minimax.chat_llm(
+            system_messages="system",
+            input_messages="user",
+            output_format=ModelOutput,
+        )
+
+        self.assertEqual(parsed.fix_recomendation, "add field")
+        self.assertEqual(llm_data["minimax_response_metrics"]["repair_attempts"], 1)
+        self.assertEqual(
+            llm_data["minimax_response_metrics"]["malformed_response_counts"]["missing_required_field"],
+            1,
+        )
+        self.assertIn("fix_recomendation", captured_messages[1][0][-1]["content"])
+
+    def test_stringified_validation_result_is_normalized(self):
+        minimax = build_minimax()
+        metrics = minimax._new_minimax_response_metrics(PreconditionValidatorResponse)
+
+        parsed = minimax._parse_minimax_final_content(
+            json.dumps({
+                "preconditions_analyzed": 1,
+                "validation_result": [
+                    json.dumps({
+                        "precondition": "x != NULL",
+                        "parent_function": "foo",
+                        "verdict": "VALID",
+                        "untrusted_input_source": "",
+                        "reasoning": "ok",
+                        "detailed_analysis": "ok",
+                    })
+                ],
+            }),
+            PreconditionValidatorResponse,
+            metrics,
+        )
+
+        self.assertEqual(parsed.preconditions_analyzed, 1)
+        self.assertEqual(parsed.validation_result[0].verdict.value, "VALID")
+        self.assertEqual(
+            metrics["malformed_response_counts"]["stringified_nested_object"],
+            1,
+        )
+
+    def test_schema_wrapper_triggers_repair(self):
+        minimax = build_minimax()
+        captured_messages = []
+        responses = iter([
+            FakeResponse(json.dumps({
+                "type": "object",
+                "properties": {
+                    "analysis": {"type": "string"},
+                    "proposed_modifications": {"type": "string"},
+                },
+                "required": ["analysis", "proposed_modifications"],
+            })),
+            FakeResponse(json.dumps({
+                "analysis": "fixed",
+                "proposed_modifications": "change harness",
+                "updated_harness": "void harness(void) {}",
+            })),
+        ])
+
+        def fake_request(system_messages, messages, **kwargs):
+            captured_messages.append((messages, kwargs))
+            return next(responses)
+
+        minimax._request_completion = fake_request
+
+        parsed, llm_data = minimax.chat_llm(
+            system_messages="system",
+            input_messages="user",
+            output_format=CoverageDebuggerResponse,
+        )
+
+        self.assertEqual(parsed.analysis, "fixed")
+        self.assertEqual(
+            llm_data["minimax_response_metrics"]["malformed_response_counts"]["schema_instead_of_instance"],
+            1,
+        )
+        self.assertIn("instance, not a schema", captured_messages[1][0][-1]["content"])
+
+    def test_empty_response_returns_none_and_records_metrics(self):
+        minimax = build_minimax()
+        minimax._minimax_repair_attempts = 0
+        minimax._request_completion = lambda *args, **kwargs: FakeResponse("")
+
+        parsed, llm_data = minimax.chat_llm(
+            system_messages="system",
+            input_messages="user",
+            output_format=HarnessResponse,
+        )
+
+        self.assertIsNone(parsed)
+        self.assertEqual(
+            llm_data["minimax_response_metrics"]["malformed_response_counts"]["empty_response"],
+            1,
+        )
+
     def test_provider_exception_returns_none_with_stable_llm_data(self):
         minimax = build_minimax()
 
@@ -165,6 +298,7 @@ class MiniMaxChatCompletionsTests(unittest.TestCase):
         self.assertIsNone(parsed)
         self.assertEqual(llm_data["function_call_count"], 0)
         self.assertIn("token_usage", llm_data)
+        self.assertEqual(llm_data["minimax_response_metrics"]["provider_error_count"], 1)
 
     def test_model_prefix_strips_correctly(self):
         minimax = build_minimax()
