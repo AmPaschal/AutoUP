@@ -16,5 +16,4 @@ os/net/ipv6/uipbuf.c,uipbuf_get_next_header
 os/net/ipv6/sicslowpan.c,uncompress_hdr_iphc
 os/net/ipv6/uip-nd6.c,ns_input
 os/net/routing/rpl-classic/rpl-icmp6.c,dao_input_storing
-os/net/ipv6/sicslowpan.c,uncompress_hdr_iphc
 os/net/routing/rpl-classic/rpl-ext-header.c,rpl_ext_header_srh_update
