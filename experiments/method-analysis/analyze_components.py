@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import concurrent.futures
 import importlib.util
 import json
 import re
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +75,18 @@ COLUMN_ORDER = [column_id for column_id, _ in COLUMN_SPECS]
 
 
 def parse_args() -> argparse.Namespace:
+    # Example rerun command in this worktree:
+    # python3 /local/scratch/a/pamusuo/research/autoup-project/AutoUP/experiments/method-analysis/analyze_components.py \
+    #   /local/scratch/a/pamusuo/research/autoup-project/FreeRTOS-Plus-TCP \
+    #   /local/scratch/a/pamusuo/research/autoup-project/FreeRTOS-Plus-TCP/cbmc/exp-0417 \
+    #   /local/scratch/a/pamusuo/research/autoup-project/AutoUP/experiments/artifacts/rq3-freertos-parallel-2026-04-28/freertos-exp0417-4targets.csv \
+    #   /local/scratch/a/pamusuo/research/autoup-project/AutoUP/output-2026-04-17_16-30-08 \
+    #   --config autoup-s1 \
+    #   --mode rerun \
+    #   --timeout 1800 \
+    #   --jobs 4 \
+    #   --tools-sif /local/scratch/a/pamusuo/research/autoup-project/AutoUP/tools.sif \
+    #   --output /local/scratch/a/pamusuo/research/autoup-project/AutoUP/experiments/artifacts/rq3-freertos-parallel-2026-04-28/component-assessment-4targets.csv
     parser = argparse.ArgumentParser(
         description="Analyze stage-wise AutoUP proof artifacts for RQ3."
     )
@@ -105,6 +119,17 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=1800,
         help="Timeout in seconds for rerun mode make invocations (default: 1800)",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="Number of proof directories to process in parallel (default: 1)",
+    )
+    parser.add_argument(
+        "--tools-sif",
+        type=Path,
+        help="Optional Apptainer/Singularity image to use for rerun-mode make executions",
     )
     return parser.parse_args()
 
@@ -162,6 +187,19 @@ def run_command(cmd: list[str], cwd: Path | None = None) -> subprocess.Completed
         text=True,
         cwd=cwd,
     )
+
+
+LOG_LOCK = threading.Lock()
+
+
+def log_event(event: str, proof_dir: Path, stage: str | None = None, **fields: object) -> None:
+    parts = [f"[{event}]", f"proof={proof_dir.as_posix()}"]
+    if stage:
+        parts.append(f"stage={stage}")
+    for key, value in fields.items():
+        parts.append(f"{key}={value}")
+    with LOG_LOCK:
+        print(" ".join(parts), flush=True)
 
 
 def count_code_lines(paths: list[Path]) -> int | None:
@@ -656,6 +694,33 @@ def collect_metrics_from_proof_dir(
     }
 
 
+def run_make_in_tools_sif(
+    proof_dir: Path,
+    repo_root: Path,
+    tools_sif: Path,
+    timeout_s: int,
+) -> subprocess.CompletedProcess[str]:
+    bind_root = repo_root.parent.resolve()
+    command = (
+        f"cd {proof_dir} && "
+        "make clean && "
+        "make -j3"
+    )
+    return run_command(
+        [
+            "apptainer",
+            "exec",
+            "--bind",
+            f"{bind_root}:{bind_root}",
+            str(tools_sif),
+            "bash",
+            "-lc",
+            command,
+        ],
+        cwd=proof_dir,
+    )
+
+
 def rerun_stage_metrics(
     helper: Any,
     repo_root: Path,
@@ -667,14 +732,65 @@ def rerun_stage_metrics(
     harness_path: Path,
     makefile_path: Path,
     timeout_s: int,
+    tools_sif: Path | None,
+    stage_name: str,
 ) -> dict[str, object]:
     temp_proof_dir = copy_proof_tree_for_rerun(proof_dir, stage_order)
-    print(f"[rerun] {temp_proof_dir}")
+    log_event("rerun-prepare", proof_dir, stage=stage_name, temp_dir=temp_proof_dir.as_posix())
     try:
         shutil.copy2(harness_path, temp_proof_dir / f"{target_function}_harness.c")
         shutil.copy2(makefile_path, temp_proof_dir / "Makefile")
         helper.REPO_ROOT = repo_root
-        helper.ensure_build(temp_proof_dir, timeout_s, True)
+        log_event("make-start", proof_dir, stage=stage_name, timeout_s=timeout_s, mode="rerun")
+        if tools_sif is None:
+            build_result = helper.ensure_build(temp_proof_dir, timeout_s, True)
+            if build_result.timed_out:
+                log_event("make-finish", proof_dir, stage=stage_name, status="timeout")
+                raise RuntimeError(f"Rerun timed out for {proof_dir} stage {stage_name}")
+            if not build_result.make_ran or build_result.make_returncode != 0:
+                status = "clean_failed" if not build_result.make_ran else f"make_failed_{build_result.make_returncode}"
+                log_event("make-finish", proof_dir, stage=stage_name, status=status)
+                raise RuntimeError(f"Rerun make failed for {proof_dir} stage {stage_name}")
+            log_event(
+                "make-finish",
+                proof_dir,
+                stage=stage_name,
+                status="ok",
+                seconds=f"{build_result.wall_time_s or 0.0:.2f}",
+            )
+        else:
+            try:
+                proc = subprocess.run(
+                    [
+                        "apptainer",
+                        "exec",
+                        "--bind",
+                        f"{repo_root.parent.resolve()}:{repo_root.parent.resolve()}",
+                        str(tools_sif),
+                        "bash",
+                        "-lc",
+                        f"cd {temp_proof_dir} && make clean && make -j3",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_s,
+                )
+            except subprocess.TimeoutExpired as exc:
+                log_event("make-finish", proof_dir, stage=stage_name, status="timeout")
+                raise RuntimeError(
+                    f"Containerized rerun timed out for {proof_dir} stage {stage_name}"
+                ) from exc
+            if proc.returncode != 0:
+                log_event("make-finish", proof_dir, stage=stage_name, status=f"make_failed_{proc.returncode}")
+                stderr_tail = (proc.stderr or "").strip()[-800:]
+                stdout_tail = (proc.stdout or "").strip()[-800:]
+                raise RuntimeError(
+                    "Containerized rerun failed for "
+                    f"{proof_dir} stage {stage_name}\nstdout:\n{stdout_tail}\n\nstderr:\n{stderr_tail}"
+                )
+            log_event("make-finish", proof_dir, stage=stage_name, status="ok")
+        log_event("result-start", proof_dir, stage=stage_name)
         result = collect_metrics_from_proof_dir(
             helper,
             repo_root,
@@ -686,6 +802,7 @@ def rerun_stage_metrics(
         precondition_violations = helper.count_precondition_violations(proof_dir)
         if precondition_violations is not None:
             result["precondition_violations"] = precondition_violations if stage_order == 3 else 0
+        log_event("result-finish", proof_dir, stage=stage_name, status="ok")
         return result
     finally:
         shutil.rmtree(temp_proof_dir, ignore_errors=True)
@@ -927,69 +1044,51 @@ def write_csv(rows: list[dict[str, object]], output_path: Path) -> None:
             writer.writerow({COLUMN_LABELS[column]: row.get(column, "") for column in COLUMN_ORDER})
 
 
-def main() -> int:
-    args = parse_args()
-    helper = load_analyze_experiment_module()
-    repo_root = args.repo_root.resolve()
-    experiment_dir = args.experiment_dir.resolve()
-    experiment_csv = args.experiment_csv.resolve()
-    autoup_output_dir = args.autoup_output_dir.resolve()
-
-    if not repo_root.is_dir():
-        print(f"Repository root not found: {repo_root}", file=sys.stderr)
-        return 1
-    if not experiment_dir.is_dir():
-        print(f"Experiment directory not found: {experiment_dir}", file=sys.stderr)
-        return 1
-    if not experiment_csv.is_file():
-        print(f"Experiment CSV not found: {experiment_csv}", file=sys.stderr)
-        return 1
-    if not autoup_output_dir.is_dir():
-        print(f"AutoUP output directory not found: {autoup_output_dir}", file=sys.stderr)
-        return 1
-
-    helper.REPO_ROOT = repo_root
-    try:
-        targets = helper.read_experiment_targets(experiment_csv)
-    except ValueError as exc:
-        print(f"[error] targets: {exc}", file=sys.stderr)
-        return 1
-
-    output_path = args.output.resolve() if args.output else experiment_dir / "component-assessment.csv"
+def process_target(
+    helper: Any,
+    repo_root: Path,
+    experiment_dir: Path,
+    autoup_output_dir: Path,
+    config: str,
+    mode: str,
+    timeout_s: int,
+    tools_sif: Path | None,
+    target_index: int,
+    target_file: str,
+    target_function: str,
+) -> list[dict[str, object]]:
+    proof_dir, proof_relpath = helper.resolve_proof_dir(experiment_dir, target_file, target_function)
+    software = helper.infer_software_name(target_file)
+    log_event("proof-start", proof_dir, target=target_function, index=target_index)
     rows: list[dict[str, object]] = []
-
-    for target_file, target_function in targets:
-        proof_dir, proof_relpath = helper.resolve_proof_dir(experiment_dir, target_file, target_function)
-        software = helper.infer_software_name(target_file)
-        print(f"[proof] {proof_dir}")
+    try:
         stage_defs = build_stage_definitions(proof_dir, target_function)
         metrics_records = helper.load_metrics_records(autoup_output_dir, target_file, target_function)
         stage_dev = extract_stage_development_metrics(helper, metrics_records, stage_defs)
         log_path = autoup_output_dir / f"{Path(target_file).stem}-{target_function}.log"
 
-        final_stage_order = 0
         for stage_info in stage_defs:
-            if stage_info["snapshot_present"]:
-                final_stage_order = stage_info["stage_order"]
-
-        for stage_info in stage_defs:
-            print(
-                f"[stage] {stage_info['stage']} "
-                f"tag={stage_info['snapshot_tag'] or 'none'} "
-                f"present={stage_info['snapshot_present']}"
+            stage_name = str(stage_info["stage"])
+            log_event(
+                "stage-start",
+                proof_dir,
+                stage=stage_name,
+                snapshot_tag=stage_info["snapshot_tag"] or "none",
+                snapshot_present=stage_info["snapshot_present"],
             )
             row = initialize_row(
                 software=software,
-                config=args.config,
+                config=config,
                 tag=experiment_dir.name,
                 source_file=target_file,
                 target_function=target_function,
                 proof_relpath=proof_relpath,
                 stage_order=stage_info["stage_order"],
-                stage=stage_info["stage"],
+                stage=stage_name,
                 snapshot_tag=stage_info["snapshot_tag"],
                 snapshot_present=stage_info["snapshot_present"],
             )
+            row["_target_index"] = target_index
 
             dev_metrics = stage_dev.get(stage_info["stage_order"], {})
             row["development_time"] = format_optional_float(
@@ -998,12 +1097,14 @@ def main() -> int:
             row["api_cost"] = format_optional_float(dev_metrics.get("api_cost"), digits=4)
 
             if not proof_dir.is_dir() or not stage_info["snapshot_present"]:
+                log_event("stage-finish", proof_dir, stage=stage_name, status="skipped")
                 rows.append(row)
                 continue
 
             harness_path = stage_info["harness_path"]
             makefile_path = stage_info["makefile_path"]
             if harness_path is None or makefile_path is None:
+                log_event("stage-finish", proof_dir, stage=stage_name, status="missing_paths")
                 rows.append(row)
                 continue
 
@@ -1018,7 +1119,7 @@ def main() -> int:
                 )
             )
 
-            if args.mode == "rerun":
+            if mode == "rerun":
                 row.update(
                     rerun_stage_metrics(
                         helper,
@@ -1030,7 +1131,9 @@ def main() -> int:
                         stage_info["stage_order"],
                         harness_path,
                         makefile_path,
-                        args.timeout,
+                        timeout_s,
+                        tools_sif,
+                        stage_name,
                     )
                 )
             else:
@@ -1044,7 +1147,83 @@ def main() -> int:
                     )
                 )
 
+            log_event("stage-finish", proof_dir, stage=stage_name, status="ok")
             rows.append(row)
+
+        log_event("proof-finish", proof_dir, status="success")
+        return rows
+    except Exception as exc:
+        log_event("proof-finish", proof_dir, status="error", error=type(exc).__name__)
+        raise
+
+
+def main() -> int:
+    args = parse_args()
+    helper = load_analyze_experiment_module()
+    repo_root = args.repo_root.resolve()
+    experiment_dir = args.experiment_dir.resolve()
+    experiment_csv = args.experiment_csv.resolve()
+    autoup_output_dir = args.autoup_output_dir.resolve()
+    tools_sif = args.tools_sif.resolve() if args.tools_sif else None
+
+    if not repo_root.is_dir():
+        print(f"Repository root not found: {repo_root}", file=sys.stderr)
+        return 1
+    if not experiment_dir.is_dir():
+        print(f"Experiment directory not found: {experiment_dir}", file=sys.stderr)
+        return 1
+    if not experiment_csv.is_file():
+        print(f"Experiment CSV not found: {experiment_csv}", file=sys.stderr)
+        return 1
+    if not autoup_output_dir.is_dir():
+        print(f"AutoUP output directory not found: {autoup_output_dir}", file=sys.stderr)
+        return 1
+    if tools_sif is not None and not tools_sif.is_file():
+        print(f"tools.sif not found: {tools_sif}", file=sys.stderr)
+        return 1
+    if args.jobs < 1:
+        print("--jobs must be >= 1", file=sys.stderr)
+        return 1
+
+    helper.REPO_ROOT = repo_root
+    try:
+        targets = helper.read_experiment_targets(experiment_csv)
+    except ValueError as exc:
+        print(f"[error] targets: {exc}", file=sys.stderr)
+        return 1
+
+    output_path = args.output.resolve() if args.output else experiment_dir / "component-assessment.csv"
+    rows: list[dict[str, object]] = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
+        futures = [
+            executor.submit(
+                process_target,
+                helper,
+                repo_root,
+                experiment_dir,
+                autoup_output_dir,
+                args.config,
+                args.mode,
+                args.timeout,
+                tools_sif,
+                index,
+                target_file,
+                target_function,
+            )
+            for index, (target_file, target_function) in enumerate(targets)
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            rows.extend(future.result())
+
+    rows.sort(
+        key=lambda row: (
+            int(row.get("_target_index", 0)),
+            int(row.get("stage_order", 0) or 0),
+        )
+    )
+    for row in rows:
+        row.pop("_target_index", None)
 
     write_csv(rows, output_path)
     print(f"[done] wrote {output_path}")

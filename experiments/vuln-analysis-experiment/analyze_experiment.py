@@ -154,6 +154,14 @@ class FunctionInfo:
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for a single experiment analysis run."""
+    # Example rerun command in this worktree:
+    # python3 /local/scratch/a/pamusuo/research/autoup-project/AutoUP/experiments/vuln-analysis-experiment/analyze_experiment.py \
+    #   /local/scratch/a/pamusuo/research/autoup-project/FreeRTOS-Plus-TCP \
+    #   /local/scratch/a/pamusuo/research/autoup-project/FreeRTOS-Plus-TCP/cbmc/exp-0417 \
+    #   /local/scratch/a/pamusuo/research/autoup-project/AutoUP/experiments/artifacts/rq3-freertos-parallel-2026-04-28/freertos-exp0417-4targets.csv \
+    #   --config autoup-s1 \
+    #   --experiment-output-dir /local/scratch/a/pamusuo/research/autoup-project/AutoUP/output-2026-04-17_16-30-08 \
+    #   --output /local/scratch/a/pamusuo/research/autoup-project/AutoUP/experiments/artifacts/rq3-freertos-parallel-2026-04-28/target-assessment-4targets.csv
     parser = argparse.ArgumentParser(
         description="Analyze CBMC experiment outputs and emit an RQ1-aligned CSV."
     )

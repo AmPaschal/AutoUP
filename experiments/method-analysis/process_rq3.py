@@ -70,9 +70,6 @@ COST_SUMMARY_COLUMNS = [
     "Mean",
     "Median",
 ]
-SECONDS_PER_MINUTE = 60.0
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate RQ3 stage-contribution artifacts from analyze_components output."
@@ -216,7 +213,6 @@ def summarize_stage_rows(rows: list[dict[str, str]]) -> list[dict[str, object]]:
 
     summary_rows: list[dict[str, object]] = []
     for stage_num, stage_rows in by_stage.items():
-        development_time = mean_numeric(stage_rows, "Development Time")
         summary_rows.append(
             {
                 "Stage Order": stage_num,
@@ -240,9 +236,7 @@ def summarize_stage_rows(rows: list[dict[str, str]]) -> list[dict[str, object]]:
                 "Property Violations": mean_numeric(stage_rows, "Property Violations"),
                 "Precondition Violations": mean_numeric(stage_rows, "Precondition Violations"),
                 "Verification Time": mean_numeric(stage_rows, "Verification Time"),
-                "Development Time": development_time / SECONDS_PER_MINUTE
-                if development_time is not None
-                else None,
+                "Development Time": mean_numeric(stage_rows, "Development Time"),
                 "API Cost": mean_numeric(stage_rows, "API Cost"),
             }
         )
@@ -367,7 +361,7 @@ def collect_stage_distributions(
         stage_rows = [row for row in rows if parse_float(row.get("Stage Order")) == float(stage_num)]
         time_groups.append(
             [
-                value / SECONDS_PER_MINUTE
+                value
                 for value in (parse_float(row.get("Development Time")) for row in stage_rows)
                 if value is not None
             ]
@@ -395,7 +389,7 @@ def collect_stage_distributions(
             bucket["cost_seen"] += 1.0
 
     total_times = [
-        item["Development Time"] / SECONDS_PER_MINUTE
+        item["Development Time"]
         for item in totals_by_target.values()
         if item["time_seen"] > 0.0
     ]
