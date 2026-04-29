@@ -118,12 +118,14 @@ def normalize_key(value: Any) -> str:
 
 
 def dedupe_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Keep only the last row for each target/config pair while preserving order."""
-    deduped: OrderedDict[tuple[str, str], dict[str, str]] = OrderedDict()
+    """Keep only the last row for each config/software/target/source tuple."""
+    deduped: OrderedDict[tuple[str, str, str, str], dict[str, str]] = OrderedDict()
     for row in rows:
         key = (
-            normalize_key(row.get("Target Function")),
             normalize_key(row.get("Config")),
+            normalize_key(row.get("Software")),
+            normalize_key(row.get("Target Function")),
+            normalize_key(row.get("Source File")),
         )
         deduped[key] = row
     return list(deduped.values())
