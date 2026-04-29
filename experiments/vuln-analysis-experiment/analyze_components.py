@@ -8,7 +8,9 @@ import csv
 import concurrent.futures
 import importlib.util
 import json
+import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -45,6 +47,9 @@ COLUMN_SPECS = [
     ("verification_completes", "Verification Completes"),
     ("verification_time", "Verification Time"),
     ("verification_succeeds", "Verification Succeeds"),
+    ("total_memory_safety_properties", "Total Memory-Safety Properties"),
+    ("verified_memory_safety_properties", "Verified Memory-Safety Properties"),
+    ("verified_memory_safety_properties_pct", "Verified Memory-Safety Properties %"),
     ("property_violations", "Property Violations"),
     ("precondition_violations", "Precondition Violations"),
     ("source_files_in_scope", "Source Files In Scope"),
@@ -68,7 +73,8 @@ COLUMN_SPECS = [
     ("precondition_count", "Precondition Count"),
     ("function_model_count", "Function Model Count"),
     ("function_model_avg_loc", "Function Model Avg LOC"),
-    ("harness_symbol_count", "Harness Symbol Count"),
+    ("harness_symbol_variable_count", "Harness Symbol Variable Count"),
+    ("proof_side_symbol_variable_count", "Proof-Side Symbol Variable Count"),
 ]
 COLUMN_LABELS = dict(COLUMN_SPECS)
 COLUMN_ORDER = [column_id for column_id, _ in COLUMN_SPECS]
@@ -186,6 +192,21 @@ def run_command(cmd: list[str], cwd: Path | None = None) -> subprocess.Completed
         capture_output=True,
         text=True,
         cwd=cwd,
+    )
+
+
+def run_command_with_timeout(
+    cmd: list[str],
+    cwd: Path | None = None,
+    timeout: int | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+        timeout=timeout,
     )
 
 
@@ -589,7 +610,8 @@ def compute_snapshot_metrics(
         "function_model_avg_loc": format_optional_float(function_model_avg_loc),
         "harness_size_loc": none_to_blank(harness_size_loc),
         "proof_size_loc": none_to_blank(proof_size_loc),
-        "harness_symbol_count": "",
+        "harness_symbol_variable_count": "",
+        "proof_side_symbol_variable_count": "",
     }
 
 
@@ -607,6 +629,50 @@ def copy_proof_tree_for_rerun(proof_dir: Path, stage_order: int) -> Path:
 
     shutil.copytree(proof_dir, tmp_dir, ignore=ignore)
     return tmp_dir
+
+
+def rerun_make_in_tools_sif(
+    repo_root: Path,
+    proof_dir: Path,
+    tools_sif: Path,
+    timeout_s: int,
+) -> None:
+    """Run `make clean` and `make -j3` inside an Apptainer tools image."""
+    bind_root = repo_root.resolve()
+    proof_dir = proof_dir.resolve()
+    tools_sif = tools_sif.resolve()
+    if not tools_sif.is_file():
+        raise FileNotFoundError(f"tools.sif not found: {tools_sif}")
+
+    quoted_proof_dir = shlex.quote(str(proof_dir))
+    inner_command = (
+        f"cd {quoted_proof_dir} && "
+        "make clean && "
+        "make -j3"
+    )
+    cmd = [
+        "apptainer",
+        "exec",
+        "--bind",
+        f"{bind_root}:{bind_root}",
+        "--pwd",
+        str(proof_dir),
+        str(tools_sif),
+        "bash",
+        "-lc",
+        inner_command,
+    ]
+    try:
+        proc = run_command_with_timeout(cmd, timeout=timeout_s)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Rerun timed out after {timeout_s}s in tools.sif for {proof_dir}"
+        ) from exc
+    if proc.returncode != 0:
+        stderr = proc.stderr.strip()
+        stdout = proc.stdout.strip()
+        detail = stderr or stdout or f"exit code {proc.returncode}"
+        raise RuntimeError(f"Rerun make failed in tools.sif for {proof_dir}: {detail}")
 
 
 def collect_metrics_from_proof_dir(
@@ -643,6 +709,15 @@ def collect_metrics_from_proof_dir(
     )
     verification_time = helper.parse_verification_time_with_fallback(viewer_result_json, cbmc_root)
     verification_succeeds = helper.verification_succeeds(viewer_result_json, viewer_property_json)
+    (
+        total_memory_safety_properties,
+        _total_memory_safety_properties_by_class,
+        verified_memory_safety_properties,
+        _verified_memory_safety_properties_by_class,
+        verified_memory_safety_properties_pct,
+        _total_memory_safety_property_lines,
+        _verified_memory_safety_property_lines,
+    ) = helper.memory_safety_property_metrics(viewer_result_json, viewer_property_json)
     property_violations = helper.count_reported_error_sites(viewer_result_json, viewer_property_json)
     precondition_violations = helper.count_precondition_violations(proof_dir)
     source_files_in_scope, functions_in_scope = helper.aggregate_scope_metrics(reachable_json, proof_prefixes)
@@ -665,18 +740,27 @@ def collect_metrics_from_proof_dir(
         target_function_covered_line_count,
         target_function_line_coverage_pct,
     ) = helper.aggregate_target_function_coverage(coverage_json, proof_prefixes, target_function)
-    harness_symbol_count = count_harness_symbols(
-        helper,
-        experiment_dir,
+    (
+        harness_symbol_variable_count,
+        proof_side_symbol_variable_count,
+    ) = helper.collect_symbol_variable_metrics(
         proof_dir,
+        experiment_dir,
         target_function,
         symbol_json,
+        coverage_json,
+        reachable_json,
     )
 
     return {
         "verification_completes": verification_completes,
         "verification_time": format_optional_float(verification_time),
         "verification_succeeds": none_to_blank(verification_succeeds),
+        "total_memory_safety_properties": none_to_blank(total_memory_safety_properties),
+        "verified_memory_safety_properties": none_to_blank(verified_memory_safety_properties),
+        "verified_memory_safety_properties_pct": format_optional_float(
+            verified_memory_safety_properties_pct
+        ),
         "property_violations": none_to_blank(property_violations),
         "precondition_violations": none_to_blank(precondition_violations),
         "source_files_in_scope": none_to_blank(source_files_in_scope),
@@ -690,8 +774,10 @@ def collect_metrics_from_proof_dir(
         "overall_reachable_line_count": none_to_blank(overall_reachable_line_count),
         "overall_covered_line_count": none_to_blank(overall_covered_line_count),
         "overall_line_coverage_pct": format_optional_float(overall_line_coverage_pct),
-        "harness_symbol_count": none_to_blank(harness_symbol_count),
+        "harness_symbol_variable_count": none_to_blank(harness_symbol_variable_count),
+        "proof_side_symbol_variable_count": none_to_blank(proof_side_symbol_variable_count),
     }
+
 
 
 def run_make_in_tools_sif(

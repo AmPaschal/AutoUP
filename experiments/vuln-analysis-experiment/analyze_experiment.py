@@ -14,6 +14,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,16 @@ COLUMN_SPECS = [
     ("overall_reachable_line_count", "Overall Reachable Line Count"),
     ("overall_covered_line_count", "Overall Covered Line Count"),
     ("overall_line_coverage_pct", "Overall Line Coverage %"),
+    ("total_memory_safety_properties", "Total Memory-Safety Properties"),
+    ("total_memory_safety_properties_by_class", "Total Memory-Safety Properties By Class"),
+    ("verified_memory_safety_properties", "Verified Memory-Safety Properties"),
+    ("verified_memory_safety_properties_by_class", "Verified Memory-Safety Properties By Class"),
+    ("verified_memory_safety_properties_pct", "Verified Memory-Safety Properties %"),
+    ("total_memory_safety_property_lines", "Total Memory-Safety Property Lines"),
+    ("verified_memory_safety_property_lines", "Verified Memory-Safety Property Lines"),
+    ("vulnerability_report_count", "Vulnerability Report Count"),
+    ("violated_memory_safety_property_lines", "Violated Memory-Safety Property Lines"),
+    ("reported_vulnerabilities", "Reported Vulnerabilities"),
     ("property_violations", "Property Violations"),
     ("precondition_violations", "Precondition Violations"),
     ("generation_time", "Generation Time"),
@@ -64,6 +75,8 @@ COLUMN_SPECS = [
     ("loop_unwind_max", "Loop Unwind Max"),
     ("model_used_variable_count", "Model Used Variable Count"),
     ("assumption_variable_count", "Assumption Variable Count"),
+    ("harness_symbol_variable_count", "Harness Symbol Variable Count"),
+    ("proof_side_symbol_variable_count", "Proof-Side Symbol Variable Count"),
     ("function_model_count", "Function Model Count"),
     ("function_model_avg_loc", "Function Model Avg LOC"),
 ]
@@ -127,6 +140,7 @@ RUNTIME_MESSAGE_RE = re.compile(
     r"(?P<value>[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*(?:s|sec(?:onds?)?)?\b",
     re.IGNORECASE,
 )
+SYMBOL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_]\w*$")
 
 
 @dataclass
@@ -1184,6 +1198,132 @@ def is_excluded_error_property(property_id: str, property_info: dict | None) -> 
     return prop_class == "unwinding assertion" or "unwinding assertion" in description
 
 
+def memory_safety_properties(viewer_property_json: dict | None) -> dict[str, dict[str, Any]]:
+    """Return counted property classes, excluding only no-body and unwind assertions."""
+    if not viewer_property_json:
+        return {}
+
+    properties = viewer_property_json.get("viewer-property", {}).get("properties", {})
+    if not isinstance(properties, dict):
+        return {}
+
+    result: dict[str, dict[str, Any]] = {}
+    for property_id, property_info in properties.items():
+        if not isinstance(property_info, dict):
+            continue
+        if is_excluded_error_property(property_id, property_info):
+            continue
+        result[property_id] = property_info
+    return result
+
+
+def count_properties_by_class(properties: dict[str, dict[str, Any]]) -> dict[str, int]:
+    """Count properties by their normalized class label."""
+    counts = Counter(
+        str(property_info.get("class", "")).strip().lower() or "<unknown>"
+        for property_info in properties.values()
+    )
+    return dict(sorted(counts.items()))
+
+
+def property_line_key(property_id: str, property_info: dict[str, Any]) -> tuple[str, str]:
+    """Return a deduplication key keyed by source file and line when available."""
+    location = property_info.get("location")
+    if isinstance(location, dict):
+        file_name = norm_viewer_path(str(location.get("file", "")))
+        line = str(location.get("line", "")).strip()
+        if file_name and line:
+            return file_name, line
+    return "<unknown>", property_id
+
+
+def memory_safety_property_metrics(
+    viewer_result_json: dict | None,
+    viewer_property_json: dict | None,
+) -> tuple[
+    int | None,
+    dict[str, int] | None,
+    int | None,
+    dict[str, int] | None,
+    float | None,
+    int | None,
+    int | None,
+]:
+    """Compute total/verified memory-safety properties and line-deduplicated counts."""
+    properties = memory_safety_properties(viewer_property_json)
+    if not properties:
+        return None, None, None, None, None, None, None
+
+    total_count = len(properties)
+    total_by_class = count_properties_by_class(properties)
+    line_to_properties: dict[tuple[str, str], set[str]] = {}
+    for property_id, info in properties.items():
+        line_to_properties.setdefault(property_line_key(property_id, info), set()).add(property_id)
+    total_lines = len(line_to_properties)
+
+    if not viewer_result_json:
+        return total_count, total_by_class, None, None, None, total_lines, None
+
+    true_properties = (
+        viewer_result_json.get("viewer-result", {})
+        .get("results", {})
+        .get("true", [])
+    )
+    if not isinstance(true_properties, list):
+        true_properties = []
+    true_property_ids = {property_id for property_id in true_properties if isinstance(property_id, str)}
+
+    verified_ids = [property_id for property_id in properties if property_id in true_property_ids]
+    verified_count = len(verified_ids)
+    verified_by_class = count_properties_by_class(
+        {property_id: properties[property_id] for property_id in verified_ids}
+    )
+    verified_lines = sum(
+        1 for property_ids in line_to_properties.values()
+        if property_ids and property_ids.issubset(true_property_ids)
+    )
+    verified_pct = (verified_count / total_count) * 100.0 if total_count else None
+    return (
+        total_count,
+        total_by_class,
+        verified_count,
+        verified_by_class,
+        verified_pct,
+        total_lines,
+        verified_lines,
+    )
+
+
+def count_violated_memory_safety_property_lines(
+    viewer_result_json: dict | None,
+    viewer_property_json: dict | None,
+) -> int | None:
+    """Count failing memory-safety properties deduplicated by source line."""
+    properties = memory_safety_properties(viewer_property_json)
+    if not properties or not viewer_result_json:
+        return None
+
+    false_properties = (
+        viewer_result_json.get("viewer-result", {})
+        .get("results", {})
+        .get("false", [])
+    )
+    if not isinstance(false_properties, list):
+        return None
+
+    violated_lines: set[tuple[str, str]] = set()
+    fallback_count = 0
+    for property_id in false_properties:
+        if not isinstance(property_id, str) or property_id not in properties:
+            continue
+        line_key = property_line_key(property_id, properties[property_id])
+        if line_key == ("<unknown>", property_id):
+            fallback_count += 1
+            continue
+        violated_lines.add(line_key)
+    return len(violated_lines) + fallback_count
+
+
 def count_reported_error_sites(
     viewer_result_json: dict | None,
     viewer_property_json: dict | None,
@@ -1261,6 +1401,18 @@ def aggregate_scope_metrics(
     return source_files, functions
 
 
+def is_covered_status(value: Any) -> bool:
+    """Treat both `hit` and `both` line states as covered."""
+    return str(value).strip().lower() in {"hit", "both", "covered", "1", "true"}
+
+
+def count_covered_lines(line_statuses: dict[str, Any] | None) -> int:
+    """Count covered lines in a per-function cbmc-viewer coverage map."""
+    if not isinstance(line_statuses, dict):
+        return 0
+    return sum(1 for status in line_statuses.values() if is_covered_status(status))
+
+
 def aggregate_coverage_metrics(
     coverage_json: dict | None,
     proof_prefixes: str | tuple[str, ...] | list[str],
@@ -1269,6 +1421,9 @@ def aggregate_coverage_metrics(
     if not coverage_json:
         return None, None, None, None, None, None, None
 
+    coverage = coverage_json.get("viewer-coverage", {}).get("coverage", {})
+    if not isinstance(coverage, dict):
+        coverage = {}
     function_coverage = coverage_json.get("viewer-coverage", {}).get("function_coverage", {})
     reachable_line_count = 0
     covered_line_count = 0
@@ -1282,7 +1437,11 @@ def aggregate_coverage_metrics(
         generated = is_generated_file(file_name)
         for function_name, metrics in functions.items():
             total = int(metrics.get("total", 0))
-            hit = int(metrics.get("hit", 0))
+            file_coverage = coverage.get(file_name, {})
+            if not isinstance(file_coverage, dict):
+                file_coverage = {}
+            function_lines = file_coverage.get(function_name, {})
+            covered = count_covered_lines(function_lines)
             if proof_side:
                 if not is_excluded_model_file(file_name):
                     proof_size_loc += total
@@ -1293,7 +1452,7 @@ def aggregate_coverage_metrics(
                     model_line_totals.append(total)
             elif not generated:
                 reachable_line_count += total
-                covered_line_count += hit
+                covered_line_count += covered
 
     line_coverage_pct = None
     if reachable_line_count:
@@ -1321,14 +1480,21 @@ def aggregate_overall_coverage(
     if not coverage_json:
         return None, None, None
 
+    coverage = coverage_json.get("viewer-coverage", {}).get("coverage", {})
+    if not isinstance(coverage, dict):
+        coverage = {}
     function_coverage = coverage_json.get("viewer-coverage", {}).get("function_coverage", {})
     reachable_line_count = 0
     covered_line_count = 0
 
-    for functions in function_coverage.values():
-        for metrics in functions.values():
+    for file_name, functions in function_coverage.items():
+        for function_name, metrics in functions.items():
             reachable_line_count += int(metrics.get("total", 0))
-            covered_line_count += int(metrics.get("hit", 0))
+            file_coverage = coverage.get(file_name, {})
+            if not isinstance(file_coverage, dict):
+                file_coverage = {}
+            function_lines = file_coverage.get(function_name, {})
+            covered_line_count += count_covered_lines(function_lines)
 
     if reachable_line_count == 0:
         return None, None, None
@@ -1349,6 +1515,9 @@ def aggregate_target_function_coverage(
     if not coverage_json:
         return None, None, None
 
+    coverage = coverage_json.get("viewer-coverage", {}).get("coverage", {})
+    if not isinstance(coverage, dict):
+        coverage = {}
     function_coverage = coverage_json.get("viewer-coverage", {}).get("function_coverage", {})
     reachable_line_count = 0
     covered_line_count = 0
@@ -1360,7 +1529,11 @@ def aggregate_target_function_coverage(
         if not metrics:
             continue
         reachable_line_count += int(metrics.get("total", 0))
-        covered_line_count += int(metrics.get("hit", 0))
+        file_coverage = coverage.get(file_name, {})
+        if not isinstance(file_coverage, dict):
+            file_coverage = {}
+        function_lines = file_coverage.get(target_function, {})
+        covered_line_count += count_covered_lines(function_lines)
 
     if reachable_line_count == 0:
         return None, None, None
@@ -1385,6 +1558,146 @@ def collect_variable_metrics(proof_dir: Path, entry: str) -> tuple[int | None, i
 
     model_vars, assumption_vars = extract_harness_program_variables(harness, entry)
     return len(model_vars), len(assumption_vars)
+
+
+def report_functions_by_file(
+    coverage_json: dict | None,
+    reachable_json: dict | None,
+) -> dict[str, set[str]]:
+    """Return the set of reported function names for each viewer file path."""
+    result: dict[str, set[str]] = {}
+
+    if coverage_json:
+        function_coverage = coverage_json.get("viewer-coverage", {}).get("function_coverage", {})
+        if isinstance(function_coverage, dict):
+            for file_name, functions in function_coverage.items():
+                if not isinstance(functions, dict):
+                    continue
+                result[norm_viewer_path(str(file_name))] = set(functions.keys())
+
+    if reachable_json:
+        reachable = reachable_json.get("viewer-reachable", {}).get("reachable", {})
+        if isinstance(reachable, dict):
+            for file_name, functions in reachable.items():
+                if not isinstance(functions, list):
+                    continue
+                normalized = norm_viewer_path(str(file_name))
+                result.setdefault(normalized, set()).update(
+                    str(function_name)
+                    for function_name in functions
+                    if isinstance(function_name, str)
+                )
+
+    return result
+
+
+def canonicalize_variable_symbol_name(
+    symbol_name: str,
+    function_names: set[str],
+) -> str | None:
+    """Reduce a viewer-symbol identifier to a stable variable-like name."""
+    name = symbol_name.strip()
+    if not name:
+        return None
+    if name.startswith(("#anon#", "__CPROVER", "__builtin_")):
+        return None
+    if "::$tmp::" in name:
+        return None
+    if name in function_names:
+        return None
+
+    if "::" in name:
+        function_name, remainder = name.split("::", 1)
+        if function_name in function_names:
+            remainder = re.sub(r"^\d+::", "", remainder)
+            remainder = re.sub(r"\$\d+$", "", remainder)
+            if not remainder or remainder in function_names:
+                return None
+            return f"{function_name}::{remainder}"
+
+    if not SYMBOL_IDENTIFIER_RE.fullmatch(name):
+        return None
+    return name
+
+
+def count_symbol_variables_for_files(
+    symbol_json: dict | None,
+    source_files: list[Path],
+    experiment_dir: Path,
+    coverage_json: dict | None,
+    reachable_json: dict | None,
+) -> int | None:
+    """Count source-level variable symbols attached to the selected proof-side files."""
+    if not symbol_json or not source_files:
+        return None
+
+    symbols = symbol_json.get("viewer-symbol", {}).get("symbols", {})
+    if not isinstance(symbols, dict):
+        return None
+
+    reported_functions = report_functions_by_file(coverage_json, reachable_json)
+    file_candidates: dict[str, set[str]] = {}
+    function_names_by_path: dict[str, set[str]] = {}
+    for path in source_files:
+        path_key = str(path)
+        candidates = set(viewer_path_candidates(path, experiment_dir))
+        file_candidates[path_key] = candidates
+        function_names: set[str] = set()
+        for candidate in candidates:
+            function_names.update(reported_functions.get(norm_viewer_path(candidate), set()))
+        function_names_by_path[path_key] = function_names
+
+    counted: set[tuple[str, str]] = set()
+    for symbol_name, details in symbols.items():
+        if not isinstance(details, dict):
+            continue
+        file_name = str(details.get("file", "")).strip()
+        if not file_name:
+            continue
+        matched_path: str | None = None
+        for path_str, candidates in file_candidates.items():
+            if any(path_matches_suffix(file_name, candidate) for candidate in candidates):
+                matched_path = path_str
+                break
+        if matched_path is None:
+            continue
+
+        canonical_name = canonicalize_variable_symbol_name(
+            str(symbol_name),
+            function_names_by_path.get(matched_path, set()),
+        )
+        if canonical_name is None:
+            continue
+        counted.add((matched_path, canonical_name))
+
+    return len(counted)
+
+
+def collect_symbol_variable_metrics(
+    proof_dir: Path,
+    experiment_dir: Path,
+    entry: str,
+    symbol_json: dict | None,
+    coverage_json: dict | None,
+    reachable_json: dict | None,
+) -> tuple[int | None, int | None]:
+    """Count variable symbols in the harness and across all proof-side source files."""
+    harness_path = proof_dir / f"{entry}_harness.c"
+    harness_count = count_symbol_variables_for_files(
+        symbol_json,
+        [harness_path] if harness_path.is_file() else [],
+        experiment_dir,
+        coverage_json,
+        reachable_json,
+    )
+    proof_side_count = count_symbol_variables_for_files(
+        symbol_json,
+        list_proof_source_files(proof_dir),
+        experiment_dir,
+        coverage_json,
+        reachable_json,
+    )
+    return harness_count, proof_side_count
 
 
 def read_experiment_targets(csv_path: Path) -> list[tuple[str, str]]:
@@ -1509,16 +1822,6 @@ def recompute_api_cost(metrics_records: list[dict[str, Any]]) -> str:
     if not metrics_records:
         return ""
 
-    for entry in metrics_records:
-        costs = entry.get("costs")
-        if not isinstance(costs, dict):
-            continue
-        total_cost = costs.get("total_cost")
-        try:
-            return f"{float(total_cost):.4f}"
-        except (TypeError, ValueError):
-            continue
-
     prices = load_model_pricing()
     total_cost = 0.0
     saw_task_attempt = False
@@ -1550,6 +1853,15 @@ def recompute_api_cost(metrics_records: list[dict[str, Any]]) -> str:
         )
 
     if not saw_task_attempt:
+        for entry in metrics_records:
+            costs = entry.get("costs")
+            if not isinstance(costs, dict):
+                continue
+            total_cost = costs.get("total_cost")
+            try:
+                return f"{float(total_cost):.4f}"
+            except (TypeError, ValueError):
+                continue
         return ""
     return f"{total_cost:.4f}"
 
@@ -1570,6 +1882,12 @@ def extract_compile_succeeded(metrics_records: list[dict[str, Any]]) -> bool | N
         if isinstance(compilation_status, bool):
             result = compilation_status
     return result
+
+
+def compiled_goto_exists(proof_dir: Path, function_name: str) -> bool:
+    """Check whether the compiled target goto exists in build/ or any build backup."""
+    artifact = resolve_artifact_path(proof_dir, f"{function_name}.goto")
+    return artifact is not None and artifact.is_file()
 
 
 def extract_development_succeeds(
@@ -1642,6 +1960,26 @@ def load_vulnerability_report(proof_dir: Path) -> list[dict[str, Any]] | None:
     return [item for item in vulnerabilities if isinstance(item, dict)]
 
 
+def count_vulnerability_report_total(proof_dir: Path) -> int | None:
+    """Read the total vulnerability count from vulnerability-report.json when present."""
+    report = load_json(proof_dir / "vulnerability-report.json")
+    if report is None or not isinstance(report, dict):
+        return None
+
+    summary = report.get("summary")
+    if isinstance(summary, dict):
+        total_vulnerabilities = summary.get("total_vulnerabilities")
+        try:
+            return int(total_vulnerabilities)
+        except (TypeError, ValueError):
+            pass
+
+    vulnerabilities = report.get("vulnerabilities")
+    if isinstance(vulnerabilities, list):
+        return sum(1 for item in vulnerabilities if isinstance(item, dict))
+    return None
+
+
 def count_precondition_violations(proof_dir: Path) -> int | None:
     """Count distinct reported errors with one or more violated preconditions."""
     vulnerabilities = load_vulnerability_report(proof_dir)
@@ -1706,6 +2044,11 @@ def format_optional_float(value: float | None, digits: int = 6) -> str:
     return "" if value is None else f"{value:.{digits}f}"
 
 
+def format_optional_json_dict(value: dict[str, int] | None) -> str:
+    """Format a dictionary for CSV output while preserving empty cells for missing values."""
+    return "" if value is None else json.dumps(value, sort_keys=True)
+
+
 def build_row(
     experiment_dir: Path,
     proof_dir: Path,
@@ -1728,7 +2071,6 @@ def build_row(
     )
 
     metrics_records = load_metrics_records(metrics_source, target_file, target_function)
-    compile_succeeded = extract_compile_succeeded(metrics_records)
     development_succeeds = extract_development_succeeds(metrics_records, metrics_source)
     generation_time = extract_generation_time(metrics_records)
     api_cost = recompute_api_cost(metrics_records)
@@ -1744,6 +2086,10 @@ def build_row(
         proof_root = proof_dir.parent.resolve()
         harness_entry = target_function
 
+    compile_succeeded = compiled_goto_exists(proof_dir, target_function)
+    if not compile_succeeded and harness_entry != target_function:
+        compile_succeeded = compiled_goto_exists(proof_dir, harness_entry)
+
     proof_prefixes = proof_root_prefixes(proof_root, experiment_dir)
     report_json_dir = resolve_report_json_dir(proof_dir)
     report_html_index = resolve_report_html_index(proof_dir)
@@ -1751,6 +2097,7 @@ def build_row(
     viewer_property_json = load_json(report_json_dir / "viewer-property.json" if report_json_dir else None)
     coverage_json = load_json(report_json_dir / "viewer-coverage.json" if report_json_dir else None)
     reachable_json = load_json(report_json_dir / "viewer-reachable.json" if report_json_dir else None)
+    symbol_json = load_json(report_json_dir / "viewer-symbol.json" if report_json_dir else None)
     cbmc_root: ET.Element | None = None
 
     links_target = target_links_target(reachable_json, target_file, target_function)
@@ -1781,6 +2128,25 @@ def build_row(
         )
         verification_time = parse_verification_time_with_fallback(viewer_result_json, cbmc_root)
     verification_success = verification_succeeds(viewer_result_json, viewer_property_json)
+    (
+        total_memory_safety_properties,
+        total_memory_safety_properties_by_class,
+        verified_memory_safety_properties,
+        verified_memory_safety_properties_by_class,
+        verified_memory_safety_properties_pct,
+        total_memory_safety_property_lines,
+        verified_memory_safety_property_lines,
+    ) = memory_safety_property_metrics(viewer_result_json, viewer_property_json)
+    vulnerability_report_count = count_vulnerability_report_total(proof_dir)
+    violated_memory_safety_property_lines = count_violated_memory_safety_property_lines(
+        viewer_result_json,
+        viewer_property_json,
+    )
+    reported_vulnerabilities: int | None = None
+    if vulnerability_report_count is not None or violated_memory_safety_property_lines is not None:
+        reported_vulnerabilities = (
+            (vulnerability_report_count or 0) + (violated_memory_safety_property_lines or 0)
+        )
     property_violations = count_reported_error_sites(viewer_result_json, viewer_property_json)
     precondition_violations = count_precondition_violations(proof_dir)
     unwindset_count, unwind_min, unwind_max = parse_unwind_metrics(cbmcflags)
@@ -1808,6 +2174,14 @@ def build_row(
         proof_dir,
         harness_entry,
     )
+    harness_symbol_variable_count, proof_side_symbol_variable_count = collect_symbol_variable_metrics(
+        proof_dir,
+        experiment_dir,
+        harness_entry,
+        symbol_json,
+        coverage_json,
+        reachable_json,
+    )
 
     row.update(
         {
@@ -1827,6 +2201,22 @@ def build_row(
             "overall_reachable_line_count": none_to_blank(overall_reachable_line_count),
             "overall_covered_line_count": none_to_blank(overall_covered_line_count),
             "overall_line_coverage_pct": format_optional_float(overall_line_coverage_pct),
+            "total_memory_safety_properties": none_to_blank(total_memory_safety_properties),
+            "total_memory_safety_properties_by_class": format_optional_json_dict(
+                total_memory_safety_properties_by_class
+            ),
+            "verified_memory_safety_properties": none_to_blank(verified_memory_safety_properties),
+            "verified_memory_safety_properties_by_class": format_optional_json_dict(
+                verified_memory_safety_properties_by_class
+            ),
+            "verified_memory_safety_properties_pct": format_optional_float(verified_memory_safety_properties_pct),
+            "total_memory_safety_property_lines": none_to_blank(total_memory_safety_property_lines),
+            "verified_memory_safety_property_lines": none_to_blank(verified_memory_safety_property_lines),
+            "vulnerability_report_count": none_to_blank(vulnerability_report_count),
+            "violated_memory_safety_property_lines": none_to_blank(
+                violated_memory_safety_property_lines
+            ),
+            "reported_vulnerabilities": none_to_blank(reported_vulnerabilities),
             "property_violations": none_to_blank(property_violations),
             "precondition_violations": none_to_blank(precondition_violations),
             "generation_time": format_optional_float(generation_time),
@@ -1841,6 +2231,8 @@ def build_row(
             "loop_unwind_max": none_to_blank(unwind_max),
             "model_used_variable_count": none_to_blank(model_used_variable_count),
             "assumption_variable_count": none_to_blank(assumption_variable_count),
+            "harness_symbol_variable_count": none_to_blank(harness_symbol_variable_count),
+            "proof_side_symbol_variable_count": none_to_blank(proof_side_symbol_variable_count),
             "function_model_count": none_to_blank(function_model_count),
             "function_model_avg_loc": format_optional_float(function_model_avg_loc),
         }

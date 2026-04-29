@@ -27,15 +27,15 @@ NA_STRINGS = {"", "n/a", "na", "none", "null"}
 PLOT_METRICS = [
     ("Harness Size LOC", "Harness LOC", False),
     ("Proof Size LOC", "Proof LOC", False),
-    ("Source Files In Scope", "Files In Scope", False),
-    ("Loop Unwind Max", "Max Unwind", False),
-    ("Introduced Models", "Models Added", False),
-    ("Overall Reachable Line Count", "Reachable LOC", False),
-    ("Overall Covered Line Count", "Covered LOC", False),
-    ("Property Violations", "Property Violations", False),
-    ("Verification Completes (%)", "Verification Completes (%)", True),
-    ("Verification Time", "Verification Time (s)", False),
-    ("Development Time", "Development Time (min)", False),
+    ("Functions In Scope", "Functions In Scope", False),
+    ("Loop Unwindset Count", "Custom Loop Bounds", False),
+    ("Assumption Variable Count", "Variable Models", False),
+    ("Function Model Count", "Function Models", False),
+    ("Program Reachable Line Count", "Component Size (LOC)", False),
+    ("Program Covered Line Count", "Verification Coverage (LOC)", False),
+    ("Total Memory-Safety Properties", "Total Properties", False),
+    ("Verified Memory-Safety Properties", "Verified Properties", False),
+    ("Generation Time", "Generation Time (min)", False),
     ("API Cost", "API Cost ($)", False),
 ]
 SUMMARY_COLUMNS = [
@@ -46,21 +46,26 @@ SUMMARY_COLUMNS = [
     "Harness Size LOC",
     "Proof Size LOC",
     "Source Files In Scope",
+    "Functions In Scope",
     "Loop Unwindset Count",
     "Loop Unwind Max",
     "Model Used Variable Count",
     "Assumption Variable Count",
     "Precondition Count",
     "Function Model Count",
-    "Harness Symbol Count",
+    "Function Model Avg LOC",
+    "Harness Symbol Variable Count",
+    "Proof-Side Symbol Variable Count",
     "Introduced Models",
-    "Overall Reachable Line Count",
-    "Overall Covered Line Count",
-    "Overall Line Coverage %",
-    "Property Violations",
+    "Program Reachable Line Count",
+    "Program Covered Line Count",
+    "Program Line Coverage %",
+    "Total Memory-Safety Properties",
+    "Verified Memory-Safety Properties",
+    "Verified Memory-Safety Properties %",
     "Precondition Violations",
     "Verification Time",
-    "Development Time",
+    "Generation Time",
     "API Cost",
 ]
 COST_SUMMARY_COLUMNS = [
@@ -213,6 +218,7 @@ def summarize_stage_rows(rows: list[dict[str, str]]) -> list[dict[str, object]]:
 
     summary_rows: list[dict[str, object]] = []
     for stage_num, stage_rows in by_stage.items():
+        generation_time = mean_numeric(stage_rows, "Development Time")
         summary_rows.append(
             {
                 "Stage Order": stage_num,
@@ -222,21 +228,36 @@ def summarize_stage_rows(rows: list[dict[str, str]]) -> list[dict[str, object]]:
                 "Harness Size LOC": mean_numeric(stage_rows, "Harness Size LOC"),
                 "Proof Size LOC": mean_numeric(stage_rows, "Proof Size LOC"),
                 "Source Files In Scope": mean_numeric(stage_rows, "Source Files In Scope"),
+                "Functions In Scope": mean_numeric(stage_rows, "Functions In Scope"),
                 "Loop Unwindset Count": mean_numeric(stage_rows, "Loop Unwindset Count"),
                 "Loop Unwind Max": mean_numeric(stage_rows, "Loop Unwind Max"),
                 "Model Used Variable Count": mean_numeric(stage_rows, "Model Used Variable Count"),
                 "Assumption Variable Count": mean_numeric(stage_rows, "Assumption Variable Count"),
                 "Precondition Count": mean_numeric(stage_rows, "Precondition Count"),
                 "Function Model Count": mean_numeric(stage_rows, "Function Model Count"),
-                "Harness Symbol Count": mean_numeric(stage_rows, "Harness Symbol Count"),
+                "Function Model Avg LOC": mean_numeric(stage_rows, "Function Model Avg LOC"),
+                "Harness Symbol Variable Count": mean_numeric(
+                    stage_rows, "Harness Symbol Variable Count"
+                ),
+                "Proof-Side Symbol Variable Count": mean_numeric(
+                    stage_rows, "Proof-Side Symbol Variable Count"
+                ),
                 "Introduced Models": introduced_models_mean(stage_rows),
-                "Overall Reachable Line Count": mean_numeric(stage_rows, "Overall Reachable Line Count"),
-                "Overall Covered Line Count": mean_numeric(stage_rows, "Overall Covered Line Count"),
-                "Overall Line Coverage %": mean_numeric(stage_rows, "Overall Line Coverage %"),
-                "Property Violations": mean_numeric(stage_rows, "Property Violations"),
+                "Program Reachable Line Count": mean_numeric(stage_rows, "Program Reachable Line Count"),
+                "Program Covered Line Count": mean_numeric(stage_rows, "Program Covered Line Count"),
+                "Program Line Coverage %": mean_numeric(stage_rows, "Program Line Coverage %"),
+                "Total Memory-Safety Properties": mean_numeric(
+                    stage_rows, "Total Memory-Safety Properties"
+                ),
+                "Verified Memory-Safety Properties": mean_numeric(
+                    stage_rows, "Verified Memory-Safety Properties"
+                ),
+                "Verified Memory-Safety Properties %": mean_numeric(
+                    stage_rows, "Verified Memory-Safety Properties %"
+                ),
                 "Precondition Violations": mean_numeric(stage_rows, "Precondition Violations"),
                 "Verification Time": mean_numeric(stage_rows, "Verification Time"),
-                "Development Time": mean_numeric(stage_rows, "Development Time"),
+                "Generation Time": generation_time,
                 "API Cost": mean_numeric(stage_rows, "API Cost"),
             }
         )
@@ -289,28 +310,35 @@ def render_stage_table_tex(summary_rows: list[dict[str, object]], output_path: P
     stage_keys = list(range(len(summary_rows)))
     sections = [
         (
-            "Harness",
+            "Proof",
             [
+                ("Harness Size LOC", "Harness Size (LOC)"),
                 ("Proof Size LOC", "Proof Size (LOC)"),
+            ],
+        ),
+        (
+            "Choices",
+            [
+                ("Functions In Scope", "# Functions In Scope"),
                 ("Loop Unwindset Count", "# Custom Loop Bounds"),
-                ("Loop Unwind Max", "Max Unwind"),
-                ("Assumption Variable Count", "# Variable Models"),
+                ("Assumption Variable Count", "# Variable Models (Preconditions)"),
                 ("Function Model Count", "# Function Models"),
+                ("Function Model Avg LOC", "Avg Function Model Size (LOC)"),
             ],
         ),
         (
             "Verification",
             [
-                ("Verification Time", "Verification Time (s)"),
-                ("Overall Line Coverage %", "Overall Coverage (%)"),
-                ("Property Violations", "Property Violations"),
-                ("Precondition Violations", "Precondition Violations"),
+                ("Program Reachable Line Count", "Component Size (LOC)"),
+                ("Program Covered Line Count", "Verification Coverage (LOC)"),
+                ("Total Memory-Safety Properties", "Total Properties"),
+                ("Verified Memory-Safety Properties", "Verified Properties"),
             ],
         ),
         (
-            "Development",
+            "Cost",
             [
-                ("Development Time", "Development Time (min)"),
+                ("Generation Time", "Generation Time (min)"),
                 ("API Cost", "API Cost ($)"),
             ],
         ),
@@ -389,9 +417,7 @@ def collect_stage_distributions(
             bucket["cost_seen"] += 1.0
 
     total_times = [
-        item["Development Time"]
-        for item in totals_by_target.values()
-        if item["time_seen"] > 0.0
+        item["Development Time"] for item in totals_by_target.values() if item["time_seen"] > 0.0
     ]
     total_costs = [item["API Cost"] for item in totals_by_target.values() if item["cost_seen"] > 0.0]
     labels.append("Total")
@@ -412,7 +438,7 @@ def write_cost_summary_csv(
         rows.append(
             {
                 "Bucket": label,
-                "Kind": "Development Time (min)",
+                "Kind": "Generation Time (min)",
                 "Count": len(group),
                 "Mean": "" if mean_or_none(group) is None else f"{mean_or_none(group):.6f}",
                 "Median": "" if median_or_none(group) is None else f"{median_or_none(group):.6f}",
@@ -481,7 +507,7 @@ def plot_stage_cost_distribution(
     draw_boxplots(axis_cost, cost_groups, cost_positions, cost_colors)
 
     axis_time.set_xticks(positions, labels, rotation=20)
-    axis_time.set_ylabel("Development Time (min)", color="#2f6c8f", fontsize=18)
+    axis_time.set_ylabel("Generation Time (min)", color="#2f6c8f", fontsize=18)
     axis_cost.set_ylabel("API Cost ($)", color="#d28b26", fontsize=18)
     axis_time.tick_params(axis="x", labelsize=14)
     axis_time.tick_params(axis="y", colors="#2f6c8f", labelsize=14)
@@ -493,7 +519,7 @@ def plot_stage_cost_distribution(
     from matplotlib.patches import Patch
 
     legend_handles = [
-        Patch(facecolor="#2f6c8f", edgecolor="black", alpha=0.75, label="Development Time"),
+        Patch(facecolor="#2f6c8f", edgecolor="black", alpha=0.75, label="Generation Time"),
         Patch(facecolor="#d28b26", edgecolor="black", alpha=0.75, label="API Cost"),
     ]
     axis_time.legend(handles=legend_handles, loc="upper left", fontsize=14, title_fontsize=15)

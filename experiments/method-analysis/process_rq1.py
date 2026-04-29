@@ -29,19 +29,23 @@ TABLE_ORDER = [
     "Num Targets",
     "Compiles (%)",
     "Links target (%)",
-    "Produces result (%)",
+    "Verification completes (%)",
+    "Generation succeeds (%)",
     "Verification time (s)",
-    "Avg total size (loc)",
+    "Avg component size (loc)",
     "Avg covered size (loc)",
-    "Env. completeness (%)",
-    "Identified violations (%)",
-    "Avg num. violations (#)",
-    "Avg gen. time (min)",
+    "Avg coverage (%)",
+    "Avg num. properties (#)",
+    "Avg num. verified properties (#)",
+    "Verified properties (%)",
+    "Avg num. vulnerabilities (#)",
+    "Avg generation time (min)",
     "Avg API cost ($)",
     "Avg proof size (loc)",
 ]
 MIDRULE_AFTER = {
-    "Avg num. violations (#)",
+    "Generation succeeds (%)",
+    "Avg num. vulnerabilities (#)",
     "Avg API cost ($)",
 }
 
@@ -126,7 +130,15 @@ def dedupe_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
 
 
 def row_has_development_cost(row: dict[str, str]) -> bool:
-    return parse_bool(row.get("Development Succeeds")) is not False
+    return parse_bool(row.get("Development Succeeds")) is True
+
+
+def row_has_completed_verification(row: dict[str, str]) -> bool:
+    return parse_bool(row.get("Verification Completes")) is True
+
+
+def row_in_completed_generation_subset(row: dict[str, str]) -> bool:
+    return row_has_development_cost(row) and row_has_completed_verification(row)
 
 
 def parse_series_labels(raw_mapping: str) -> dict[str, str]:
@@ -176,6 +188,12 @@ def percent_true(rows: list[dict[str, str]], column: str) -> float | None:
     return 100.0 * sum(1 for value in filtered if value) / len(filtered)
 
 
+def percent_true_fullset(rows: list[dict[str, str]], column: str) -> float | None:
+    if not rows:
+        return None
+    return 100.0 * sum(1 for row in rows if parse_bool(row.get(column)) is True) / len(rows)
+
+
 def mean_numeric(
     rows: list[dict[str, str]],
     column: str,
@@ -193,34 +211,30 @@ def mean_numeric(
     return mean_or_none(filtered)
 
 
-def violation_totals(rows: list[dict[str, str]]) -> list[float]:
-    totals: list[float] = []
+def generated_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    return [row for row in rows if row_in_completed_generation_subset(row)]
+
+
+def ratio_of_sums(rows: list[dict[str, str]], numerator_col: str, denominator_col: str) -> float | None:
+    numerator = 0.0
+    denominator = 0.0
+    saw_any = False
     for row in rows:
-        prop = parse_float(row.get("Property Violations"))
-        prec = parse_float(row.get("Precondition Violations"))
-        if prop is None and prec is None:
+        num = parse_float(row.get(numerator_col))
+        den = parse_float(row.get(denominator_col))
+        if num is None or den is None:
             continue
-        totals.append((prop or 0.0) + (prec or 0.0))
-    return totals
-
-
-def env_completeness_percent(rows: list[dict[str, str]]) -> float | None:
-    property_values = [parse_float(row.get("Property Violations")) for row in rows]
-    filtered = [value for value in property_values if value is not None]
-    if not filtered:
+        numerator += num
+        denominator += den
+        saw_any = True
+    if not saw_any or denominator == 0.0:
         return None
-    return 100.0 * sum(1 for value in filtered if value == 0.0) / len(filtered)
+    return 100.0 * numerator / denominator
 
 
 def format_summary_value(metric: str, value: float | None) -> str:
     if value is None:
         return "N/A"
-    if metric == "Num Targets":
-        return str(int(round(value)))
-    if "(%)" in metric:
-        return f"{value:.1f}"
-    if metric == "Avg API cost ($)":
-        return f"{value:.2f}"
     return f"{value:.1f}"
 
 
@@ -228,52 +242,54 @@ def build_summary_table(
     grouped_rows: dict[str, list[dict[str, str]]],
     total_size_col: str,
     covered_size_col: str,
+    coverage_pct_col: str,
+    total_properties_col: str,
+    verified_properties_col: str,
+    reported_vulnerabilities_col: str,
     proof_size_col: str,
 ) -> list[dict[str, str]]:
     table_rows: list[dict[str, str]] = []
     for metric in TABLE_ORDER:
         row_out = {"Metric": metric}
         for config, rows in grouped_rows.items():
+            generated = generated_rows(rows)
             value: float | None
             if metric == "Num Targets":
                 value = float(len(rows))
             elif metric == "Compiles (%)":
-                value = percent_true(rows, "Compile Succeeded")
+                value = percent_true_fullset(rows, "Compile Succeeded")
             elif metric == "Links target (%)":
-                value = percent_true(rows, "Links Target")
-            elif metric == "Produces result (%)":
-                value = percent_true(rows, "Verification Completes")
+                value = percent_true_fullset(rows, "Links Target")
+            elif metric == "Verification completes (%)":
+                value = percent_true_fullset(rows, "Verification Completes")
+            elif metric == "Generation succeeds (%)":
+                value = percent_true_fullset(rows, "Development Succeeds")
             elif metric == "Verification time (s)":
-                completed_rows = [
-                    row for row in rows if parse_bool(row.get("Verification Completes")) is True
-                ]
-                value = mean_numeric(completed_rows, "Verification Time")
-            elif metric == "Avg total size (loc)":
-                value = mean_numeric(rows, total_size_col)
+                value = mean_numeric(generated, "Verification Time")
+            elif metric == "Avg component size (loc)":
+                value = mean_numeric(generated, total_size_col)
             elif metric == "Avg covered size (loc)":
-                value = mean_numeric(rows, covered_size_col)
-            elif metric == "Env. completeness (%)":
-                value = env_completeness_percent(rows)
-            elif metric == "Identified violations (%)":
-                totals = violation_totals(rows)
-                value = None if not totals else 100.0 * sum(1 for total in totals if total > 0.0) / len(totals)
-            elif metric == "Avg num. violations (#)":
-                value = mean_or_none(violation_totals(rows))
-            elif metric == "Avg gen. time (min)":
+                value = mean_numeric(generated, covered_size_col)
+            elif metric == "Avg coverage (%)":
+                value = mean_numeric(generated, coverage_pct_col)
+            elif metric == "Avg num. properties (#)":
+                value = mean_numeric(generated, total_properties_col)
+            elif metric == "Avg num. verified properties (#)":
+                value = mean_numeric(generated, verified_properties_col)
+            elif metric == "Verified properties (%)":
+                value = ratio_of_sums(generated, verified_properties_col, total_properties_col)
+            elif metric == "Avg num. vulnerabilities (#)":
+                value = mean_numeric(generated, reported_vulnerabilities_col)
+            elif metric == "Avg generation time (min)":
                 value = mean_numeric(
-                    rows,
+                    generated,
                     "Generation Time",
                     scale=60.0,
-                    require_development_succeeds=True,
                 )
             elif metric == "Avg API cost ($)":
-                value = mean_numeric(
-                    rows,
-                    "API Cost",
-                    require_development_succeeds=True,
-                )
+                value = mean_numeric(generated, "API Cost")
             elif metric == "Avg proof size (loc)":
-                value = mean_numeric(rows, proof_size_col)
+                value = mean_numeric(generated, proof_size_col)
             else:
                 value = None
             row_out[config] = format_summary_value(metric, value)
@@ -344,16 +360,13 @@ def grouped_numeric_values(
     configs: list[str],
     column: str,
     scale: float = 1.0,
-    require_completed: bool = False,
-    require_development_succeeds: bool = False,
+    require_completed_generation_subset: bool = False,
 ) -> list[list[float]]:
     values: list[list[float]] = []
     for config in configs:
         config_values: list[float] = []
         for row in grouped_rows[config]:
-            if require_completed and parse_bool(row.get("Verification Completes")) is not True:
-                continue
-            if require_development_succeeds and not row_has_development_cost(row):
+            if require_completed_generation_subset and not row_in_completed_generation_subset(row):
                 continue
             raw = parse_float(row.get(column))
             if raw is None:
@@ -376,29 +389,30 @@ def plot_rq1_coverage(
     grouped_rows: dict[str, list[dict[str, str]]],
     configs: list[str],
     display_names: dict[str, str],
-    reachable_col: str,
+    covered_col: str,
     output_stem: Path,
+    show_fliers: bool = True,
+    log_y: bool = False,
 ) -> None:
     label_fontsize = 18
     tick_fontsize = 15
     metrics = [
-        (reachable_col, "Program Reachable LOC", 1.0, False, False, "#c46b2c"),
-        ("Verification Time", "Verification Time (s)", 1.0, True, False, "#4d8fcb"),
-        ("Generation Time", "Development Time (min)", 60.0, False, True, "#4aa564"),
-        ("API Cost", "API Cost ($)", 1.0, False, True, "#b567c0"),
+        (covered_col, "Component Coverage (loc)", 1.0, "#c46b2c"),
+        ("Verification Time", "Verification Time (s)", 1.0, "#4d8fcb"),
+        ("Generation Time", "Generation Time (min)", 60.0, "#4aa564"),
+        ("API Cost", "API Cost ($)", 1.0, "#b567c0"),
     ]
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     x_positions = list(range(1, len(configs) + 1))
     labels = [display_names.get(config, config) for config in configs]
 
-    for axis, (column, ylabel, scale, require_completed, require_development_succeeds, color) in zip(axes.flat, metrics):
+    for axis, (column, ylabel, scale, color) in zip(axes.flat, metrics):
         values = grouped_numeric_values(
             grouped_rows,
             configs,
             column,
             scale=scale,
-            require_completed=require_completed,
-            require_development_succeeds=require_development_succeeds,
+            require_completed_generation_subset=True,
         )
         nonempty_positions = [pos for pos, group in zip(x_positions, values) if group]
         nonempty_values = [group for group in values if group]
@@ -408,8 +422,13 @@ def plot_rq1_coverage(
                 positions=nonempty_positions,
                 widths=0.6,
                 patch_artist=True,
+                showfliers=show_fliers,
             )
             style_boxplot(parts, color)
+            if log_y:
+                flattened = [value for group in nonempty_values for value in group if value > 0]
+                if flattened:
+                    axis.set_yscale("log")
         axis.set_xticks(x_positions)
         axis.set_xticklabels(labels, fontsize=tick_fontsize)
         axis.tick_params(axis="y", labelsize=tick_fontsize)
@@ -426,16 +445,13 @@ def normalize_metric_pairs(
     x_column: str,
     y_column: str,
     scale: float = 1.0,
-    require_completed: bool = False,
-    require_development_succeeds: bool = False,
+    require_completed_generation_subset: bool = False,
 ) -> dict[str, list[tuple[float, float]]]:
     pairs_by_config: dict[str, list[tuple[float, float]]] = {}
     for config in configs:
         pairs: list[tuple[float, float]] = []
         for row in grouped_rows[config]:
-            if require_completed and parse_bool(row.get("Verification Completes")) is not True:
-                continue
-            if require_development_succeeds and not row_has_development_cost(row):
+            if require_completed_generation_subset and not row_in_completed_generation_subset(row):
                 continue
             x_value = parse_float(row.get(x_column))
             y_value = parse_float(row.get(y_column))
@@ -460,10 +476,10 @@ def plot_harness_analysis_figure(
     tick_fontsize = 15
     legend_fontsize = 14
     metric_specs = [
-        (proof_size_col, "Proof Size (LOC)", 1.0, False, False, "#1b9e77"),
-        ("Verification Time", "Verification Time (s)", 1.0, True, False, "#d95f02"),
-        ("Generation Time", "Development Time (min)", 60.0, False, True, "#7570b3"),
-        ("API Cost", "API Cost ($)", 1.0, False, True, "#e7298a"),
+        (proof_size_col, "Proof Size (LOC)", 1.0, "#1b9e77"),
+        ("Verification Time", "Verification Time (s)", 1.0, "#d95f02"),
+        ("Generation Time", "Generation Time (min)", 60.0, "#7570b3"),
+        ("API Cost", "API Cost ($)", 1.0, "#e7298a"),
     ]
 
     linestyles = ["-", "--", "-.", ":"]
@@ -478,15 +494,14 @@ def plot_harness_analysis_figure(
     axes[3].yaxis.set_label_position("left")
     axes[3].yaxis.set_ticks_position("left")
 
-    for axis, (metric_column, metric_label, scale, require_completed, require_development_succeeds, color) in zip(axes, metric_specs):
+    for axis, (metric_column, metric_label, scale, color) in zip(axes, metric_specs):
         metric_pairs = normalize_metric_pairs(
             grouped_rows,
             configs,
             x_column,
             metric_column,
             scale=scale,
-            require_completed=require_completed,
-            require_development_succeeds=require_development_succeeds,
+            require_completed_generation_subset=True,
         )
         for config in configs:
             pairs = metric_pairs.get(config, [])
@@ -513,7 +528,7 @@ def plot_harness_analysis_figure(
 
     metric_handles = [
         Line2D([0], [0], color=color, linewidth=2.0, marker="o", markersize=4, label=label)
-        for _, label, _, _, _, color in metric_specs
+        for _, label, _, color in metric_specs
     ]
     first_legend = base_ax.legend(
         handles=metric_handles,
@@ -562,24 +577,23 @@ def plot_cost_time_analysis_figure(
     tick_fontsize = 15
     legend_fontsize = 14
     metric_specs = [
-        ("Verification Time", "Verification Time (s)", 1.0, True, False, "#d95f02"),
-        ("Generation Time", "Development Time (min)", 60.0, False, True, "#7570b3"),
-        ("API Cost", "API Cost ($)", 1.0, False, True, "#e7298a"),
+        ("Verification Time", "Verification Time (s)", 1.0, "#d95f02"),
+        ("Generation Time", "Generation Time (min)", 60.0, "#7570b3"),
+        ("API Cost", "API Cost ($)", 1.0, "#e7298a"),
     ]
 
     fig, base_ax = plt.subplots(figsize=(12.5, 7.0))
     axes = [base_ax, base_ax.twinx(), base_ax.twinx()]
     axes[2].spines["right"].set_position(("axes", 1.10))
 
-    for axis, (metric_column, metric_label, scale, require_completed, require_development_succeeds, color) in zip(axes, metric_specs):
+    for axis, (metric_column, metric_label, scale, color) in zip(axes, metric_specs):
         metric_pairs = normalize_metric_pairs(
             grouped_rows,
             configs,
             x_column,
             metric_column,
             scale=scale,
-            require_completed=require_completed,
-            require_development_succeeds=require_development_succeeds,
+            require_completed_generation_subset=True,
         )
         series_list: list[list[tuple[float, float]]]
         if merge_configs:
@@ -618,7 +632,7 @@ def plot_cost_time_analysis_figure(
 
     metric_handles = [
         Line2D([0], [0], color=color, linewidth=2.0, marker="o", markersize=4, label=label)
-        for _, label, _, _, _, color in metric_specs
+        for _, label, _, color in metric_specs
     ]
     first_legend = base_ax.legend(
         handles=metric_handles,
@@ -671,14 +685,17 @@ def write_metadata_note(
         f"Table total-size column: {total_size_col}",
         f"Table covered-size column: {covered_size_col}",
         f"Proof-size column: {proof_size_col}",
-        f"Coverage figure reachable column: {total_size_col}",
+        f"Coverage figure covered-size column: {covered_size_col}",
+        "Coverage figures: rq1_coverage (with outliers), rq1_coverage_no_outliers, rq1_coverage_no_outliers_logy",
+        "Verification-outcome and generation-cost table sections use only rows where Development Succeeds and Verification Completes are both true.",
+        "All RQ1 figures use only rows where Development Succeeds and Verification Completes are both true.",
         f"Line figure overall reachable column: {overall_reachable_col}",
         f"Line figure overall covered column: {overall_covered_col or 'N/A'}",
-        f"Line figure program reachable column: {total_size_col} (verification time + development time + API cost; autoup-s* merged; log-x)",
-        f"Line figure program reachable log-x column: {total_size_col} (verification time + development time + API cost; autoup-s* merged)",
+        f"Line figure program reachable column: {total_size_col} (verification time + generation time + API cost; autoup-s* merged; log-x)",
+        f"Line figure program reachable log-x column: {total_size_col} (verification time + generation time + API cost; autoup-s* merged)",
         f"Line figure program covered column: {covered_size_col}",
         "The overall-reachable and overall-covered figures use four raw-value y-axes, one per metric.",
-        "The program-reachable figure uses three raw-value y-axes for verification time, development time, and API cost with AutoUP configurations merged.",
+        "The program-reachable figure uses three raw-value y-axes for verification time, generation time, and API cost with AutoUP configurations merged.",
         "Grouping column: Config",
     ]
     path.write_text("\n".join(lines) + "\n")
@@ -714,6 +731,22 @@ def main() -> None:
         fieldnames,
         ["Program Covered Line Count", "Overall Covered Line Count"],
     )
+    coverage_pct_col = choose_column(
+        fieldnames,
+        ["Program Line Coverage %", "Overall Line Coverage %"],
+    )
+    total_properties_col = choose_column(
+        fieldnames,
+        ["Total Memory-Safety Properties"],
+    )
+    verified_properties_col = choose_column(
+        fieldnames,
+        ["Verified Memory-Safety Properties"],
+    )
+    reported_vulnerabilities_col = choose_column(
+        fieldnames,
+        ["Reported Vulnerabilities"],
+    )
     proof_size_col = choose_column(
         fieldnames,
         ["Proof Size LOC", "Proof File Size", "Harness Size LOC"],
@@ -726,6 +759,10 @@ def main() -> None:
         for name, column in {
             "total size": total_size_col,
             "covered size": covered_size_col,
+            "coverage percent": coverage_pct_col,
+            "total properties": total_properties_col,
+            "verified properties": verified_properties_col,
+            "reported vulnerabilities": reported_vulnerabilities_col,
             "proof size": proof_size_col,
             "overall reachable size": overall_reachable_col,
         }.items()
@@ -738,6 +775,10 @@ def main() -> None:
         grouped_rows,
         total_size_col,
         covered_size_col,
+        coverage_pct_col,
+        total_properties_col,
+        verified_properties_col,
+        reported_vulnerabilities_col,
         proof_size_col,
     )
     write_table_csv(output_dir / "rq1_harness_utility.csv", summary_rows, configs, display_names)
@@ -749,8 +790,28 @@ def main() -> None:
         grouped_rows,
         configs,
         display_names,
-        total_size_col,
+        covered_size_col,
         output_dir / "rq1_coverage",
+        show_fliers=True,
+        log_y=False,
+    )
+    plot_rq1_coverage(
+        grouped_rows,
+        configs,
+        display_names,
+        covered_size_col,
+        output_dir / "rq1_coverage_no_outliers",
+        show_fliers=False,
+        log_y=False,
+    )
+    plot_rq1_coverage(
+        grouped_rows,
+        configs,
+        display_names,
+        covered_size_col,
+        output_dir / "rq1_coverage_no_outliers_logy",
+        show_fliers=False,
+        log_y=True,
     )
     plot_harness_analysis_figure(
         grouped_rows,
