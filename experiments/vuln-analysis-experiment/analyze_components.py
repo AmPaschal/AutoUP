@@ -75,9 +75,30 @@ COLUMN_SPECS = [
     ("function_model_avg_loc", "Function Model Avg LOC"),
     ("harness_symbol_variable_count", "Harness Symbol Variable Count"),
     ("proof_side_symbol_variable_count", "Proof-Side Symbol Variable Count"),
+    ("rerun_status", "Rerun Status"),
+    ("rerun_exit_code", "Rerun Exit Code"),
+    ("rerun_error", "Rerun Error"),
 ]
 COLUMN_LABELS = dict(COLUMN_SPECS)
 COLUMN_ORDER = [column_id for column_id, _ in COLUMN_SPECS]
+
+
+class RerunStageError(RuntimeError):
+    """A rerun failed, but the experiment can keep processing other stages."""
+
+    def __init__(
+        self,
+        message: str,
+        status: str,
+        returncode: int | None = None,
+        stdout: str = "",
+        stderr: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
 
 
 def parse_args() -> argparse.Namespace:
@@ -173,6 +194,40 @@ def parse_currency(value: Any) -> float | None:
 
 def none_to_blank(value: object | None) -> object:
     return "" if value is None else value
+
+
+def compact_error_text(text: object, limit: int = 500) -> str:
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", errors="ignore")
+    compacted = " ".join(str(text).strip().split())
+    if len(compacted) <= limit:
+        return compacted
+    return compacted[-limit:]
+
+
+def extract_reported_exit_code(*streams: object) -> int | None:
+    for stream in streams:
+        text = compact_error_text(stream, limit=2000)
+        match = re.search(r"\bError\s+(\d+)\b", text)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return None
+    return None
+
+
+def rerun_error_metrics(exc: RerunStageError) -> dict[str, object]:
+    details = compact_error_text(
+        "\n".join(compact_error_text(part, limit=800) for part in (str(exc), exc.stdout, exc.stderr) if part)
+    )
+    return {
+        "verification_completes": False,
+        "verification_succeeds": False,
+        "rerun_status": exc.status,
+        "rerun_exit_code": "" if exc.returncode is None else exc.returncode,
+        "rerun_error": details,
+    }
 
 
 def format_optional_float(value: float | None, digits: int = 6) -> str:
@@ -831,12 +886,20 @@ def rerun_stage_metrics(
         if tools_sif is None:
             build_result = helper.ensure_build(temp_proof_dir, timeout_s, True)
             if build_result.timed_out:
-                log_event("make-finish", proof_dir, stage=stage_name, status="timeout")
-                raise RuntimeError(f"Rerun timed out for {proof_dir} stage {stage_name}")
+                status = "timeout"
+                log_event("make-finish", proof_dir, stage=stage_name, status=status)
+                raise RerunStageError(
+                    f"Rerun timed out for {proof_dir} stage {stage_name}",
+                    status=status,
+                )
             if not build_result.make_ran or build_result.make_returncode != 0:
                 status = "clean_failed" if not build_result.make_ran else f"make_failed_{build_result.make_returncode}"
                 log_event("make-finish", proof_dir, stage=stage_name, status=status)
-                raise RuntimeError(f"Rerun make failed for {proof_dir} stage {stage_name}")
+                raise RerunStageError(
+                    f"Rerun make failed for {proof_dir} stage {stage_name}",
+                    status=status,
+                    returncode=build_result.make_returncode,
+                )
             log_event(
                 "make-finish",
                 proof_dir,
@@ -863,17 +926,27 @@ def rerun_stage_metrics(
                     timeout=timeout_s,
                 )
             except subprocess.TimeoutExpired as exc:
-                log_event("make-finish", proof_dir, stage=stage_name, status="timeout")
-                raise RuntimeError(
-                    f"Containerized rerun timed out for {proof_dir} stage {stage_name}"
+                status = "timeout"
+                log_event("make-finish", proof_dir, stage=stage_name, status=status)
+                raise RerunStageError(
+                    f"Containerized rerun timed out for {proof_dir} stage {stage_name}",
+                    status=status,
+                    stdout=exc.stdout or "",
+                    stderr=exc.stderr or "",
                 ) from exc
             if proc.returncode != 0:
-                log_event("make-finish", proof_dir, stage=stage_name, status=f"make_failed_{proc.returncode}")
+                status = f"make_failed_{proc.returncode}"
+                log_event("make-finish", proof_dir, stage=stage_name, status=status)
                 stderr_tail = (proc.stderr or "").strip()[-800:]
                 stdout_tail = (proc.stdout or "").strip()[-800:]
-                raise RuntimeError(
+                reported_returncode = extract_reported_exit_code(stderr_tail, stdout_tail)
+                raise RerunStageError(
                     "Containerized rerun failed for "
-                    f"{proof_dir} stage {stage_name}\nstdout:\n{stdout_tail}\n\nstderr:\n{stderr_tail}"
+                    f"{proof_dir} stage {stage_name}",
+                    status=status,
+                    returncode=reported_returncode if reported_returncode is not None else proc.returncode,
+                    stdout=stdout_tail,
+                    stderr=stderr_tail,
                 )
             log_event("make-finish", proof_dir, stage=stage_name, status="ok")
         log_event("result-start", proof_dir, stage=stage_name)
@@ -1152,6 +1225,7 @@ def process_target(
         metrics_records = helper.load_metrics_records(autoup_output_dir, target_file, target_function)
         stage_dev = extract_stage_development_metrics(helper, metrics_records, stage_defs)
         log_path = autoup_output_dir / f"{Path(target_file).stem}-{target_function}.log"
+        target_had_errors = False
 
         for stage_info in stage_defs:
             stage_name = str(stage_info["stage"])
@@ -1206,22 +1280,35 @@ def process_target(
             )
 
             if mode == "rerun":
-                row.update(
-                    rerun_stage_metrics(
-                        helper,
-                        repo_root,
-                        experiment_dir,
-                        proof_dir,
-                        target_file,
-                        target_function,
-                        stage_info["stage_order"],
-                        harness_path,
-                        makefile_path,
-                        timeout_s,
-                        tools_sif,
-                        stage_name,
+                try:
+                    row.update(
+                        rerun_stage_metrics(
+                            helper,
+                            repo_root,
+                            experiment_dir,
+                            proof_dir,
+                            target_file,
+                            target_function,
+                            stage_info["stage_order"],
+                            harness_path,
+                            makefile_path,
+                            timeout_s,
+                            tools_sif,
+                            stage_name,
+                        )
                     )
-                )
+                except RerunStageError as exc:
+                    target_had_errors = True
+                    row.update(rerun_error_metrics(exc))
+                    log_event(
+                        "stage-finish",
+                        proof_dir,
+                        stage=stage_name,
+                        status=exc.status,
+                        exit_code=exc.returncode if exc.returncode is not None else "",
+                    )
+                    rows.append(row)
+                    continue
             else:
                 row.update(
                     derive_no_rerun_metrics(
@@ -1236,7 +1323,7 @@ def process_target(
             log_event("stage-finish", proof_dir, stage=stage_name, status="ok")
             rows.append(row)
 
-        log_event("proof-finish", proof_dir, status="success")
+        log_event("proof-finish", proof_dir, status="partial_error" if target_had_errors else "success")
         return rows
     except Exception as exc:
         log_event("proof-finish", proof_dir, status="error", error=type(exc).__name__)
@@ -1280,9 +1367,10 @@ def main() -> int:
 
     output_path = args.output.resolve() if args.output else experiment_dir / "component-assessment.csv"
     rows: list[dict[str, object]] = []
+    failed_targets = 0
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
-        futures = [
+        futures = {
             executor.submit(
                 process_target,
                 helper,
@@ -1296,11 +1384,21 @@ def main() -> int:
                 index,
                 target_file,
                 target_function,
-            )
+            ): (index, target_file, target_function)
             for index, (target_file, target_function) in enumerate(targets)
-        ]
+        }
         for future in concurrent.futures.as_completed(futures):
-            rows.extend(future.result())
+            index, target_file, target_function = futures[future]
+            try:
+                rows.extend(future.result())
+            except Exception as exc:
+                failed_targets += 1
+                print(
+                    "[error] target failed without producing rows: "
+                    f"index={index} source_file={target_file} target={target_function} "
+                    f"error={type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
 
     rows.sort(
         key=lambda row: (
@@ -1312,7 +1410,10 @@ def main() -> int:
         row.pop("_target_index", None)
 
     write_csv(rows, output_path)
-    print(f"[done] wrote {output_path}")
+    if failed_targets:
+        print(f"[done] wrote {output_path} with {failed_targets} target-level error(s)")
+    else:
+        print(f"[done] wrote {output_path}")
     return 0
 
 
