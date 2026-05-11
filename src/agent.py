@@ -31,6 +31,7 @@ class AIAgent(ABC):
         self.target_file_path=args.target_file_path
         self.metrics_file=args.metrics_file
         self.project_container=project_container
+        self.progress = getattr(args, "vscode_progress", None)
 
 
         self.harness_file_name = f"{self.target_function}_harness.c"
@@ -291,6 +292,17 @@ class AIAgent(ABC):
             "Make command finished in %.2f seconds.",
             make_results["elapsed_seconds"],
         )
+        if self.progress and self.progress.enabled and not compile_only and self.validate_verification_report():
+            self.progress.summary_updated(
+                stage=self.agent_name,
+                harness_dir=self.harness_dir,
+                root_dir=self.root_dir,
+                target_file_path=self.target_file_path,
+                target_function=self.target_function,
+                harness_file_name=self.harness_file_name,
+                reason="run_make",
+                make_result=make_results,
+            )
         return make_results
 
     def validate_linked_target(self, linked_target_function: Optional[str] = None) -> bool:
@@ -593,6 +605,41 @@ class AIAgent(ABC):
         return os.path.join(
             self.harness_dir, "build", "report", "json", "viewer-loop.json"
         )
+
+    def emit_stage_progress(self, message: str, **data):
+        """Emit a non-terminal stage progress event for the VS Code bridge.
+
+        Inputs:
+            message: Human-readable progress description.
+            **data: Optional structured progress fields.
+
+        Returns:
+            None.
+        """
+        if self.progress and self.progress.enabled:
+            self.progress.stage_progress(self.agent_name, message, **data)
+
+    def emit_refinement_accepted(self, message: str, **extra):
+        """Emit an accepted-refinement event for the VS Code bridge.
+
+        Inputs:
+            message: Human-readable acceptance description.
+            **extra: Optional structured fields that describe the refinement.
+
+        Returns:
+            None.
+        """
+        if self.progress and self.progress.enabled:
+            self.progress.refinement_accepted(
+                stage=self.agent_name,
+                message=message,
+                harness_dir=self.harness_dir,
+                root_dir=self.root_dir,
+                target_file_path=self.target_file_path,
+                target_function=self.target_function,
+                harness_file_name=self.harness_file_name,
+                extra=extra,
+            )
 
     def save_status(self, tag: str):
         os.makedirs(self.get_snapshot_dir(), exist_ok=True)

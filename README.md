@@ -26,6 +26,22 @@ pip install -r requirements.txt
 
 ---
 
+## VS Code Extension
+
+AutoUP also includes a VS Code extension under [vscode-extension](</home/pamusuo/research/cbmc-research/AutoUP/vscode-extension>).
+
+The extension adds:
+
+- right-click `Create Unit Proof` support for C/C++ functions
+- an AutoUP sidebar for proof status and verification summaries
+- extension-managed runtime bootstrap for local and Remote-SSH workflows
+
+For extension features, setup, usage, and test instructions, see:
+
+- [vscode-extension/README.md](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/README.md)
+
+---
+
 ## 🧠 Usage
 
 To display all available options:

@@ -299,6 +299,10 @@ class InitialHarnessGenerator(AIAgent, Generable):
                     "Aborting scope widening."
                 )
                 return -1
+            self.emit_stage_progress(
+                "Accepted baseline scope level",
+                scopeLevel=current_level,
+            )
 
             accepted_post_stub_tag = self._create_backup_tag()
             self.create_backup(accepted_post_stub_tag)
@@ -380,6 +384,10 @@ class InitialHarnessGenerator(AIAgent, Generable):
                 accepted_post_stub_tag = self._create_backup_tag()
                 self.create_backup(accepted_post_stub_tag)
                 current_level = step_result.level
+                self.emit_stage_progress(
+                    "Accepted widened scope level",
+                    scopeLevel=current_level,
+                )
 
             return current_level
         finally:
@@ -413,6 +421,10 @@ class InitialHarnessGenerator(AIAgent, Generable):
                         break
 
                     current_level = step_result.level
+                    self.emit_stage_progress(
+                        "Compiled widened scope level",
+                        scopeLevel=current_level,
+                    )
                 finally:
                     self.discard_backup(rollback_tag)
 

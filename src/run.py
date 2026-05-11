@@ -29,10 +29,12 @@ from vuln_aware_refiner.vuln_aware_refiner import VulnAwareRefiner
 from stub_generator.gen_function_stubs import StubGenerator
 from commons.models import Generable
 from validator.precondition_validator import PreconditionValidator
+from vscode_bridge.progress import VSCodeJobProgress
 
 
 # Global project container
 project_container: Optional[ProjectContainer] = None
+current_progress: Optional[VSCodeJobProgress] = None
 
 
 def positive_int(value: str) -> int:
@@ -132,6 +134,16 @@ def build_parser() -> argparse.ArgumentParser:
             "at each accepted scope widening level."
         ),
     )
+    parser.add_argument(
+        "--job_id",
+        default=None,
+        help="Optional VS Code job identifier used for structured progress events.",
+    )
+    parser.add_argument(
+        "--execution_host",
+        default=None,
+        help="Optional execution host label used for VS Code manifests.",
+    )
     return parser
 
 
@@ -144,6 +156,7 @@ def process_mode(args):
     """ Process the mode selected in the CLI"""
 
     logger = setup_logger(__name__)
+    progress = getattr(args, "vscode_progress", None)
 
     logger.info("Running in '%s' mode.", args.mode)
     logger.info("Harness path: %s", args.harness_path)
@@ -194,19 +207,28 @@ def process_mode(args):
         ))
 
     for agent in agents:
+        stage_name = agent.__class__.__name__
+        if progress and progress.enabled:
+            progress.stage_started(stage_name)
         start_time = time.perf_counter()
         result = agent.generate()
         elapsed_time = time.perf_counter() - start_time
-        with open(args.metrics_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps({
-                "agent_name": agent.__class__.__name__,
-                "elapsed_time": elapsed_time
-            }))
-            f.write("\n")
+        if args.metrics_file:
+            with open(args.metrics_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "agent_name": agent.__class__.__name__,
+                    "elapsed_time": elapsed_time
+                }))
+                f.write("\n")
         if not result:
             logger.error("Agent '%s' failed. Aborting.", str(agent))
-            return
+            if progress and progress.enabled:
+                progress.stage_completed(stage_name, success=False)
+            return False
+        if progress and progress.enabled:
+            progress.stage_completed(stage_name, success=True)
         logger.info("Agent '%s' succeed", agent.__class__.__name__)
+    return True
 
 def log_final_result(metrics_file: str, data: list[dict]):
         if not metrics_file:
@@ -257,15 +279,29 @@ def summarize_metrics_per_agent(metrics_file: str, logger):
 
     log_final_result(metrics_file, entries)
 
-def main():
-    """Entry point"""
-    global project_container
+def run_with_args(args) -> bool:
+    """Run the AutoUP pipeline with a pre-built arguments namespace.
+
+    Inputs:
+        args: Namespace containing the standard AutoUP runtime arguments.
+
+    Returns:
+        bool: True when the full pipeline succeeds and False otherwise.
+
+    Behavior:
+        Initializes logging and the container runtime, then delegates to the
+        shared mode-processing logic used by both the CLI and the VS Code bridge.
+    """
+    global project_container, current_progress
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
     load_dotenv()
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    args = get_parser()
+    if not hasattr(args, "vscode_progress"):
+        # Build a disabled/no-op progress writer automatically for plain CLI runs.
+        args.vscode_progress = VSCodeJobProgress.from_args(args)
+    current_progress = args.vscode_progress
 
     init_logging(args.log_file)
     logger = setup_logger(__name__)
@@ -292,9 +328,12 @@ def main():
         project_container.initialize()
     except Exception as e:
         logger.error(f"Error initializing Project container: {e}")
-        return
+        progress = getattr(args, "vscode_progress", None)
+        if progress and progress.enabled:
+            progress.job_failed(f"Container initialization failed: {e}")
+        return False
     
-    process_mode(args)
+    success = process_mode(args)
 
     if args.metrics_file:
         # Summarize metrics and print results to log
@@ -302,12 +341,38 @@ def main():
             summarize_metrics_per_agent(args.metrics_file, logger)
         except Exception as e:
             logger.error(f"Error summarizing metrics: {e}")
+    return success
+
+
+def main():
+    """Parse CLI arguments and run the AutoUP pipeline.
+
+    Inputs:
+        None. Reads process command line arguments.
+
+    Returns:
+        bool: True on success and False on failure.
+    """
+    args = get_parser()
+    return run_with_args(args)
 
 
 def cleanup(signum, _frame):
-    """ Clean up container """
+    """Handle process shutdown by cleaning up container and progress state.
+
+    Inputs:
+        signum: Signal number that triggered cleanup.
+        _frame: Unused current stack frame.
+
+    Returns:
+        Never returns. Exits the process.
+    """
     print(f"Caught signal {signum}, cleaning up container...")
     try:
+        # Mark the job as cancelled before tearing down the container so the extension
+        # sees a terminal state even on abrupt shutdown.
+        if current_progress and current_progress.enabled:
+            current_progress.job_cancelled()
         if project_container:
             project_container.terminate()
     finally:
@@ -317,7 +382,8 @@ def cleanup(signum, _frame):
 
 if __name__ == "__main__":
     try:
-        main()
+        succeeded = main()
+        raise SystemExit(0 if succeeded else 1)
     except Exception as e:
         print(f"Error occurred while running main: {e}")
         raise e

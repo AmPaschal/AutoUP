@@ -1,0 +1,17 @@
+# Generated backend bundle used for packaging/install bootstrap.
+.autoup-bundle/
+
+# Compiled extension output.
+dist/
+
+# Installed development dependencies.
+node_modules/
+
+# VS Code extension-host test runtime downloads and user data.
+.vscode-test/
+
+# Packaged extension artifacts.
+*.vsix
+
+# Local editor / OS noise.
+.DS_Store
