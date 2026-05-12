@@ -4,6 +4,8 @@
 **/__pycache__/
 .env
 .venv/
+.autoup-bundle/
+vscode-extension/.autoup-bundle/
 **/backups/**
 **/output-*/
 **/output-*

@@ -645,6 +645,12 @@ class CoverageDebugger(AIAgent, Generable):
                 get_next_block = True
                 functions_to_skip.setdefault(next_function['function'], set()).add(target_block_line)
                 self.log_task_result(task_id, True, attempts)
+                self.emit_refinement_accepted(
+                    "Accepted coverage refinement",
+                    taskId=task_id,
+                    functionName=next_function["function"],
+                    targetLine=target_block_line,
+                )
             elif llm_result == AgentAction.TERMINATE:
                 self.restore_backup(tag)
                 self.discard_backup(tag)
@@ -685,4 +691,3 @@ class CoverageDebugger(AIAgent, Generable):
         self._current_coverage = {}
         
         return True
-

@@ -93,11 +93,25 @@ class ProofDebugger(AIAgent, Generable):
             if result:
                 total_errors_solved += 1
                 errors_solved_programatically += 1
+                self.emit_refinement_accepted(
+                    "Accepted programmatic debugger refinement",
+                    errorId=error.error_id,
+                    functionName=error.func,
+                    line=error.line,
+                    mode="programmatic",
+                )
             else:
                 self.restore_backup(tag)
                 result, current_coverage = self.generate_fix_with_llm(error, current_coverage, tag)
                 if result: # LLM fix succeeded
                     total_errors_solved += 1
+                    self.emit_refinement_accepted(
+                        "Accepted LLM debugger refinement",
+                        errorId=error.error_id,
+                        functionName=error.func,
+                        line=error.line,
+                        mode="llm",
+                    )
                 else:
                     self.restore_backup(tag)
             

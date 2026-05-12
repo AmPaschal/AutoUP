@@ -1,0 +1,199 @@
+{
+  "name": "autoup-vscode",
+  "displayName": "AutoUP",
+  "description": "Generate AutoUP unit proofs from VS Code.",
+  "version": "0.0.3",
+  "publisher": "autoup",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AmPaschal/AutoUP.git"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onCommand:autoup.createUnitProof",
+    "onCommand:autoup.refreshProofs",
+    "onView:autoup.proofExplorer"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "autoup.createUnitProof",
+        "title": "Create Unit Proof",
+        "category": "AutoUP"
+      },
+      {
+        "command": "autoup.cancelProof",
+        "title": "Cancel Unit Proof",
+        "category": "AutoUP",
+        "icon": {
+          "light": "resources/icons/cancel.svg",
+          "dark": "resources/icons/cancel.svg"
+        }
+      },
+      {
+        "command": "autoup.deleteProof",
+        "title": "Delete Unit Proof",
+        "category": "AutoUP",
+        "icon": {
+          "light": "resources/icons/delete.svg",
+          "dark": "resources/icons/delete.svg"
+        }
+      },
+      {
+        "command": "autoup.openHarness",
+        "title": "Open Harness File",
+        "category": "AutoUP"
+      },
+      {
+        "command": "autoup.openMakefile",
+        "title": "Open Makefile",
+        "category": "AutoUP"
+      },
+      {
+        "command": "autoup.openSourceFile",
+        "title": "Open Source File",
+        "category": "AutoUP"
+      },
+      {
+        "command": "autoup.openLog",
+        "title": "Open AutoUP Log",
+        "category": "AutoUP"
+      },
+      {
+        "command": "autoup.openReport",
+        "title": "Open Report",
+        "category": "AutoUP"
+      },
+      {
+        "command": "autoup.revealProofFolder",
+        "title": "Reveal Proof Folder",
+        "category": "AutoUP"
+      },
+      {
+        "command": "autoup.refreshProofs",
+        "title": "Refresh Unit Proofs",
+        "category": "AutoUP"
+      },
+      {
+        "command": "autoup.showProofOutput",
+        "title": "Show Proof Output",
+        "category": "AutoUP"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "autoup.createUnitProof",
+          "when": "isWorkspaceTrusted && (resourceLangId == c || resourceLangId == cpp)",
+          "group": "navigation@9"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "autoup.refreshProofs",
+          "when": "view == autoup.proofExplorer",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "autoup.cancelProof",
+          "when": "view == autoup.proofExplorer && viewItem == proofJobCancellable",
+          "group": "inline@1"
+        },
+        {
+          "command": "autoup.deleteProof",
+          "when": "view == autoup.proofExplorer && viewItem == proofJobDeletable",
+          "group": "inline@2"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "autoup-panel",
+          "title": "AutoUP",
+          "icon": "resources/icons/autoup.svg"
+        }
+      ]
+    },
+    "views": {
+      "autoup-panel": [
+        {
+          "id": "autoup.proofExplorer",
+          "name": "Unit Proofs"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AutoUP",
+      "properties": {
+        "autoup.model": {
+          "type": "string",
+          "default": "gpt-5.3-codex",
+          "description": "LLM model identifier passed to AutoUP."
+        },
+        "autoup.containerEngine": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "docker",
+            "apptainer"
+          ],
+          "default": "auto",
+          "description": "Container engine to use for proof execution."
+        },
+        "autoup.scopeBound": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": null,
+          "description": "Optional scope widening depth bound."
+        },
+        "autoup.scopeTimeBudget": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "default": null,
+          "description": "Optional scope widening time budget in minutes."
+        },
+        "autoup.maxConcurrentJobs": {
+          "type": "integer",
+          "default": 2,
+          "minimum": 1,
+          "description": "Maximum number of AutoUP proof jobs that may run at once."
+        },
+        "autoup.proofsRoot": {
+          "type": "string",
+          "default": "cbmc/proofs",
+          "description": "Workspace-relative root directory where generated proofs are stored."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "sync-backend": "node ./scripts/sync-backend-assets.js",
+    "vscode:prepublish": "npm run compile",
+    "compile": "npm run sync-backend && tsc -p .",
+    "watch": "tsc -w -p .",
+    "test": "npm run compile && node ./test/runTest.js"
+  },
+  "devDependencies": {
+    "@vscode/test-electron": "^2.4.1",
+    "@types/node": "^22.10.1",
+    "@types/vscode": "^1.95.0",
+    "mocha": "^11.1.0",
+    "typescript": "^5.7.2"
+  }
+}
