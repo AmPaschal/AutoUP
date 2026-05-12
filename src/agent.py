@@ -283,14 +283,20 @@ class AIAgent(ABC):
     def run_make(self, compile_only: bool = False) -> dict:
         logger.info("[INFO] Running make command...")
         make_cmd = "make compile -j3" if compile_only else "make clean && make -j3"
+        timeout_seconds = getattr(self.args, "make_timeout", 1800)
         start_time = time.perf_counter()
-        make_results = self.execute_command(make_cmd, workdir=self.harness_dir, timeout=1800)
+        make_results = self.execute_command(
+            make_cmd,
+            workdir=self.harness_dir,
+            timeout=timeout_seconds,
+        )
         make_results["elapsed_seconds"] = time.perf_counter() - start_time
         logger.info('Stdout:\n' + make_results.get('stdout', ''))
         logger.info('Stderr:\n' + make_results.get('stderr', ''))
         logger.info(
-            "Make command finished in %.2f seconds.",
+            "Make command finished in %.2f seconds (timeout=%ss).",
             make_results["elapsed_seconds"],
+            timeout_seconds,
         )
         if self.progress and self.progress.enabled and not compile_only and self.validate_verification_report():
             self.progress.summary_updated(

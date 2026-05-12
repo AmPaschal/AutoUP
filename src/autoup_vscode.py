@@ -52,8 +52,9 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--function-name")
     start_parser.add_argument("--container-engine", default="docker")
     start_parser.add_argument("--model", default="gpt-5.3-codex")
-    start_parser.add_argument("--scope-bound", type=int)
+    start_parser.add_argument("--scope-bound", type=int, default=1)
     start_parser.add_argument("--scope-time-budget", type=float)
+    start_parser.add_argument("--make-timeout", type=int, default=1800)
     start_parser.add_argument("--log-file")
     start_parser.add_argument("--metrics-file")
     start_parser.add_argument("--execution-host")
@@ -155,8 +156,9 @@ def build_run_args(args: argparse.Namespace) -> SimpleNamespace:
         metrics_file=metrics_file,
         container_engine=args.container_engine,
         llm_model=args.model,
-        scope_bound=args.scope_bound,
+        scope_bound=args.scope_bound if args.scope_bound is not None else 1,
         scope_time_budget=args.scope_time_budget,
+        make_timeout=args.make_timeout,
         job_id=args.job_id,
         execution_host=execution_host,
         line=args.line,

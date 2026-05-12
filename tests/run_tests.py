@@ -132,6 +132,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-s", "--scope_bound", type=positive_int, default=None, help="Optional maximum depth of verification scope")
     parser.add_argument("-st", "--scope_time_budget", type=positive_float, default=None, help="Optional full verification wall-clock budget in minutes for scope widening")
     parser.add_argument(
+        "-mt",
+        "--make_timeout",
+        type=positive_int,
+        default=1800,
+        help="Full verification make timeout in seconds",
+    )
+    parser.add_argument(
         "-c",
         "--container_engine",
         choices=["docker", "apptainer"],
@@ -163,6 +170,11 @@ def build_run_command(entry, args, metrics_file: Path, proof_dir: Path) -> list[
         cmd.extend([
             "--scope_time_budget",
             str(args.scope_time_budget),
+        ])
+    if getattr(args, "make_timeout", None) is not None:
+        cmd.extend([
+            "--make_timeout",
+            str(args.make_timeout),
         ])
     return cmd
 

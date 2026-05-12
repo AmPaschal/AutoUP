@@ -25,8 +25,9 @@ export class ConfigManager {
     return {
       model: config.get<string>("model", "gpt-5.3-codex"),
       containerEngine: config.get<"auto" | "docker" | "apptainer">("containerEngine", "auto"),
-      scopeBound: config.get<number | null>("scopeBound", null),
+      scopeBound: config.get<number | null>("scopeBound", 1),
       scopeTimeBudget: config.get<number | null>("scopeTimeBudget", null),
+      makeTimeout: config.get<number>("makeTimeout", 600),
       maxConcurrentJobs: config.get<number>("maxConcurrentJobs", 2),
       proofsRoot: config.get<string>("proofsRoot", "cbmc/proofs"),
     };

@@ -391,6 +391,7 @@ suite("AutoUP Extension Smoke", () => {
           containerEngine: "auto",
           scopeBound: null,
           scopeTimeBudget: null,
+          makeTimeout: 600,
           maxConcurrentJobs: 2,
           proofsRoot: "cbmc/proofs",
         },
@@ -490,6 +491,7 @@ suite("AutoUP Extension Smoke", () => {
           containerEngine: "auto",
           scopeBound: null,
           scopeTimeBudget: null,
+          makeTimeout: 600,
           maxConcurrentJobs: 0,
           proofsRoot: "cbmc/proofs",
         };
@@ -529,6 +531,7 @@ suite("AutoUP Extension Smoke", () => {
       containerEngine: "auto",
       scopeBound: null,
       scopeTimeBudget: null,
+      makeTimeout: 600,
       maxConcurrentJobs: 1,
       proofsRoot: "cbmc/proofs",
     };

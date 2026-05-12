@@ -116,12 +116,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--scope_bound",
         type=positive_int,
-        default=None,
+        default=1,
         help=(
-            "Optional maximum depth for scope widening. "
-            "When set without a time budget, widening remains compile-only "
-            "at each level and integrated model generation runs once at the "
-            "final accepted scope."
+            "Maximum depth for scope widening. Defaults to 1, which disables "
+            "widening while still enabling scope-reducer behavior in the "
+            "non-widened flow."
         ),
     )
     parser.add_argument(
@@ -132,6 +131,15 @@ def build_parser() -> argparse.ArgumentParser:
             "Optional wall-clock budget in minutes for the single full "
             "verification run performed after integrated model generation "
             "at each accepted scope widening level."
+        ),
+    )
+    parser.add_argument(
+        "--make-timeout",
+        type=positive_int,
+        default=1800,
+        help=(
+            "Full verification make timeout in seconds. "
+            "Defaults to 1800 seconds."
         ),
     )
     parser.add_argument(

@@ -107,6 +107,7 @@ class HarnessFlowHarness(InitialHarnessGenerator):
             metrics_file=None,
         )
         self.project_container = object()
+        self.progress = None
         self.full_results = list(full_results or [])
         self.run_make_calls: list[bool] = []
 
@@ -159,6 +160,20 @@ class HarnessFlowHarness(InitialHarnessGenerator):
         ).exists()
 
 
+class FakeScopeReducer:
+    calls: list[float | None] = []
+    results_queue: list[bool] = []
+
+    def __init__(self, agent):
+        self.agent = agent
+
+    def reduce_scope(self, time_budget_seconds: float | None) -> bool:
+        type(self).calls.append(time_budget_seconds)
+        if type(self).results_queue:
+            return type(self).results_queue.pop(0)
+        return True
+
+
 class InitialHarnessScopeFlowTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -170,6 +185,8 @@ class InitialHarnessScopeFlowTests(unittest.TestCase):
         FakeFunctionPointerHandler.calls = []
         FakeFunctionPointerHandler.results_queue = []
         FakeFunctionPointerHandler.makefile_suffixes = []
+        FakeScopeReducer.calls = []
+        FakeScopeReducer.results_queue = []
         self.stub_patch = mock.patch(
             "initial_harness_generator.gen_harness.StubGenerator",
             FakeStubGenerator,
@@ -178,10 +195,16 @@ class InitialHarnessScopeFlowTests(unittest.TestCase):
             "initial_harness_generator.gen_harness.FunctionPointerHandler",
             FakeFunctionPointerHandler,
         )
+        self.reducer_patch = mock.patch(
+            "initial_harness_generator.gen_harness.ScopeReducer",
+            FakeScopeReducer,
+        )
         self.stub_patch.start()
         self.fp_patch.start()
+        self.reducer_patch.start()
         self.addCleanup(self.stub_patch.stop)
         self.addCleanup(self.fp_patch.stop)
+        self.addCleanup(self.reducer_patch.stop)
 
     def test_budgeted_flow_accepts_valid_report_even_when_verification_exit_code_is_nonzero(self):
         harness = HarnessFlowHarness(
@@ -214,6 +237,7 @@ class InitialHarnessScopeFlowTests(unittest.TestCase):
         )
         self.assertEqual(FakeStubGenerator.calls, [False, False])
         self.assertEqual(FakeFunctionPointerHandler.calls, [False, False])
+        self.assertEqual(FakeScopeReducer.calls, [])
         self.assertEqual(GENERATION_ORDER, ["fp", "stub", "fp", "stub"])
         self.assertEqual(harness.run_make_calls, [False, False])
         self.assertIn("level2", harness.get_makefile())
@@ -251,6 +275,7 @@ class InitialHarnessScopeFlowTests(unittest.TestCase):
         )
         self.assertIn("fp\n", widener.entered_makefiles[0])
         self.assertNotIn("stub\n", widener.entered_makefiles[0])
+        self.assertEqual(FakeScopeReducer.calls, [])
         self.assertEqual(GENERATION_ORDER, ["fp", "stub", "fp", "stub"])
         self.assertIn("fp\n", harness.get_makefile())
         self.assertIn("stub\n", harness.get_makefile())
@@ -260,7 +285,12 @@ class InitialHarnessScopeFlowTests(unittest.TestCase):
         self.assertNotEqual(harness.get_makefile(), original_makefile)
 
     def test_bound_only_flow_defers_model_generation_until_final_scope(self):
-        harness = HarnessFlowHarness(self.temp_dir.name)
+        harness = HarnessFlowHarness(
+            self.temp_dir.name,
+            full_results=[
+                {"exit_code": 0, "elapsed_seconds": 1.0, "report": True},
+            ],
+        )
         widener = FakeWidener(
             harness,
             step_results=[
@@ -278,9 +308,63 @@ class InitialHarnessScopeFlowTests(unittest.TestCase):
         )
         self.assertEqual(FakeStubGenerator.calls, [False])
         self.assertEqual(FakeFunctionPointerHandler.calls, [False])
+        self.assertEqual(FakeScopeReducer.calls, [])
         self.assertEqual(GENERATION_ORDER, ["fp", "stub"])
-        self.assertEqual(harness.run_make_calls, [])
+        self.assertEqual(harness.run_make_calls, [False])
         self.assertIn("level2", harness.get_makefile())
+
+    def test_budgeted_flow_uses_scope_reducer_before_widening_when_baseline_exceeds_budget(self):
+        FakeScopeReducer.results_queue = [True]
+        harness = HarnessFlowHarness(
+            self.temp_dir.name,
+            full_results=[
+                {"exit_code": 0, "elapsed_seconds": 90.0, "report": False},
+                {"exit_code": 0, "elapsed_seconds": 5.0, "report": True},
+                {"exit_code": 0, "elapsed_seconds": 7.0, "report": True},
+            ],
+        )
+        widener = FakeWidener(
+            harness,
+            step_results=[
+                {"outcome": "advanced", "level": 2, "makefile_suffix": "level2\n"},
+                {"outcome": "complete", "level": 2},
+            ],
+        )
+
+        self.assertEqual(
+            harness._run_budgeted_scope_widening(
+                widener=widener,
+                scope_bound=3,
+                time_budget_minutes=1.0,
+            ),
+            2,
+        )
+        self.assertEqual(FakeScopeReducer.calls, [60.0])
+        self.assertIn("level2", harness.get_makefile())
+
+    def test_bound_only_flow_runs_scope_reducer_after_final_timeout(self):
+        FakeScopeReducer.results_queue = [True]
+        harness = HarnessFlowHarness(
+            self.temp_dir.name,
+            full_results=[
+                {"status": Status.TIMEOUT, "exit_code": 124, "elapsed_seconds": 1800.0, "report": False},
+            ],
+        )
+        widener = FakeWidener(
+            harness,
+            step_results=[
+                {"outcome": "complete", "level": 1},
+            ],
+        )
+
+        self.assertEqual(
+            harness._run_bound_only_scope_widening(
+                widener=widener,
+                scope_bound=2,
+            ),
+            1,
+        )
+        self.assertEqual(FakeScopeReducer.calls, [None])
 
 
 if __name__ == "__main__":

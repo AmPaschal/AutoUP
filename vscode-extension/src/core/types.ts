@@ -90,6 +90,7 @@ export interface AutoUpConfig {
   containerEngine: "auto" | "docker" | "apptainer";
   scopeBound: number | null;
   scopeTimeBudget: number | null;
+  makeTimeout: number;
   maxConcurrentJobs: number;
   proofsRoot: string;
 }

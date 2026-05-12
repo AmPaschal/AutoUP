@@ -157,8 +157,8 @@
             "integer",
             "null"
           ],
-          "default": null,
-          "description": "Optional scope widening depth bound."
+          "default": 1,
+          "description": "Scope widening depth bound. The default of 1 disables widening while still enabling scope-reducer behavior."
         },
         "autoup.scopeTimeBudget": {
           "type": [
@@ -167,6 +167,12 @@
           ],
           "default": null,
           "description": "Optional scope widening time budget in minutes."
+        },
+        "autoup.makeTimeout": {
+          "type": "integer",
+          "default": 600,
+          "minimum": 1,
+          "description": "Full verification make timeout in seconds passed to AutoUP."
         },
         "autoup.maxConcurrentJobs": {
           "type": "integer",

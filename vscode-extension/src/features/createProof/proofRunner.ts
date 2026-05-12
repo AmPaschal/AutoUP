@@ -54,6 +54,8 @@ export function startProofProcess(
     options.prerequisites.containerEngine,
     "--model",
     options.config.model,
+    "--make-timeout",
+    String(options.config.makeTimeout),
     "--log-file",
     job.logFile,
     "--metrics-file",
