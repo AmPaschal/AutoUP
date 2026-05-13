@@ -344,6 +344,23 @@ export class ProofManager implements vscode.Disposable {
   }
 
   /**
+   * Open the generated vulnerability report for a proof job.
+   *
+   * Inputs:
+   * - `target`: Job object or job ID.
+   *
+   * Returns:
+   * - `Promise<void>`.
+   */
+  async openVulnerabilityReport(target: unknown): Promise<void> {
+    const job = this.resolveJob(target);
+    if (!job) {
+      return;
+    }
+    await openArtifact(this.getVulnerabilityReportPath(job));
+  }
+
+  /**
    * Show the per-job output channel.
    *
    * Inputs:
@@ -1058,6 +1075,26 @@ export class ProofManager implements vscode.Disposable {
     }
     if (typeof job.proofDir === "string" && job.proofDir.length > 0) {
       return path.join(job.proofDir, "build", "report", "html", "index.html");
+    }
+    return null;
+  }
+
+  /**
+   * Resolve the vulnerability report path for a proof job.
+   *
+   * Inputs:
+   * - `job`: Proof job whose vulnerability report path should be derived.
+   *
+   * Returns:
+   * - `string | null`: Absolute report path when it can be determined.
+   */
+  private getVulnerabilityReportPath(job: ProofJob): string | null {
+    const summaryPath = job.verificationSummary?.artifactPaths.vulnerabilityReport;
+    if (typeof summaryPath === "string" && summaryPath.length > 0) {
+      return summaryPath;
+    }
+    if (typeof job.proofDir === "string" && job.proofDir.length > 0) {
+      return path.join(job.proofDir, "vulnerability-report.json");
     }
     return null;
   }

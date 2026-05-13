@@ -518,7 +518,7 @@ def _is_harness_file(root_dir: str, harness_dir: str, file_path: str) -> bool:
 
 
 def _coverage_summary(harness_dir: str, root_dir: str) -> tuple[int, int, float]:
-    """Summarize non-harness line coverage from `viewer-coverage.json`.
+    """Summarize overall line coverage from `viewer-coverage.json`.
 
     Inputs:
         harness_dir: Proof directory containing the build reports.
@@ -531,9 +531,19 @@ def _coverage_summary(harness_dir: str, root_dir: str) -> tuple[int, int, float]
     if not os.path.exists(coverage_path):
         return 0, 0, 0.0
 
-    # Walk the per-function coverage map and skip files generated inside the harness.
     data = _load_json(coverage_path)
-    function_coverage = data.get("viewer-coverage", {}).get("function_coverage", {})
+    viewer_coverage = data.get("viewer-coverage", {})
+    overall_coverage = viewer_coverage.get("overall_coverage", {})
+
+    hit = int(overall_coverage.get("hit", 0) or 0)
+    total = int(overall_coverage.get("total", 0) or 0)
+    percentage = float(overall_coverage.get("percentage", 0.0) or 0.0)
+    if total > 0:
+        return hit, total, percentage
+
+    # Fall back to the non-harness aggregate when the report does not expose
+    # an overall coverage section.
+    function_coverage = viewer_coverage.get("function_coverage", {})
 
     total_hit = 0
     total_lines = 0
@@ -547,6 +557,32 @@ def _coverage_summary(harness_dir: str, root_dir: str) -> tuple[int, int, float]
     # Derive percentage only when the denominator exists.
     percentage = (total_hit / total_lines) if total_lines > 0 else 0.0
     return total_hit, total_lines, percentage
+
+
+def _vulnerability_count(harness_dir: str) -> int:
+    """Read the reported vulnerability count from `vulnerability-report.json`.
+
+    Inputs:
+        harness_dir: Proof directory containing the vulnerability report.
+
+    Returns:
+        int: Total reported vulnerabilities, or zero when unavailable.
+    """
+    report_path = os.path.join(harness_dir, "vulnerability-report.json")
+    if not os.path.exists(report_path):
+        return 0
+
+    try:
+        data = _load_json(report_path)
+    except Exception:
+        return 0
+
+    summary = data.get("summary", {})
+    total_vulnerabilities = summary.get("total_vulnerabilities", 0)
+    try:
+        return int(total_vulnerabilities)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _errors_by_line(harness_dir: str, harness_file_name: str) -> int:
@@ -613,6 +649,7 @@ def build_verification_summary(
     harness_file_path = os.path.join(harness_dir, harness_file_name)
     makefile_path = os.path.join(harness_dir, "Makefile")
     report_html_path = os.path.join(harness_dir, "build", "report", "html", "index.html")
+    vulnerability_report_path = os.path.join(harness_dir, "vulnerability-report.json")
 
     # Return the flattened summary shape expected by the extension.
     return {
@@ -622,6 +659,7 @@ def build_verification_summary(
         "coverageHit": coverage_hit,
         "coverageTotal": coverage_total,
         "coveragePercentage": coverage_percentage,
+        "vulnerabilitiesReported": _vulnerability_count(harness_dir),
         "artifactPaths": {
             "proofDir": harness_dir,
             "harness": harness_file_path if os.path.exists(harness_file_path) else None,
@@ -629,6 +667,9 @@ def build_verification_summary(
             "source": target_file_path if os.path.exists(target_file_path) else None,
             "log": log_file,
             "reportHtml": report_html_path if os.path.exists(report_html_path) else None,
+            "vulnerabilityReport": (
+                vulnerability_report_path if os.path.exists(vulnerability_report_path) else None
+            ),
         },
         "targetFunction": target_function,
     }

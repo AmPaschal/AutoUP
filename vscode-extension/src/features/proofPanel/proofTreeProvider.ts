@@ -83,39 +83,41 @@ async function buildJobChildren(job: ProofJob): Promise<TreeNode[]> {
   ];
 
   if (job.verificationSummary) {
-    children.push(...summaryMetricRows(job.verificationSummary));
+    children.push(...(await summaryMetricRows(job, job.verificationSummary)));
   }
 
   children.push(...(await availableArtifactActionNodes(job)));
   return children;
 }
 
-function summaryMetricRows(summary: VerificationSummary): TreeNode[] {
+async function summaryMetricRows(job: ProofJob, summary: VerificationSummary): Promise<TreeNode[]> {
   /**
    * Convert a verification summary into read-only metric rows.
    *
    * Inputs:
+   * - `job`: Proof job whose artifacts can supply live summary data.
    * - `summary`: Latest summary for the proof job.
    *
    * Returns:
    * - `TreeNode[]`: Metric nodes only.
    */
   const coveragePct = (summary.coveragePercentage * 100).toFixed(1);
+  const vulnerabilitiesReported = await readVulnerabilityCount(job, summary.artifactPaths);
   return [
     {
       kind: "metric",
-      label: "Properties",
+      label: "Verification coverage",
+      description: `${summary.coverageHit}/${summary.coverageTotal} (${coveragePct}%)`,
+    },
+    {
+      kind: "metric",
+      label: "Verified properties",
       description: `${summary.propertiesVerified}/${summary.propertiesInstrumented}`,
     },
     {
       kind: "metric",
-      label: "Errors By Line",
-      description: String(summary.errorsByLine),
-    },
-    {
-      kind: "metric",
-      label: "Coverage",
-      description: `${summary.coverageHit}/${summary.coverageTotal} (${coveragePct}%)`,
+      label: "Vulnerabilities reported",
+      description: String(vulnerabilitiesReported),
     },
   ];
 }
@@ -162,10 +164,16 @@ async function availableArtifactActionNodes(job: ProofJob): Promise<TreeNode[]> 
       targetPath: summaryPaths?.log ?? job.logFile,
     },
     {
-      label: "Open Report",
+      label: "Open Verification Report",
       command: "autoup.openReport",
       contextValue: "proofActionReport",
       targetPath: getReportPath(job, summaryPaths),
+    },
+    {
+      label: "Open Vulnerability Report",
+      command: "autoup.openVulnerabilityReport",
+      contextValue: "proofActionVulnerabilityReport",
+      targetPath: getVulnerabilityReportPath(job, summaryPaths),
     },
   ];
 
@@ -210,6 +218,27 @@ function getReportPath(job: ProofJob, summaryPaths?: ArtifactPaths): string | nu
   return null;
 }
 
+function getVulnerabilityReportPath(job: ProofJob, summaryPaths?: ArtifactPaths): string | null {
+  /**
+   * Resolve the vulnerability report path for a proof job.
+   *
+   * Inputs:
+   * - `job`: Proof job whose vulnerability report path should be derived.
+   * - `summaryPaths`: Optional artifact-path object from the latest summary.
+   *
+   * Returns:
+   * - `string | null`: Vulnerability report path when it can be determined.
+   */
+  const vulnerabilityReport = summaryPaths?.vulnerabilityReport;
+  if (typeof vulnerabilityReport === "string" && vulnerabilityReport.length > 0) {
+    return vulnerabilityReport;
+  }
+  if (typeof job.proofDir === "string" && job.proofDir.length > 0) {
+    return path.join(job.proofDir, "vulnerability-report.json");
+  }
+  return null;
+}
+
 async function exists(targetPath: string): Promise<boolean> {
   /**
    * Check whether a candidate artifact path exists.
@@ -225,5 +254,33 @@ async function exists(targetPath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function readVulnerabilityCount(job: ProofJob, summaryPaths?: ArtifactPaths): Promise<number> {
+  /**
+   * Read the latest vulnerability count directly from disk.
+   *
+   * Inputs:
+   * - `job`: Proof job whose vulnerability report should be inspected.
+   * - `summaryPaths`: Optional artifact-path object from the latest summary.
+   *
+   * Returns:
+   * - `Promise<number>`: Total reported vulnerabilities, or zero when unavailable.
+   */
+  const reportPath = getVulnerabilityReportPath(job, summaryPaths);
+  if (!reportPath) {
+    return 0;
+  }
+
+  try {
+    const raw = await fs.readFile(reportPath, "utf-8");
+    const parsed = JSON.parse(raw) as {
+      summary?: { total_vulnerabilities?: unknown };
+    };
+    const count = Number(parsed.summary?.total_vulnerabilities);
+    return Number.isFinite(count) ? count : 0;
+  } catch {
+    return 0;
   }
 }

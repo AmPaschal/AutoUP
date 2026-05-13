@@ -603,5 +603,5 @@ class InitialHarnessGenerator(AIAgent, Generable):
         self.log_agent_result(agent_result)
 
         self.save_status('harness')
-        return status
+        return agent_result["verification_status"]
         

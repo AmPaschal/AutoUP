@@ -26,6 +26,7 @@ suite("AutoUP Extension Smoke", () => {
     assert.ok(commands.includes("autoup.createUnitProof"));
     assert.ok(commands.includes("autoup.refreshProofs"));
     assert.ok(commands.includes("autoup.showProofOutput"));
+    assert.ok(commands.includes("autoup.openVulnerabilityReport"));
   });
 
   test("computeProofDirectory preserves relative source structure", async () => {
@@ -88,6 +89,7 @@ suite("AutoUP Extension Smoke", () => {
     const harnessFile = path.join(proofDir, "sample_target_harness.c");
     const makefilePath = path.join(proofDir, "Makefile");
     const reportPath = path.join(proofDir, "build", "report", "html", "index.html");
+    const vulnerabilityReportPath = path.join(proofDir, "vulnerability-report.json");
 
     await fsp.mkdir(proofDir, { recursive: true });
     await fsp.writeFile(sourceFile, "int sample_target(int x) { return x; }\n", "utf8");
@@ -117,7 +119,24 @@ suite("AutoUP Extension Smoke", () => {
       status: "running",
       currentStage: "InitialHarnessGenerator",
       completedStages: [],
-      verificationSummary: null,
+      verificationSummary: {
+        propertiesInstrumented: 3,
+        propertiesVerified: 2,
+        errorsByLine: 1,
+        coverageHit: 12,
+        coverageTotal: 13,
+        coveragePercentage: 12 / 13,
+        vulnerabilitiesReported: 0,
+        artifactPaths: {
+          proofDir,
+          harness: harnessFile,
+          makefile: makefilePath,
+          source: sourceFile,
+          log: logFile,
+          reportHtml: reportPath,
+          vulnerabilityReport: vulnerabilityReportPath,
+        },
+      },
       executionHost: "local-linux",
       outputChannel,
       process: null,
@@ -128,22 +147,42 @@ suite("AutoUP Extension Smoke", () => {
 
     const initialChildren = await provider.getChildren({ kind: "job", job: fakeJob });
     const initialLabels = initialChildren.map((child) => child.label);
+    const initialDescriptions = initialChildren.map((child) => child.description);
+    assert.deepStrictEqual(initialLabels.slice(0, 4), [
+      "Status",
+      "Verification coverage",
+      "Verified properties",
+      "Vulnerabilities reported",
+    ]);
+    assert.deepStrictEqual(initialDescriptions.slice(0, 4), [
+      "running · InitialHarnessGenerator",
+      "12/13 (92.3%)",
+      "2/3",
+      "0",
+    ]);
     assert.ok(initialLabels.includes("Open Source File"));
     assert.ok(initialLabels.includes("Open Log"));
     assert.ok(!initialLabels.includes("Open Harness"));
     assert.ok(!initialLabels.includes("Open Makefile"));
-    assert.ok(!initialLabels.includes("Open Report"));
+    assert.ok(!initialLabels.includes("Open Verification Report"));
+    assert.ok(!initialLabels.includes("Open Vulnerability Report"));
 
     await fsp.writeFile(harnessFile, "void harness(void) {}\n", "utf8");
     await fsp.writeFile(makefilePath, "all:\n\t@true\n", "utf8");
     await fsp.mkdir(path.dirname(reportPath), { recursive: true });
     await fsp.writeFile(reportPath, "<html><body>report</body></html>\n", "utf8");
+    await fsp.writeFile(vulnerabilityReportPath, "{\"summary\":{\"total_vulnerabilities\":1}}\n", "utf8");
 
     const updatedChildren = await provider.getChildren({ kind: "job", job: fakeJob });
     const updatedLabels = updatedChildren.map((child) => child.label);
+    const vulnerabilityMetric = updatedChildren.find(
+      (child) => child.label === "Vulnerabilities reported",
+    );
     assert.ok(updatedLabels.includes("Open Harness"));
     assert.ok(updatedLabels.includes("Open Makefile"));
-    assert.ok(updatedLabels.includes("Open Report"));
+    assert.ok(updatedLabels.includes("Open Verification Report"));
+    assert.ok(updatedLabels.includes("Open Vulnerability Report"));
+    assert.strictEqual(vulnerabilityMetric && vulnerabilityMetric.description, "1");
 
     await fsp.rm(tempRoot, { recursive: true, force: true });
   });

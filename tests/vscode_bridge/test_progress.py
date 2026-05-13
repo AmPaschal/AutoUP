@@ -56,6 +56,11 @@ class VSCodeProgressTests(unittest.TestCase):
             json.dumps(
                 {
                     "viewer-coverage": {
+                        "overall_coverage": {
+                            "hit": 12,
+                            "total": 13,
+                            "percentage": 12 / 13,
+                        },
                         "function_coverage": {
                             str(self.source_file): {
                                 "demo": {"hit": 4, "total": 5}
@@ -73,8 +78,22 @@ class VSCodeProgressTests(unittest.TestCase):
         html_dir.mkdir(parents=True, exist_ok=True)
         (html_dir / "index.html").write_text("<html><body>demo</body></html>\n", encoding="utf-8")
 
+    def _write_vulnerability_report(self, total_vulnerabilities: int = 2):
+        (self.proof_dir / "vulnerability-report.json").write_text(
+            json.dumps(
+                {
+                    "summary": {
+                        "total_vulnerabilities": total_vulnerabilities,
+                    },
+                    "vulnerabilities": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
     def test_summary_uses_report_files(self):
         self._write_reports()
+        self._write_vulnerability_report()
 
         summary = build_verification_summary(
             harness_dir=str(self.proof_dir),
@@ -87,13 +106,18 @@ class VSCodeProgressTests(unittest.TestCase):
 
         self.assertEqual(summary["propertiesInstrumented"], 3)
         self.assertEqual(summary["propertiesVerified"], 2)
-        self.assertEqual(summary["coverageHit"], 4)
-        self.assertEqual(summary["coverageTotal"], 5)
-        self.assertAlmostEqual(summary["coveragePercentage"], 0.8)
+        self.assertEqual(summary["coverageHit"], 12)
+        self.assertEqual(summary["coverageTotal"], 13)
+        self.assertAlmostEqual(summary["coveragePercentage"], 12 / 13)
+        self.assertEqual(summary["vulnerabilitiesReported"], 2)
         self.assertEqual(summary["artifactPaths"]["source"], str(self.source_file))
         self.assertEqual(
             summary["artifactPaths"]["reportHtml"],
             str(self.proof_dir / "build" / "report" / "html" / "index.html"),
+        )
+        self.assertEqual(
+            summary["artifactPaths"]["vulnerabilityReport"],
+            str(self.proof_dir / "vulnerability-report.json"),
         )
 
     def test_progress_writes_job_and_events(self):

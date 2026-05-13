@@ -2,7 +2,7 @@
   "name": "autoup-vscode",
   "displayName": "AutoUP",
   "description": "Generate AutoUP unit proofs from VS Code.",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "autoup",
   "repository": {
     "type": "git",
@@ -70,7 +70,12 @@
       },
       {
         "command": "autoup.openReport",
-        "title": "Open Report",
+        "title": "Open Verification Report",
+        "category": "AutoUP"
+      },
+      {
+        "command": "autoup.openVulnerabilityReport",
+        "title": "Open Vulnerability Report",
         "category": "AutoUP"
       },
       {

@@ -28,6 +28,7 @@ export interface ArtifactPaths {
   source?: string | null;
   log?: string | null;
   reportHtml?: string | null;
+  vulnerabilityReport?: string | null;
 }
 
 export interface VerificationSummary {
@@ -37,6 +38,7 @@ export interface VerificationSummary {
   coverageHit: number;
   coverageTotal: number;
   coveragePercentage: number;
+  vulnerabilitiesReported: number;
   artifactPaths: ArtifactPaths;
   targetFunction?: string;
 }

@@ -145,18 +145,18 @@ export function summaryMetricNodes(job: ProofJob, summary: VerificationSummary):
   return [
     {
       kind: "metric",
-      label: "Properties",
+      label: "Verification coverage",
+      description: `${summary.coverageHit}/${summary.coverageTotal} (${coveragePct}%)`,
+    },
+    {
+      kind: "metric",
+      label: "Verified properties",
       description: `${summary.propertiesVerified}/${summary.propertiesInstrumented}`,
     },
     {
       kind: "metric",
-      label: "Errors By Line",
-      description: String(summary.errorsByLine),
-    },
-    {
-      kind: "metric",
-      label: "Coverage",
-      description: `${summary.coverageHit}/${summary.coverageTotal} (${coveragePct}%)`,
+      label: "Vulnerabilities reported",
+      description: String(summary.vulnerabilitiesReported ?? 0),
     },
     {
       kind: "action",
@@ -188,10 +188,17 @@ export function summaryMetricNodes(job: ProofJob, summary: VerificationSummary):
     },
     {
       kind: "action",
-      label: "Open Report",
+      label: "Open Verification Report",
       command: "autoup.openReport",
       jobId: job.id,
       contextValue: "proofActionReport",
+    },
+    {
+      kind: "action",
+      label: "Open Vulnerability Report",
+      command: "autoup.openVulnerabilityReport",
+      jobId: job.id,
+      contextValue: "proofActionVulnerabilityReport",
     },
   ];
 }

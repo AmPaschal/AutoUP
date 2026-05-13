@@ -94,6 +94,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       await proofManager.openReport(target);
     }),
+    vscode.commands.registerCommand("autoup.openVulnerabilityReport", async (target?: unknown) => {
+      if (!target) {
+        return;
+      }
+      await proofManager.openVulnerabilityReport(target);
+    }),
     vscode.commands.registerCommand("autoup.revealProofFolder", async (target?: unknown) => {
       if (!target) {
         return;
