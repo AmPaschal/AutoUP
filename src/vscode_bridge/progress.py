@@ -15,7 +15,13 @@ import json
 import os
 import threading
 import time
+import uuid
+from contextlib import contextmanager
 from typing import Any, Optional
+
+MANIFEST_LOCK_TIMEOUT_SECONDS = 15.0
+MANIFEST_LOCK_STALE_SECONDS = 30.0
+MANIFEST_LOCK_POLL_SECONDS = 0.05
 
 
 class VSCodeJobProgress:
@@ -71,11 +77,13 @@ class VSCodeJobProgress:
             # do not race on directory creation.
             self.state_dir = os.path.join(self.proof_dir, ".autoup")
             self.job_path = os.path.join(self.state_dir, "job.json")
+            self.lock_path = f"{self.job_path}.lock"
             self.events_path = os.path.join(self.state_dir, "events.jsonl")
             os.makedirs(self.state_dir, exist_ok=True)
         else:
             self.state_dir = None
             self.job_path = None
+            self.lock_path = None
             self.events_path = None
 
     @classmethod
@@ -117,10 +125,16 @@ class VSCodeJobProgress:
             Writes through a temporary file and replaces the destination so the
             extension does not read partial manifests.
         """
-        temp_path = f"{path}.tmp"
-        with open(temp_path, "w", encoding="utf-8") as file:
-            json.dump(data, file, indent=2)
-        os.replace(temp_path, path)
+        temp_path = f"{path}.tmp.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}"
+        try:
+            with open(temp_path, "w", encoding="utf-8") as file:
+                json.dump(data, file, indent=2)
+            os.replace(temp_path, path)
+        finally:
+            try:
+                os.unlink(temp_path)
+            except FileNotFoundError:
+                pass
 
     def _read_job(self) -> dict[str, Any]:
         """Read the current job manifest if it exists.
@@ -141,6 +155,65 @@ class VSCodeJobProgress:
         with open(self.job_path, "r", encoding="utf-8") as file:
             return json.load(file)
 
+    @contextmanager
+    def _locked_job_manifest(self):
+        """Acquire the shared manifest lock across extension and backend writers."""
+        if not self.enabled:
+            yield
+            return
+
+        with self._lock:
+            token = self._acquire_job_lock()
+            try:
+                yield
+            finally:
+                self._release_job_lock(token)
+
+    def _acquire_job_lock(self) -> str:
+        deadline = time.monotonic() + MANIFEST_LOCK_TIMEOUT_SECONDS
+        token = f"{os.getpid()}:{threading.get_ident()}:{uuid.uuid4().hex}"
+
+        while True:
+            try:
+                fd = os.open(self.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as file:
+                    file.write(token)
+                return token
+            except FileExistsError:
+                self._break_stale_job_lock()
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Timed out waiting for AutoUP manifest lock: {self.lock_path}")
+                time.sleep(MANIFEST_LOCK_POLL_SECONDS)
+
+    def _break_stale_job_lock(self) -> None:
+        try:
+            mtime = os.path.getmtime(self.lock_path)
+        except FileNotFoundError:
+            return
+
+        if time.time() - mtime <= MANIFEST_LOCK_STALE_SECONDS:
+            return
+
+        try:
+            os.unlink(self.lock_path)
+        except FileNotFoundError:
+            pass
+
+    def _release_job_lock(self, token: str) -> None:
+        try:
+            with open(self.lock_path, "r", encoding="utf-8") as file:
+                current = file.read()
+        except FileNotFoundError:
+            return
+
+        if current != token:
+            return
+
+        try:
+            os.unlink(self.lock_path)
+        except FileNotFoundError:
+            pass
+
     def _update_job(self, **updates: Any) -> None:
         """Apply partial updates to the on-disk job manifest.
 
@@ -157,7 +230,7 @@ class VSCodeJobProgress:
         if not self.enabled:
             return
 
-        with self._lock:
+        with self._locked_job_manifest():
             # Read the latest manifest snapshot before merging new fields.
             current = self._read_job()
             current.update(updates)
@@ -202,7 +275,7 @@ class VSCodeJobProgress:
             "column": existing.get("column", self.column),
             "lastError": None,
         }
-        with self._lock:
+        with self._locked_job_manifest():
             self._write_json(self.job_path, data)
 
     def emit(self, event_type: str, **payload: Any) -> None:

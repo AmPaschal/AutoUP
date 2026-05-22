@@ -22,8 +22,7 @@ import {
   normalizeManifestStatus,
   parsePersistedJobManifest,
   readPersistedJobManifest,
-  updatePersistedJobManifest,
-  writePersistedJobManifest,
+  upsertPersistedJobManifest,
 } from "./jobPersistence";
 import { extractSummaryFromEvent, openArtifact, openHtmlReport, StatusTracker } from "./statusTracker";
 import { ConfigManager } from "./configManager";
@@ -1142,12 +1141,7 @@ export class ProofManager implements vscode.Disposable {
     job: ProofJob,
     overrides: Partial<ReturnType<typeof manifestFromJob>> = {},
   ): Promise<void> {
-    const manifest = {
-      ...manifestFromJob(job),
-      ...overrides,
-      updatedAt: Date.now(),
-    };
-    await writePersistedJobManifest(job.jobFile, manifest);
+    await upsertPersistedJobManifest(job.jobFile, manifestFromJob(job), overrides);
   }
 
   /**

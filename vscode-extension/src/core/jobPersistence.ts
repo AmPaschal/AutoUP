@@ -17,6 +17,10 @@ const PROOF_STATUSES: ProofStatus[] = [
   "interrupted",
 ];
 
+const MANIFEST_LOCK_TIMEOUT_MS = 15000;
+const MANIFEST_LOCK_STALE_MS = 30000;
+const MANIFEST_LOCK_POLL_MS = 50;
+
 /**
  * Persisted `.autoup/job.json` shape shared by the extension and Python bridge.
  */
@@ -161,10 +165,9 @@ export async function writePersistedJobManifest(
   manifestPath: string,
   manifest: PersistedJobManifest,
 ): Promise<void> {
-  await fs.mkdir(path.dirname(manifestPath), { recursive: true });
-  const tempPath = `${manifestPath}.tmp`;
-  await fs.writeFile(tempPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8");
-  await fs.rename(tempPath, manifestPath);
+  await withManifestLock(manifestPath, async () => {
+    await writePersistedJobManifestUnlocked(manifestPath, manifest);
+  });
 }
 
 /**
@@ -181,14 +184,58 @@ export async function updatePersistedJobManifest(
   manifestPath: string,
   updates: Partial<PersistedJobManifest>,
 ): Promise<PersistedJobManifest> {
-  const current = await readPersistedJobManifest(manifestPath);
-  const updated: PersistedJobManifest = {
-    ...current,
-    ...updates,
-    updatedAt: Date.now(),
-  };
-  await writePersistedJobManifest(manifestPath, updated);
-  return updated;
+  return await withManifestLock(manifestPath, async () => {
+    const current = await readPersistedJobManifestUnlocked(manifestPath);
+    const updated: PersistedJobManifest = {
+      ...current,
+      ...updates,
+      updatedAt: Date.now(),
+    };
+    await writePersistedJobManifestUnlocked(manifestPath, updated);
+    return updated;
+  });
+}
+
+/**
+ * Merge manifest updates under a shared cross-process lock.
+ *
+ * Inputs:
+ * - `manifestPath`: `.autoup/job.json` path to update.
+ * - `baseManifest`: Fallback manifest when the file does not exist yet.
+ * - `updates`: Partial manifest fields to overlay on the latest on-disk state.
+ *
+ * Returns:
+ * - `Promise<PersistedJobManifest>`: The merged manifest written to disk.
+ */
+export async function upsertPersistedJobManifest(
+  manifestPath: string,
+  baseManifest: PersistedJobManifest,
+  updates: Partial<PersistedJobManifest> = {},
+): Promise<PersistedJobManifest> {
+  return await withManifestLock(manifestPath, async () => {
+    const current = await tryReadPersistedJobManifestUnlocked(manifestPath);
+    const updated: PersistedJobManifest = current
+      ? {
+          ...current,
+          jobId: baseManifest.jobId,
+          workspaceRoot: baseManifest.workspaceRoot,
+          sourceFile: baseManifest.sourceFile,
+          functionName: baseManifest.functionName,
+          proofDir: baseManifest.proofDir,
+          executionHost: baseManifest.executionHost,
+          line: baseManifest.line,
+          column: baseManifest.column,
+          ...updates,
+          updatedAt: Date.now(),
+        }
+      : {
+          ...baseManifest,
+          ...updates,
+          updatedAt: Date.now(),
+        };
+    await writePersistedJobManifestUnlocked(manifestPath, updated);
+    return updated;
+  });
 }
 
 /**
@@ -201,10 +248,140 @@ export async function updatePersistedJobManifest(
  * - `Promise<PersistedJobManifest>`: Parsed manifest content.
  */
 export async function readPersistedJobManifest(manifestPath: string): Promise<PersistedJobManifest> {
+  return await readPersistedJobManifestUnlocked(manifestPath);
+}
+
+async function readPersistedJobManifestUnlocked(manifestPath: string): Promise<PersistedJobManifest> {
   const raw = await fs.readFile(manifestPath, "utf-8");
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   const fallbackProofDir = path.dirname(path.dirname(manifestPath));
   return parsePersistedJobManifest(parsed, fallbackProofDir);
+}
+
+async function tryReadPersistedJobManifestUnlocked(
+  manifestPath: string,
+): Promise<PersistedJobManifest | null> {
+  try {
+    return await readPersistedJobManifestUnlocked(manifestPath);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function writePersistedJobManifestUnlocked(
+  manifestPath: string,
+  manifest: PersistedJobManifest,
+): Promise<void> {
+  await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+  const tempPath = `${manifestPath}.tmp.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
+  try {
+    await fs.writeFile(tempPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8");
+    await fs.rename(tempPath, manifestPath);
+  } finally {
+    try {
+      await fs.unlink(tempPath);
+    } catch {
+      // Ignore missing temp cleanup.
+    }
+  }
+}
+
+async function withManifestLock<T>(
+  manifestPath: string,
+  callback: () => Promise<T>,
+): Promise<T> {
+  const lockPath = `${manifestPath}.lock`;
+  const token = `${process.pid}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+  const deadline = Date.now() + MANIFEST_LOCK_TIMEOUT_MS;
+
+  while (true) {
+    try {
+      const handle = await fs.open(lockPath, "wx");
+      try {
+        await handle.writeFile(token, "utf-8");
+      } finally {
+        await handle.close();
+      }
+      break;
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) {
+        throw error;
+      }
+
+      if (await isManifestLockStale(lockPath)) {
+        await removeManifestLockIfStale(lockPath);
+        continue;
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for AutoUP manifest lock: ${lockPath}`);
+      }
+      await sleep(MANIFEST_LOCK_POLL_MS);
+    }
+  }
+
+  try {
+    return await callback();
+  } finally {
+    await releaseManifestLock(lockPath, token);
+  }
+}
+
+async function isManifestLockStale(lockPath: string): Promise<boolean> {
+  try {
+    const stats = await fs.stat(lockPath);
+    return Date.now() - stats.mtimeMs > MANIFEST_LOCK_STALE_MS;
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function removeManifestLockIfStale(lockPath: string): Promise<void> {
+  try {
+    const stats = await fs.stat(lockPath);
+    if (Date.now() - stats.mtimeMs <= MANIFEST_LOCK_STALE_MS) {
+      return;
+    }
+    await fs.unlink(lockPath);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function releaseManifestLock(lockPath: string, token: string): Promise<void> {
+  try {
+    const currentToken = await fs.readFile(lockPath, "utf-8");
+    if (currentToken !== token) {
+      return;
+    }
+    await fs.unlink(lockPath);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return;
+    }
+    throw error;
+  }
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST");
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT");
+}
+
+async function sleep(durationMs: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, durationMs));
 }
 
 /**

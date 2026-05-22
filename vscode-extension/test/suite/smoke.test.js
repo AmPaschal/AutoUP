@@ -367,6 +367,75 @@ suite("AutoUP Extension Smoke", () => {
     assert.strictEqual(parsed.nextIndex, 3);
   });
 
+  test("manifest upsert preserves newer on-disk fields while applying explicit updates", async () => {
+    const persistencePath = path.resolve(__dirname, "..", "..", "dist", "core", "jobPersistence.js");
+    const { upsertPersistedJobManifest, readPersistedJobManifest } = require(persistencePath);
+
+    const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "autoup-manifest-merge-"));
+    const manifestDir = path.join(tempRoot, ".autoup");
+    const manifestPath = path.join(manifestDir, "job.json");
+    await fsp.mkdir(manifestDir, { recursive: true });
+    await fsp.writeFile(
+      manifestPath,
+      `${JSON.stringify({
+        jobId: "job-1",
+        workspaceRoot: tempRoot,
+        sourceFile: path.join(tempRoot, "src", "demo.c"),
+        functionName: "demo",
+        proofDir: tempRoot,
+        pid: 321,
+        status: "running",
+        currentStage: "CoverageDebugger",
+        createdAt: 10,
+        updatedAt: 11,
+        backendVersion: "v1",
+        executionHost: "local-linux",
+        line: 4,
+        column: 2,
+        lastError: null,
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    try {
+      await upsertPersistedJobManifest(
+        manifestPath,
+        {
+          jobId: "job-1",
+          workspaceRoot: tempRoot,
+          sourceFile: path.join(tempRoot, "src", "demo.c"),
+          functionName: "demo",
+          proofDir: tempRoot,
+          pid: null,
+          status: "queued",
+          currentStage: null,
+          createdAt: 10,
+          updatedAt: 10,
+          backendVersion: "extension-v1",
+          executionHost: "local-linux",
+          line: 4,
+          column: 2,
+          lastError: null,
+        },
+        {
+          pid: null,
+          status: "failed",
+          lastError: "launch boom",
+        },
+      );
+
+      const manifest = await readPersistedJobManifest(manifestPath);
+      assert.strictEqual(manifest.status, "failed");
+      assert.strictEqual(manifest.pid, null);
+      assert.strictEqual(manifest.lastError, "launch boom");
+      assert.strictEqual(manifest.currentStage, "CoverageDebugger");
+      assert.strictEqual(manifest.backendVersion, "v1");
+      assert.ok(!(await pathExists(`${manifestPath}.lock`)));
+    } finally {
+      await fsp.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   test("proof runner forwards resolved line and column to the bridge", async () => {
     const modulePath = path.resolve(
       __dirname,
@@ -903,4 +972,13 @@ async function waitFor(predicate, timeoutMs = 2000) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error("Timed out waiting for test condition.");
+}
+
+async function pathExists(targetPath) {
+  try {
+    await fsp.stat(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
 }

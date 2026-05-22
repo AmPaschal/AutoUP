@@ -153,6 +153,7 @@ class VSCodeProgressTests(unittest.TestCase):
         self.assertEqual(job_data["currentStage"], "CoverageDebugger")
         self.assertEqual(job_data["line"], 9)
         self.assertEqual(job_data["column"], 4)
+        self.assertFalse((self.proof_dir / ".autoup" / "job.json.lock").exists())
 
         events = [
             json.loads(line)

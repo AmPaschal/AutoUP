@@ -25,7 +25,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const prerequisites = new PrerequisiteChecker(context.secrets);
   const proofManager = new ProofManager(context, configManager, installer, prerequisites);
   // Rehydrate any existing proof jobs before the tree view appears.
-  await proofManager.initialize();
+  try {
+    await proofManager.initialize();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("AutoUP proof restore failed during activation:", error);
+    void vscode.window.showWarningMessage(
+      `AutoUP could not fully restore prior proof jobs during activation: ${message}`,
+    );
+  }
 
   // Create the sidebar tree view that renders all tracked proof jobs.
   const treeProvider = new ProofTreeProvider(proofManager);
