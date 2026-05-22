@@ -10,9 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 docker_stub = types.ModuleType("docker")
 docker_stub.from_env = lambda: None
 docker_errors_stub = types.ModuleType("docker.errors")
-docker_errors_stub.DockerException = Exception
-docker_errors_stub.BuildError = Exception
-docker_errors_stub.APIError = Exception
+docker_errors_stub.DockerException = type("FakeDockerException", (Exception,), {})
+docker_errors_stub.BuildError = type("FakeBuildError", (Exception,), {})
+docker_errors_stub.APIError = type("FakeAPIError", (Exception,), {})
 docker_models_stub = types.ModuleType("docker.models")
 docker_models_containers_stub = types.ModuleType("docker.models.containers")
 docker_models_containers_stub.Container = object
@@ -23,10 +23,16 @@ sys.modules.setdefault("docker.models.containers", docker_models_containers_stub
 
 from commons.docker_tool import DockerProjectContainer  # noqa: E402
 
+FakeAPIError = docker_errors_stub.APIError
+
 
 class FakeRunningContainer:
     def __init__(self):
         self.exec_calls = []
+        self.stop_calls = []
+        self.remove_calls = []
+        self.stop_error = None
+        self.remove_error = None
 
     def exec_run(self, args, user=None):
         self.exec_calls.append({
@@ -34,6 +40,16 @@ class FakeRunningContainer:
             "user": user,
         })
         return types.SimpleNamespace(exit_code=0, output=(b"", b""))
+
+    def stop(self, timeout=None):
+        self.stop_calls.append({"timeout": timeout})
+        if self.stop_error is not None:
+            raise self.stop_error
+
+    def remove(self, force=False):
+        self.remove_calls.append({"force": force})
+        if self.remove_error is not None:
+            raise self.remove_error
 
 
 class FakeContainersClient:
@@ -73,6 +89,38 @@ class DockerToolTests(unittest.TestCase):
             self.assertEqual(run_kwargs["volumes"][host_dir]["bind"], host_dir)
             self.assertEqual(run_kwargs["volumes"][repo_dir]["bind"], repo_dir)
             self.assertEqual(len(container.client.containers.running_container.exec_calls), 1)
+
+    def test_terminate_forces_removal_when_clean_stop_fails(self):
+        container = DockerProjectContainer(
+            "container/tools.Dockerfile",
+            "/tmp/project",
+            "autoup_test",
+        )
+        running = FakeRunningContainer()
+        running.stop_error = FakeAPIError("daemon hiccup")
+        container.container = running
+
+        container.terminate()
+
+        self.assertEqual(running.stop_calls, [{"timeout": 10}])
+        self.assertEqual(running.remove_calls, [{"force": True}])
+        self.assertIsNone(container.container)
+
+    def test_terminate_ignores_missing_container_during_remove(self):
+        container = DockerProjectContainer(
+            "container/tools.Dockerfile",
+            "/tmp/project",
+            "autoup_test",
+        )
+        running = FakeRunningContainer()
+        running.remove_error = FakeAPIError("404 no such container")
+        container.container = running
+
+        container.terminate()
+
+        self.assertEqual(running.stop_calls, [{"timeout": 10}])
+        self.assertEqual(running.remove_calls, [{"force": True}])
+        self.assertIsNone(container.container)
 
 
 if __name__ == "__main__":

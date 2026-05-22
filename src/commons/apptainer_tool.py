@@ -5,7 +5,6 @@ from typing import Optional
 import subprocess
 import os
 import re
-import shlex
 import shutil
 import uuid
 
@@ -14,7 +13,7 @@ from filelock import FileLock, Timeout
 
 # AutoUP
 from commons.project_container import ProjectContainer
-from commons.container_constants import CSCOPE_INIT_TIMEOUT, DEFAULT_CONTAINER_USER
+from commons.container_constants import CSCOPE_INIT_TIMEOUT
 from logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -60,9 +59,6 @@ class ApptainerProjectContainer(ProjectContainer):
         self.host_dir = os.path.abspath(host_dir)
         self.repo_dir = os.path.abspath(repo_dir) if repo_dir else None
         self.apptainer_def_path = os.path.abspath(apptainer_def_path)
-        self.uid = os.getuid()
-        self.gid = os.getgid()
-        self.user_name = DEFAULT_CONTAINER_USER
         self.instance_name: Optional[str] = None
 
     def initialize(self):
@@ -71,7 +67,6 @@ class ApptainerProjectContainer(ProjectContainer):
         self.__build_image()
         try:
             self.__start_instance()
-            self.__provision_user()
             self.__initialize_tools()
         except Exception:
             self.terminate()
@@ -84,17 +79,12 @@ class ApptainerProjectContainer(ProjectContainer):
 
         logger.debug(f"[>] Executing command: {command}")
         resolved_workdir = self.__resolve_workdir(workdir)
-        if self.__should_execute_as_root(command):
-            result = self.__execute_as_root(command, workdir=resolved_workdir, timeout=timeout)
-        else:
-            user_command = f"timeout {timeout}s bash -lc {shlex.quote(command)}"
-            exec_command = [
-                "apptainer", "exec", "--pwd", resolved_workdir,
-                f"instance://{self.instance_name}",
-                "su", "-s", "/bin/bash", self.user_name,
-                "-c", user_command,
-            ]
-            result = self.__run_subprocess(exec_command)
+        normalized_command = self.__strip_sudo(command)
+        result = self.__execute_as_root(
+            normalized_command,
+            workdir=resolved_workdir,
+            timeout=timeout,
+        )
         self.__raise_if_apptainer_failure(
             result=result,
             context=f"executing command in workdir '{resolved_workdir}'",
@@ -212,69 +202,6 @@ class ApptainerProjectContainer(ProjectContainer):
                 f"{validation['stderr'].strip() or validation['stdout'].strip() or 'unknown error'}"
             )
 
-    def __provision_user(self):
-        existing_user = self.__execute_as_root(
-            f"getent passwd {self.uid} | cut -d: -f1",
-            workdir="/",
-            timeout=10,
-        )
-        if existing_user["exit_code"] == 0 and existing_user["stdout"].strip():
-            self.user_name = existing_user["stdout"].strip()
-        else:
-            existing_group = self.__execute_as_root(
-                f"getent group {self.gid} | cut -d: -f1",
-                workdir="/",
-                timeout=10,
-            )
-            group_name = existing_group["stdout"].strip() or self.user_name
-            if not existing_group["stdout"].strip():
-                create_group = self.__execute_as_root(
-                    f"groupadd -g {self.gid} {group_name}",
-                    workdir="/",
-                    timeout=10,
-                )
-                if create_group["exit_code"] != 0:
-                    raise RuntimeError(
-                        "Failed to create Apptainer group: "
-                        f"{create_group['stderr'].strip() or create_group['stdout'].strip()}"
-                    )
-            create_user = self.__execute_as_root(
-                f"useradd -m -u {self.uid} -g {group_name} -s /bin/bash {self.user_name}",
-                workdir="/",
-                timeout=10,
-            )
-            if create_user["exit_code"] != 0:
-                raise RuntimeError(
-                    "Failed to create Apptainer user: "
-                    f"{create_user['stderr'].strip() or create_user['stdout'].strip()}"
-                )
-
-        sudo_setup = self.__execute_as_root(
-            (
-                "mkdir -p /etc/sudoers.d && "
-                f"echo '{self.user_name} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{self.user_name} && "
-                f"chmod 0440 /etc/sudoers.d/{self.user_name}"
-            ),
-            workdir="/",
-            timeout=10,
-        )
-        if sudo_setup["exit_code"] != 0:
-            raise RuntimeError(
-                "Failed to configure sudo inside Apptainer instance: "
-                f"{sudo_setup['stderr'].strip() or sudo_setup['stdout'].strip()}"
-            )
-
-        user_check = self.__execute_as_root(
-            f"su -s /bin/bash {self.user_name} -c {shlex.quote('id -u')}",
-            workdir="/",
-            timeout=10,
-        )
-        if user_check["exit_code"] != 0 or user_check["stdout"].strip() != str(self.uid):
-            raise RuntimeError(
-                "Failed to verify Apptainer user provisioning: "
-                f"{user_check['stderr'].strip() or user_check['stdout'].strip() or 'unknown error'}"
-            )
-
     def __initialize_tools(self):
         """Initialize tools inside the container, if necessary."""
         cscope_check = self.__execute_as_root("command -v cscope", workdir="/", timeout=10)
@@ -303,6 +230,9 @@ class ApptainerProjectContainer(ProjectContainer):
         if os.path.isabs(resolved) and not os.path.exists(resolved):
             raise FileNotFoundError(f"Working directory '{resolved}' does not exist on the host.")
         return resolved
+
+    def __strip_sudo(self, command: str) -> str:
+        return re.sub(r"(^|&&|\|\||;|\|)\s*sudo\s+", r"\1", command)
 
     def __execute_as_root(self, command: str, workdir: Optional[str], timeout: int) -> dict:
         if not self.instance_name:
@@ -344,12 +274,6 @@ class ApptainerProjectContainer(ProjectContainer):
             "stdout": completed.stdout or "",
             "stderr": completed.stderr or "",
         }
-
-    def __should_execute_as_root(self, command: str) -> bool:
-        # fakeroot instances allow `su` to drop to the synthetic host-mapped user,
-        # but sudo from that user cannot re-escalate due the container's
-        # no-new-privileges setting. Run sudo-bearing commands as root instead.
-        return re.search(r"(^|&&|\|\||;|\|)\s*sudo(\s|$)", command) is not None
 
     def __raise_if_apptainer_failure(self, result: dict, context: str):
         if result["exit_code"] == 0:

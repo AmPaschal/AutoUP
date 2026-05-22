@@ -2,6 +2,7 @@ import sys
 import tempfile
 import types
 import unittest
+import signal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -43,7 +44,7 @@ class ScopeCliTests(unittest.TestCase):
             "--harness_path", "/tmp/proof",
             "--target_file_path", "/tmp/project/demo.c",
             "--scope_time_budget", "2.5",
-            "--make_timeout", "900",
+            "--make-timeout", "900",
         ])
 
         self.assertEqual(args.scope_bound, 1)
@@ -192,6 +193,46 @@ class ScopeCliTests(unittest.TestCase):
                 "FakeProofDebugger",
             ],
         )
+
+    def test_run_with_args_terminates_container_on_success(self):
+        args = SimpleNamespace(
+            container_engine="docker",
+            root_dir="/tmp/project",
+            log_file=None,
+            metrics_file=None,
+            vscode_progress=SimpleNamespace(enabled=False),
+        )
+        fake_container = mock.Mock()
+
+        with mock.patch.dict("os.environ", {"OPENAI_API_KEY": "demo-key"}, clear=False), \
+             mock.patch.object(autoup_run, "load_dotenv"), \
+             mock.patch.object(autoup_run, "init_logging"), \
+             mock.patch.object(autoup_run, "setup_logger"), \
+             mock.patch.object(autoup_run, "process_mode", return_value=True), \
+             mock.patch.object(autoup_run, "DockerProjectContainer", return_value=fake_container):
+            succeeded = autoup_run.run_with_args(args)
+
+        self.assertTrue(succeeded)
+        fake_container.initialize.assert_called_once()
+        fake_container.terminate.assert_called_once()
+        self.assertIsNone(autoup_run.project_container)
+        self.assertIsNone(autoup_run.current_progress)
+
+    def test_cleanup_marks_job_cancelled_and_exits_with_signal_status(self):
+        progress = mock.Mock(enabled=True)
+        container = mock.Mock()
+        autoup_run.current_progress = progress
+        autoup_run.project_container = container
+
+        with mock.patch.object(autoup_run, "setup_logger"):
+            with self.assertRaises(SystemExit) as ctx:
+                autoup_run.cleanup(signal.SIGTERM, None)
+
+        self.assertEqual(ctx.exception.code, 128 + signal.SIGTERM)
+        progress.job_cancelled.assert_called_once()
+        container.terminate.assert_called_once()
+        self.assertIsNone(autoup_run.project_container)
+        self.assertIsNone(autoup_run.current_progress)
 
 
 if __name__ == "__main__":

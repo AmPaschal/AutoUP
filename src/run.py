@@ -37,6 +37,38 @@ project_container: Optional[ProjectContainer] = None
 current_progress: Optional[VSCodeJobProgress] = None
 
 
+def teardown_runtime(*, logger=None, mark_cancelled: bool = False) -> None:
+    """Tear down the active job state and container runtime exactly once."""
+    global project_container, current_progress
+
+    active_container = project_container
+    progress = current_progress
+    project_container = None
+    current_progress = None
+
+    if logger is None:
+        logger = setup_logger(__name__)
+
+    if mark_cancelled and progress and progress.enabled:
+        try:
+            logger.info("Marking active job as cancelled before runtime teardown.")
+            progress.job_cancelled()
+        except Exception as exc:
+            logger.warning(f"Failed to record job cancellation before teardown: {exc}")
+
+    if not active_container:
+        return
+
+    logger.info("Starting project container teardown.")
+    try:
+        active_container.terminate()
+    except Exception as exc:
+        logger.error(f"Project container teardown failed: {exc}")
+        raise
+    else:
+        logger.info("Project container teardown completed.")
+
+
 def positive_int(value: str) -> int:
     """Parse a strictly positive integer CLI argument."""
     parsed = int(value)
@@ -301,8 +333,6 @@ def run_with_args(args) -> bool:
         shared mode-processing logic used by both the CLI and the VS Code bridge.
     """
     global project_container, current_progress
-    signal.signal(signal.SIGINT, cleanup)
-    signal.signal(signal.SIGTERM, cleanup)
     load_dotenv()
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -313,43 +343,53 @@ def run_with_args(args) -> bool:
 
     init_logging(args.log_file)
     logger = setup_logger(__name__)
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
 
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    if openai_api_key is None:
-        raise EnvironmentError("No OpenAI API key found")
-
-    if args.container_engine == "apptainer":
-        project_container = ApptainerProjectContainer(
-            apptainer_def_path="container/tools.def",
-            host_dir=args.root_dir,
-            repo_dir=repo_dir,
-        )
-    else:
-        container_name = f"autoup_{uuid.uuid4().hex[:8]}"
-        project_container = DockerProjectContainer(
-            dockerfile_path="container/tools.Dockerfile",
-            host_dir=args.root_dir,
-            container_name=container_name,
-            repo_dir=repo_dir,
-        )
     try:
-        project_container.initialize()
-    except Exception as e:
-        logger.error(f"Error initializing Project container: {e}")
-        progress = getattr(args, "vscode_progress", None)
-        if progress and progress.enabled:
-            progress.job_failed(f"Container initialization failed: {e}")
-        return False
-    
-    success = process_mode(args)
-
-    if args.metrics_file:
-        # Summarize metrics and print results to log
         try:
-            summarize_metrics_per_agent(args.metrics_file, logger)
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if openai_api_key is None:
+                raise EnvironmentError("No OpenAI API key found")
+
+            if args.container_engine == "apptainer":
+                project_container = ApptainerProjectContainer(
+                    apptainer_def_path="container/tools.def",
+                    host_dir=args.root_dir,
+                    repo_dir=repo_dir,
+                )
+            else:
+                container_name = f"autoup_{uuid.uuid4().hex[:8]}"
+                project_container = DockerProjectContainer(
+                    dockerfile_path="container/tools.Dockerfile",
+                    host_dir=args.root_dir,
+                    container_name=container_name,
+                    repo_dir=repo_dir,
+                )
+
+            project_container.initialize()
         except Exception as e:
-            logger.error(f"Error summarizing metrics: {e}")
-    return success
+            logger.error(f"Error initializing Project container: {e}")
+            progress = getattr(args, "vscode_progress", None)
+            if progress and progress.enabled:
+                progress.job_failed(f"Container initialization failed: {e}")
+            return False
+
+        success = process_mode(args)
+
+        if args.metrics_file:
+            # Summarize metrics and print results to log
+            try:
+                summarize_metrics_per_agent(args.metrics_file, logger)
+            except Exception as e:
+                logger.error(f"Error summarizing metrics: {e}")
+        return success
+    finally:
+        signal.signal(signal.SIGINT, previous_sigint)
+        signal.signal(signal.SIGTERM, previous_sigterm)
+        teardown_runtime(logger=logger)
 
 
 def main():
@@ -375,16 +415,10 @@ def cleanup(signum, _frame):
     Returns:
         Never returns. Exits the process.
     """
-    print(f"Caught signal {signum}, cleaning up container...")
-    try:
-        # Mark the job as cancelled before tearing down the container so the extension
-        # sees a terminal state even on abrupt shutdown.
-        if current_progress and current_progress.enabled:
-            current_progress.job_cancelled()
-        if project_container:
-            project_container.terminate()
-    finally:
-        exit(0)
+    logger = setup_logger(__name__)
+    logger.info(f"Caught signal {signum}, cleaning up runtime.")
+    teardown_runtime(logger=logger, mark_cancelled=True)
+    raise SystemExit(128 + signum)
 
 
 
@@ -395,6 +429,3 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error occurred while running main: {e}")
         raise e
-    finally:
-        if project_container:
-            project_container.terminate()

@@ -219,10 +219,39 @@ class DockerProjectContainer(ProjectContainer):
 
     def terminate(self):
         """Stop and remove the container."""
-        if self.container:
-            logger.debug(f"[-] Stopping container '{self.container_name}'...")
-            self.container.stop()
-            logger.debug(f"[-] Removing container '{self.container_name}'...")
-            self.container.remove()
-            self.container = None
+        if not self.container:
+            return
+
+        container = self.container
+        self.container = None
+
+        try:
+            logger.info(f"[-] Stopping container '{self.container_name}'...")
+            try:
+                container.stop()
+            except APIError as exc:
+                if self.__is_missing_container_error(exc):
+                    logger.info(f"[*] Container '{self.container_name}' was already stopped.")
+                else:
+                    logger.warning(
+                        f"[!] Clean stop failed for container '{self.container_name}': {exc}. "
+                        "Proceeding with forced removal."
+                    )
+
+            logger.info(f"[-] Removing container '{self.container_name}'...")
+            try:
+                container.remove(force=True)
+            except APIError as exc:
+                if self.__is_missing_container_error(exc):
+                    logger.info(f"[*] Container '{self.container_name}' was already removed.")
+                else:
+                    raise
+
             logger.info("[+] Container terminated.")
+        except APIError as exc:
+            logger.error(f"[!] Failed to terminate container '{self.container_name}': {exc}")
+            raise
+
+    def __is_missing_container_error(self, exc: APIError) -> bool:
+        message = str(exc).lower()
+        return "no such container" in message or "not found" in message or "404" in message

@@ -30,7 +30,7 @@ from commons.apptainer_tool import (  # noqa: E402
     IMAGE_FILE,
     IMAGE_LOCK_FILE,
 )
-from commons.container_constants import CSCOPE_INIT_TIMEOUT, DEFAULT_CONTAINER_USER  # noqa: E402
+from commons.container_constants import CSCOPE_INIT_TIMEOUT  # noqa: E402
 
 
 class ApptainerToolTests(unittest.TestCase):
@@ -54,7 +54,7 @@ class ApptainerToolTests(unittest.TestCase):
     @mock.patch("commons.apptainer_tool.os.path.exists")
     @mock.patch("commons.apptainer_tool.os.path.isdir")
     @mock.patch("commons.apptainer_tool.subprocess.run")
-    def test_initialize_starts_bound_instance_and_provisions_user(
+    def test_initialize_starts_bound_instance_and_initializes_tools_as_root(
         self,
         mock_run,
         mock_isdir,
@@ -63,14 +63,10 @@ class ApptainerToolTests(unittest.TestCase):
         _mock_which,
     ):
         host_dir = self.host_dir
-        uid = self.container.uid
         side_effects = [
             self._completed(["apptainer", "--version"], 0, stdout="apptainer 1.0.0\n"),
             self._completed(["apptainer", "instance", "start"], 0),
             self._completed(["apptainer", "exec"], 0, stdout=f"{host_dir}\n"),
-            self._completed(["apptainer", "exec"], 0, stdout=f"{DEFAULT_CONTAINER_USER}\n"),
-            self._completed(["apptainer", "exec"], 0, stdout=""),
-            self._completed(["apptainer", "exec"], 0, stdout=f"{uid}\n"),
             self._completed(["apptainer", "exec"], 0, stdout="/usr/bin/cscope\n"),
             self._completed(["apptainer", "exec"], 0, stdout=""),
         ]
@@ -91,15 +87,11 @@ class ApptainerToolTests(unittest.TestCase):
         self.assertEqual(start_cmd[-2], IMAGE_FILE)
         self.assertEqual(start_cmd[-1], self.container.instance_name)
 
-        sudo_setup_cmd = calls[4].args[0]
-        self.assertIn("/etc/sudoers.d", sudo_setup_cmd[-1])
-        self.assertIn(DEFAULT_CONTAINER_USER, sudo_setup_cmd[-1])
-
         exec_cmd = calls[-1].args[0]
         self.assertEqual(exec_cmd[0:3], ["apptainer", "exec", "--pwd"])
-        self.assertIn("su", exec_cmd)
-        self.assertIn(DEFAULT_CONTAINER_USER, exec_cmd)
-        self.assertIn(f"timeout {CSCOPE_INIT_TIMEOUT}s", exec_cmd[-1])
+        self.assertNotIn("su", exec_cmd)
+        self.assertEqual(exec_cmd[-5:-2], ["timeout", f"{CSCOPE_INIT_TIMEOUT}s", "bash"])
+        self.assertEqual(exec_cmd[-1], "cscope -Rbqk")
 
     @mock.patch("commons.apptainer_tool.shutil.which", return_value="/usr/bin/apptainer")
     @mock.patch("commons.apptainer_tool.os.path.getmtime")
@@ -136,7 +128,7 @@ class ApptainerToolTests(unittest.TestCase):
     @mock.patch("commons.apptainer_tool.os.path.exists")
     @mock.patch("commons.apptainer_tool.os.path.isdir")
     @mock.patch("commons.apptainer_tool.subprocess.run")
-    def test_initialize_raises_when_sudo_setup_fails(
+    def test_initialize_raises_when_cscope_probe_hits_fatal_instance_error(
         self,
         mock_run,
         mock_isdir,
@@ -148,21 +140,19 @@ class ApptainerToolTests(unittest.TestCase):
             self._completed(["apptainer", "--version"], 0, stdout="apptainer 1.0.0\n"),
             self._completed(["apptainer", "instance", "start"], 0),
             self._completed(["apptainer", "exec"], 0, stdout=f"{self.host_dir}\n"),
-            self._completed(["apptainer", "exec"], 0, stdout=f"{DEFAULT_CONTAINER_USER}\n"),
-            self._completed(["apptainer", "exec"], 1, stderr="permission denied\n"),
+            self._completed(["apptainer", "exec"], 255, stderr="FATAL: instance is not running\n"),
             self._completed(["apptainer", "instance", "stop"], 0),
         ]
         mock_isdir.return_value = True
         mock_exists.side_effect = lambda path: True
         mock_getmtime.side_effect = lambda path: 10
 
-        with self.assertRaisesRegex(RuntimeError, "configure sudo"):
+        with self.assertRaisesRegex(RuntimeError, "instance startup failure"):
             self.container.initialize()
 
     @mock.patch("commons.apptainer_tool.subprocess.run")
-    def test_execute_targets_running_instance_as_provisioned_user(self, mock_run):
+    def test_execute_targets_running_instance_as_root(self, mock_run):
         self.container.instance_name = "autoup_test"
-        self.container.user_name = DEFAULT_CONTAINER_USER
         mock_run.return_value = self._completed(["apptainer", "exec"], 0, stdout="ok\n")
 
         result = self.container.execute("printf ok", workdir="/", timeout=17)
@@ -171,14 +161,13 @@ class ApptainerToolTests(unittest.TestCase):
         exec_cmd = mock_run.call_args.args[0]
         self.assertEqual(exec_cmd[:4], ["apptainer", "exec", "--pwd", "/"])
         self.assertEqual(exec_cmd[4], "instance://autoup_test")
-        self.assertIn("su", exec_cmd)
-        self.assertIn(DEFAULT_CONTAINER_USER, exec_cmd)
-        self.assertIn("timeout 17s", exec_cmd[-1])
+        self.assertNotIn("su", exec_cmd)
+        self.assertEqual(exec_cmd[-5:-2], ["timeout", "17s", "bash"])
+        self.assertEqual(exec_cmd[-1], "printf ok")
 
     @mock.patch("commons.apptainer_tool.subprocess.run")
-    def test_execute_runs_sudo_prefixed_commands_as_root(self, mock_run):
+    def test_execute_strips_sudo_prefix_before_running_as_root(self, mock_run):
         self.container.instance_name = "autoup_test"
-        self.container.user_name = DEFAULT_CONTAINER_USER
         mock_run.return_value = self._completed(["apptainer", "exec"], 0, stdout="0\n")
 
         result = self.container.execute("sudo id -u", workdir="/", timeout=11)
@@ -189,7 +178,7 @@ class ApptainerToolTests(unittest.TestCase):
         self.assertEqual(exec_cmd[4], "instance://autoup_test")
         self.assertNotIn("su", exec_cmd)
         self.assertEqual(exec_cmd[-5:-2], ["timeout", "11s", "bash"])
-        self.assertEqual(exec_cmd[-1], "sudo id -u")
+        self.assertEqual(exec_cmd[-1], "id -u")
 
     @mock.patch("commons.apptainer_tool.shutil.which", return_value="/usr/bin/apptainer")
     @mock.patch("commons.apptainer_tool.os.path.getmtime")
@@ -208,9 +197,6 @@ class ApptainerToolTests(unittest.TestCase):
             self._completed(["apptainer", "--version"], 0, stdout="apptainer 1.0.0\n"),
             self._completed(["apptainer", "instance", "start"], 0),
             self._completed(["apptainer", "exec"], 0, stdout=f"{self.host_dir}\n"),
-            self._completed(["apptainer", "exec"], 0, stdout=f"{DEFAULT_CONTAINER_USER}\n"),
-            self._completed(["apptainer", "exec"], 0, stdout=""),
-            self._completed(["apptainer", "exec"], 0, stdout=f"{self.container.uid}\n"),
             self._completed(["apptainer", "exec"], 1, stdout=""),
         ]
         mock_isdir.return_value = True
@@ -219,7 +205,7 @@ class ApptainerToolTests(unittest.TestCase):
 
         self.container.initialize()
 
-        self.assertEqual(mock_run.call_count, 7)
+        self.assertEqual(mock_run.call_count, 4)
 
     @mock.patch("commons.apptainer_tool.os.path.getmtime")
     @mock.patch("commons.apptainer_tool.os.path.exists")
