@@ -74,6 +74,7 @@ export interface ProofJob {
   createdAt: number;
   trackerStarted: boolean;
   lastEventCount: number;
+  feedbackPendingStartNotification: boolean;
 }
 
 export interface RuntimeInstallation {

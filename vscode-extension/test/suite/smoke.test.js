@@ -522,6 +522,14 @@ suite("AutoUP Extension Smoke", () => {
         name: "AutoUP Temp Workspace",
       });
     });
+    const manifestPattern = new vscode.RelativePattern(
+      vscode.Uri.file(tempWorkspace),
+      "cbmc/proofs/**/.autoup/job.json",
+    );
+    await waitFor(async () => {
+      const manifests = await vscode.workspace.findFiles(manifestPattern);
+      return manifests.length === 3;
+    });
 
     const configManager = {
       getConfig() {
@@ -656,6 +664,206 @@ suite("AutoUP Extension Smoke", () => {
       await fsp.rm(tempRoot, { recursive: true, force: true });
     }
   });
+
+  test("proof manager toasts when a proof is already queued or running", async () => {
+    const managerPath = path.resolve(__dirname, "..", "..", "dist", "core", "proofManager.js");
+    const { ProofManager } = require(managerPath);
+
+    const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "autoup-toast-duplicate-"));
+    const sourceFile = path.join(tempRoot, "src", "sample.c");
+    const proofDir = path.join(tempRoot, "cbmc", "proofs", "src", "sample", "sample_target");
+    await fsp.mkdir(path.dirname(sourceFile), { recursive: true });
+    await fsp.writeFile(sourceFile, "int sample_target(void) { return 0; }\n", "utf8");
+
+    const manager = new ProofManager(
+      {
+        globalStorageUri: vscode.Uri.file(path.join(tempRoot, ".global-storage")),
+        extensionUri: vscode.Uri.file(path.resolve(__dirname, "..", "..")),
+      },
+      {
+        getConfig() {
+          return {
+            model: "gpt-5.3-codex",
+            containerEngine: "auto",
+            scopeBound: null,
+            scopeTimeBudget: null,
+            makeTimeout: 600,
+            maxConcurrentJobs: 1,
+            proofsRoot: "cbmc/proofs",
+          };
+        },
+      },
+      {},
+      {},
+    );
+
+    const originalGetWorkspaceFolder = vscode.workspace.getWorkspaceFolder;
+    const originalShowInformationMessage = vscode.window.showInformationMessage;
+    const originalExecuteCommand = vscode.commands.executeCommand;
+    const originalCreateOutputChannel = vscode.window.createOutputChannel;
+    const notifications = [];
+    const executedCommands = [];
+    vscode.workspace.getWorkspaceFolder = () => ({
+      uri: vscode.Uri.file(tempRoot),
+      name: "AutoUP Temp Workspace",
+      index: 0,
+    });
+    vscode.window.showInformationMessage = async (message, ...actions) => {
+      notifications.push({ message, actions });
+      return "Open Proof Explorer";
+    };
+    vscode.commands.executeCommand = async (command, ...args) => {
+      executedCommands.push({ command, args });
+      return undefined;
+    };
+    vscode.window.createOutputChannel = () => createFakeOutputChannel();
+
+    try {
+      manager.jobs.set("job-queued", {
+        id: "job-queued",
+        functionName: "sample_target",
+        filePath: sourceFile,
+        line: 1,
+        column: 1,
+        workspaceRoot: tempRoot,
+        proofDir,
+        logFile: path.join(proofDir, "autoup.log"),
+        metricsFile: path.join(proofDir, "metrics.jsonl"),
+        eventFile: path.join(proofDir, ".autoup", "events.jsonl"),
+        jobFile: path.join(proofDir, ".autoup", "job.json"),
+        status: "queued",
+        currentStage: null,
+        completedStages: [],
+        verificationSummary: null,
+        executionHost: "local-linux",
+        lastError: null,
+        outputChannel: createFakeOutputChannel(),
+        process: null,
+        createdAt: Date.now(),
+        trackerStarted: false,
+        lastEventCount: 0,
+        feedbackPendingStartNotification: false,
+      });
+
+      await manager.startProof({
+        functionName: "sample_target",
+        filePath: sourceFile,
+        line: 1,
+        column: 1,
+      });
+
+      assert.strictEqual(notifications[0].message, "A proof job for sample_target is already queued.");
+      assert.deepStrictEqual(notifications[0].actions, ["Open Proof Explorer"]);
+      assert.strictEqual(executedCommands[0].command, "workbench.view.extension.autoup-panel");
+
+      manager.jobs.get("job-queued").status = "running";
+      await manager.startProof({
+        functionName: "sample_target",
+        filePath: sourceFile,
+        line: 1,
+        column: 1,
+      });
+
+      assert.strictEqual(notifications[1].message, "A proof job for sample_target is already running.");
+      assert.deepStrictEqual(notifications[1].actions, ["Open Proof Explorer"]);
+    } finally {
+      vscode.workspace.getWorkspaceFolder = originalGetWorkspaceFolder;
+      vscode.window.showInformationMessage = originalShowInformationMessage;
+      vscode.commands.executeCommand = originalExecuteCommand;
+      vscode.window.createOutputChannel = originalCreateOutputChannel;
+      manager.dispose();
+      await fsp.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("proof manager toasts when a proof is queued and later started", async () => {
+    const managerPath = path.resolve(__dirname, "..", "..", "dist", "core", "proofManager.js");
+    const { ProofManager } = require(managerPath);
+
+    const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "autoup-toast-queue-"));
+    const sourceFile = path.join(tempRoot, "src", "sample.c");
+    await fsp.mkdir(path.dirname(sourceFile), { recursive: true });
+    await fsp.writeFile(sourceFile, "int sample_target(void) { return 0; }\n", "utf8");
+
+    const config = {
+      model: "gpt-5.3-codex",
+      containerEngine: "auto",
+      scopeBound: null,
+      scopeTimeBudget: null,
+      makeTimeout: 600,
+      maxConcurrentJobs: 0,
+      proofsRoot: "cbmc/proofs",
+    };
+    const manager = new ProofManager(
+      {
+        globalStorageUri: vscode.Uri.file(path.join(tempRoot, ".global-storage")),
+        extensionUri: vscode.Uri.file(path.resolve(__dirname, "..", "..")),
+      },
+      {
+        getConfig() {
+          return config;
+        },
+      },
+      {},
+      {},
+    );
+
+    const originalGetWorkspaceFolder = vscode.workspace.getWorkspaceFolder;
+    const originalShowInformationMessage = vscode.window.showInformationMessage;
+    const originalExecuteCommand = vscode.commands.executeCommand;
+    const originalCreateOutputChannel = vscode.window.createOutputChannel;
+    const notifications = [];
+    const executedCommands = [];
+    vscode.workspace.getWorkspaceFolder = () => ({
+      uri: vscode.Uri.file(tempRoot),
+      name: "AutoUP Temp Workspace",
+      index: 0,
+    });
+    vscode.window.showInformationMessage = async (message, ...actions) => {
+      notifications.push({ message, actions });
+      return notifications.length === 1 ? "Open Proof Explorer" : undefined;
+    };
+    vscode.commands.executeCommand = async (command, ...args) => {
+      executedCommands.push({ command, args });
+      return undefined;
+    };
+    vscode.window.createOutputChannel = () => createFakeOutputChannel();
+
+    try {
+      await manager.startProof({
+        functionName: "sample_target",
+        filePath: sourceFile,
+        line: 1,
+        column: 1,
+      });
+
+      assert.strictEqual(notifications[0].message, "Queued unit proof for sample_target (position 1).");
+      assert.deepStrictEqual(notifications[0].actions, ["Open Proof Explorer"]);
+      assert.strictEqual(executedCommands[0].command, "workbench.view.extension.autoup-panel");
+
+      const queuedJob = manager.getAllJobs()[0];
+      assert.strictEqual(queuedJob.status, "queued");
+      assert.strictEqual(queuedJob.feedbackPendingStartNotification, true);
+
+      config.maxConcurrentJobs = 1;
+      manager.launchJob = async (job) => {
+        job.status = "starting";
+      };
+      await manager.maybeStartNextQueued();
+
+      assert.strictEqual(notifications[1].message, "Started queued unit proof for sample_target.");
+      assert.deepStrictEqual(notifications[1].actions, ["Open Proof Explorer"]);
+      assert.deepStrictEqual(manager.queuedIds, []);
+      assert.strictEqual(queuedJob.feedbackPendingStartNotification, false);
+    } finally {
+      vscode.workspace.getWorkspaceFolder = originalGetWorkspaceFolder;
+      vscode.window.showInformationMessage = originalShowInformationMessage;
+      vscode.commands.executeCommand = originalExecuteCommand;
+      vscode.window.createOutputChannel = originalCreateOutputChannel;
+      manager.dispose();
+      await fsp.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 function createFakeOutputChannel() {
@@ -684,4 +892,15 @@ async function waitForWorkspaceFoldersChange(action) {
       resolve();
     }, 100);
   });
+}
+
+async function waitFor(predicate, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Timed out waiting for test condition.");
 }

@@ -122,10 +122,10 @@ export class ProofManager implements vscode.Disposable {
     // Do not allow duplicate active jobs for the same proof directory.
     const activeExisting = this.findActiveJobByProofDir(proofDir);
     if (activeExisting) {
-      void this.openLog(activeExisting);
-      void vscode.window.showInformationMessage(
-        `A proof job for ${resolvedFunction.functionName} is already active.`,
-      );
+      const activeMessage = activeExisting.status === "queued"
+        ? `A proof job for ${resolvedFunction.functionName} is already queued.`
+        : `A proof job for ${resolvedFunction.functionName} is already running.`;
+      void this.showProofExplorerNotification(activeMessage);
       return;
     }
 
@@ -164,6 +164,7 @@ export class ProofManager implements vscode.Disposable {
       createdAt: Date.now(),
       trackerStarted: false,
       lastEventCount: 0,
+      feedbackPendingStartNotification: false,
     };
     this.jobs.set(job.id, job);
     await this.persistJobManifest(job);
@@ -172,13 +173,18 @@ export class ProofManager implements vscode.Disposable {
     // Queue the job when the running count is already at the configured limit.
     if (this.getRunningJobCount() >= config.maxConcurrentJobs) {
       this.queuedIds.push(job.id);
+      job.feedbackPendingStartNotification = true;
       this.fireChange();
+      void this.showProofExplorerNotification(
+        `Queued unit proof for ${resolvedFunction.functionName} (position ${this.queuedIds.length}).`,
+      );
       return;
     }
 
     // Launch immediately when capacity is available and surface startup failures.
     try {
       await this.launchJob(job, config);
+      void this.showProofExplorerNotification(`Started unit proof for ${resolvedFunction.functionName}.`);
     } catch (error) {
       await this.markJobFailed(job, this.getErrorMessage(error));
       throw error;
@@ -392,6 +398,23 @@ export class ProofManager implements vscode.Disposable {
       return;
     }
     await vscode.commands.executeCommand("revealInExplorer", vscode.Uri.file(job.proofDir));
+  }
+
+  /**
+   * Show an informational toast that can reveal the proof explorer.
+   *
+   * Inputs:
+   * - `message`: Notification text.
+   *
+   * Returns:
+   * - `Promise<void>`.
+   */
+  private async showProofExplorerNotification(message: string): Promise<void> {
+    const action = "Open Proof Explorer";
+    const selection = await vscode.window.showInformationMessage(message, action);
+    if (selection === action) {
+      await vscode.commands.executeCommand("workbench.view.extension.autoup-panel");
+    }
   }
 
   /**
@@ -675,8 +698,13 @@ export class ProofManager implements vscode.Disposable {
       try {
         await this.launchJob(nextJob, config);
         this.queuedIds.shift();
+        if (nextJob.feedbackPendingStartNotification) {
+          nextJob.feedbackPendingStartNotification = false;
+          void this.showProofExplorerNotification(`Started queued unit proof for ${nextJob.functionName}.`);
+        }
       } catch (error) {
         this.queuedIds.shift();
+        nextJob.feedbackPendingStartNotification = false;
         await this.markJobFailed(nextJob, this.getErrorMessage(error));
       }
     }
@@ -993,6 +1021,7 @@ export class ProofManager implements vscode.Disposable {
             createdAt: manifest.createdAt,
             trackerStarted: false,
             lastEventCount: 0,
+            feedbackPendingStartNotification: false,
           };
           this.jobs.set(job.id, job);
           this.ensureTracker(job);
