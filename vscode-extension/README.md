@@ -147,7 +147,7 @@ Defaults:
 
 - `autoup.model = gpt-5.3-codex`
 - `autoup.containerEngine = auto`
-- `autoup.maxConcurrentJobs = 2`
+- `autoup.maxConcurrentJobs = 5`
 - `autoup.proofsRoot = cbmc/proofs`
 
 ## Using the Extension

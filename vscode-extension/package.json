@@ -2,7 +2,7 @@
   "name": "autoup-vscode",
   "displayName": "AutoUP",
   "description": "Generate AutoUP unit proofs from VS Code.",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publisher": "autoup",
   "repository": {
     "type": "git",
@@ -181,7 +181,7 @@
         },
         "autoup.maxConcurrentJobs": {
           "type": "integer",
-          "default": 2,
+          "default": 5,
           "minimum": 1,
           "description": "Maximum number of AutoUP proof jobs that may run at once."
         },

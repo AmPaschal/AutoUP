@@ -28,7 +28,7 @@ export class ConfigManager {
       scopeBound: config.get<number | null>("scopeBound", 1),
       scopeTimeBudget: config.get<number | null>("scopeTimeBudget", null),
       makeTimeout: config.get<number>("makeTimeout", 600),
-      maxConcurrentJobs: config.get<number>("maxConcurrentJobs", 2),
+      maxConcurrentJobs: config.get<number>("maxConcurrentJobs", 5),
       proofsRoot: config.get<string>("proofsRoot", "cbmc/proofs"),
     };
   }
