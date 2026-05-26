@@ -24,6 +24,7 @@ suite("AutoUP Extension Smoke", () => {
     // Confirm a representative subset of commands is available after activation.
     const commands = await vscode.commands.getCommands(true);
     assert.ok(commands.includes("autoup.createUnitProof"));
+    assert.ok(commands.includes("autoup.manageProviderEnvironmentVariables"));
     assert.ok(commands.includes("autoup.refreshProofs"));
     assert.ok(commands.includes("autoup.showProofOutput"));
     assert.ok(commands.includes("autoup.openVulnerabilityReport"));
@@ -436,7 +437,7 @@ suite("AutoUP Extension Smoke", () => {
     }
   });
 
-  test("proof runner forwards resolved line and column to the bridge", async () => {
+  test("proof runner forwards resolved provider, model, env vars, line, and column to the bridge", async () => {
     const modulePath = path.resolve(
       __dirname,
       "..",
@@ -494,28 +495,35 @@ suite("AutoUP Extension Smoke", () => {
           backendRoot: tempRoot,
           pythonPath: "/usr/bin/python3",
         },
-        config: {
-          model: "gpt-5.3-codex",
-          containerEngine: "auto",
-          scopeBound: null,
-          scopeTimeBudget: null,
-          makeTimeout: 600,
-          maxConcurrentJobs: 2,
-          proofsRoot: "cbmc/proofs",
-        },
+        config: createTestConfig(),
         prerequisites: {
-          apiKey: "secret",
-          apiKeyEnvVar: "OPENAI_API_KEY",
+          selectedProfile: {
+            name: "openai-main",
+            provider: "openai",
+            modelName: "gpt-5.3-codex",
+            envVars: ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
+          },
+          resolvedProvider: "openai",
+          validatedEnvVars: {
+            OPENAI_API_KEY: "secret",
+            OPENAI_BASE_URL: "https://example.invalid/v1",
+          },
           containerEngine: "docker",
         },
         executionHost: "local-linux",
       });
 
       assert.ok(capturedArgs, "Expected the bridge process to be spawned.");
+      const providerIndex = capturedArgs.args.indexOf("--provider");
+      const modelIndex = capturedArgs.args.indexOf("--model");
       const lineIndex = capturedArgs.args.indexOf("--line");
       const columnIndex = capturedArgs.args.indexOf("--column");
+      assert.strictEqual(capturedArgs.args[providerIndex + 1], "openai");
+      assert.strictEqual(capturedArgs.args[modelIndex + 1], "gpt-5.3-codex");
       assert.strictEqual(capturedArgs.args[lineIndex + 1], "17");
       assert.strictEqual(capturedArgs.args[columnIndex + 1], "5");
+      assert.strictEqual(capturedArgs.options.env.OPENAI_API_KEY, "secret");
+      assert.strictEqual(capturedArgs.options.env.OPENAI_BASE_URL, "https://example.invalid/v1");
     } finally {
       childProcess.spawn = originalSpawn;
       if (originalEnvKey === undefined) {
@@ -602,15 +610,7 @@ suite("AutoUP Extension Smoke", () => {
 
     const configManager = {
       getConfig() {
-        return {
-          model: "gpt-5.3-codex",
-          containerEngine: "auto",
-          scopeBound: null,
-          scopeTimeBudget: null,
-          makeTimeout: 600,
-          maxConcurrentJobs: 0,
-          proofsRoot: "cbmc/proofs",
-        };
+        return createTestConfig({ maxConcurrentJobs: 0 });
       },
     };
     const fakeContext = {
@@ -642,15 +642,7 @@ suite("AutoUP Extension Smoke", () => {
     const { ProofManager } = require(managerPath);
 
     const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "autoup-queue-fail-"));
-    const config = {
-      model: "gpt-5.3-codex",
-      containerEngine: "auto",
-      scopeBound: null,
-      scopeTimeBudget: null,
-      makeTimeout: 600,
-      maxConcurrentJobs: 1,
-      proofsRoot: "cbmc/proofs",
-    };
+    const config = createTestConfig({ maxConcurrentJobs: 1 });
 
     let installAttempts = 0;
     const manager = new ProofManager(
@@ -751,15 +743,7 @@ suite("AutoUP Extension Smoke", () => {
       },
       {
         getConfig() {
-          return {
-            model: "gpt-5.3-codex",
-            containerEngine: "auto",
-            scopeBound: null,
-            scopeTimeBudget: null,
-            makeTimeout: 600,
-            maxConcurrentJobs: 1,
-            proofsRoot: "cbmc/proofs",
-          };
+          return createTestConfig({ maxConcurrentJobs: 1 });
         },
       },
       {},
@@ -854,15 +838,7 @@ suite("AutoUP Extension Smoke", () => {
     await fsp.mkdir(path.dirname(sourceFile), { recursive: true });
     await fsp.writeFile(sourceFile, "int sample_target(void) { return 0; }\n", "utf8");
 
-    const config = {
-      model: "gpt-5.3-codex",
-      containerEngine: "auto",
-      scopeBound: null,
-      scopeTimeBudget: null,
-      makeTimeout: 600,
-      maxConcurrentJobs: 0,
-      proofsRoot: "cbmc/proofs",
-    };
+    const config = createTestConfig({ maxConcurrentJobs: 0 });
     const manager = new ProofManager(
       {
         globalStorageUri: vscode.Uri.file(path.join(tempRoot, ".global-storage")),
@@ -933,6 +909,78 @@ suite("AutoUP Extension Smoke", () => {
       await fsp.rm(tempRoot, { recursive: true, force: true });
     }
   });
+
+  test("provider environment manager stores, lists, and clears global env vars", async () => {
+    const modulePath = path.resolve(
+      __dirname,
+      "..",
+      "..",
+      "dist",
+      "features",
+      "setup",
+      "providerEnvironmentManager.js",
+    );
+    const { ProviderEnvironmentManager } = require(modulePath);
+
+    const storedSecrets = new Map();
+    const manager = new ProviderEnvironmentManager({
+      async keys() {
+        return [...storedSecrets.keys()];
+      },
+      async get(key) {
+        return storedSecrets.get(key);
+      },
+      async store(key, value) {
+        storedSecrets.set(key, value);
+      },
+      async delete(key) {
+        storedSecrets.delete(key);
+      },
+      onDidChange() {
+        return { dispose() {} };
+      },
+    });
+
+    const originalShowInputBox = vscode.window.showInputBox;
+    const originalShowQuickPick = vscode.window.showQuickPick;
+    const originalShowInformationMessage = vscode.window.showInformationMessage;
+    const quickPickInvocations = [];
+    const infoMessages = [];
+    let inputStep = 0;
+
+    vscode.window.showInputBox = async () => {
+      inputStep += 1;
+      if (inputStep === 1) {
+        return "OPENROUTER_API_KEY";
+      }
+      return "secret-token";
+    };
+    vscode.window.showQuickPick = async (items) => {
+      quickPickInvocations.push(items);
+      const firstItem = Array.isArray(items) ? items[0] : undefined;
+      return typeof firstItem === "string" ? firstItem : firstItem;
+    };
+    vscode.window.showInformationMessage = async (message) => {
+      infoMessages.push(message);
+      return undefined;
+    };
+
+    try {
+      await manager.addEnvironmentVariable();
+      assert.strictEqual(storedSecrets.get("autoup.env.OPENROUTER_API_KEY"), "secret-token");
+
+      await manager.listEnvironmentVariables();
+      assert.strictEqual(quickPickInvocations[0][0].label, "OPENROUTER_API_KEY");
+
+      await manager.clearEnvironmentVariable();
+      assert.ok(!storedSecrets.has("autoup.env.OPENROUTER_API_KEY"));
+      assert.ok(infoMessages.some((message) => message.includes("Cleared AutoUP environment variable OPENROUTER_API_KEY.")));
+    } finally {
+      vscode.window.showInputBox = originalShowInputBox;
+      vscode.window.showQuickPick = originalShowQuickPick;
+      vscode.window.showInformationMessage = originalShowInformationMessage;
+    }
+  });
 });
 
 function createFakeOutputChannel() {
@@ -981,4 +1029,23 @@ async function pathExists(targetPath) {
   } catch {
     return false;
   }
+}
+
+function createTestConfig(overrides = {}) {
+  return {
+    modelProfiles: [{
+      name: "openai-main",
+      provider: "openai",
+      modelName: "gpt-5.3-codex",
+      envVars: ["OPENAI_API_KEY"],
+    }],
+    selectedModelProfile: "openai-main",
+    containerEngine: "auto",
+    scopeBound: null,
+    scopeTimeBudget: null,
+    makeTimeout: 600,
+    maxConcurrentJobs: 2,
+    proofsRoot: "cbmc/proofs",
+    ...overrides,
+  };
 }

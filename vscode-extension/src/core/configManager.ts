@@ -4,6 +4,7 @@
  */
 import * as vscode from "vscode";
 import type { AutoUpConfig } from "./types";
+import { normalizeModelProfiles } from "../shared/modelProfiles";
 
 /**
  * Provides typed access to AutoUP extension settings.
@@ -23,7 +24,8 @@ export class ConfigManager {
     const config = vscode.workspace.getConfiguration("autoup");
     // Return the exact typed shape used throughout the extension.
     return {
-      model: config.get<string>("model", "gpt-5.3-codex"),
+      modelProfiles: normalizeModelProfiles(config.get<unknown>("modelProfiles", [])),
+      selectedModelProfile: config.get<string | null>("selectedModelProfile", null),
       containerEngine: config.get<"auto" | "docker" | "apptainer">("containerEngine", "auto"),
       scopeBound: config.get<number | null>("scopeBound", 1),
       scopeTimeBudget: config.get<number | null>("scopeTimeBudget", null),

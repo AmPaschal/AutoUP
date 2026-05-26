@@ -59,3 +59,5 @@ Below is an example of a completed, working Makefile for reference:
 6. If it is not possible to compile the harness with the target file, return a detailed analysis of why and empty updated_makefile and updated_harness fields.
 7. Do not request full file contents using run_bash_command. Request only snippets, line ranges, or grep output.
 8. Be proactive: identify as many include paths and definitions as possible before your first `makefile_validator` call to minimize iterations.
+9. Return only the structured response expected by the caller. Do not include markdown fences or free-form commentary outside the required response fields.
+10. Stay within the allowed edit surface. Do not modify variables other than the permitted ones or add other commands to the makefile.

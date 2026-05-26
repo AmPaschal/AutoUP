@@ -6,8 +6,13 @@ import * as vscode from "vscode";
 import { ProofManager } from "./core/proofManager";
 import { ConfigManager } from "./core/configManager";
 import { AutoUpInstaller } from "./features/setup/autoUpInstaller";
+import { ProviderEnvironmentManager } from "./features/setup/providerEnvironmentManager";
 import { PrerequisiteChecker } from "./features/setup/prerequisiteChecker";
 import { ProofTreeProvider } from "./features/proofPanel/proofTreeProvider";
+import { isActionableError } from "./shared/actionableError";
+
+const OPEN_SETTINGS_ACTION = "Open Settings";
+const MANAGE_ENVIRONMENT_ACTION = "Manage Provider Environment Variables";
 
 /**
  * Activate the AutoUP extension.
@@ -22,6 +27,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Create the core services used by the extension during this session.
   const configManager = new ConfigManager();
   const installer = new AutoUpInstaller(context);
+  const envManager = new ProviderEnvironmentManager(context.secrets);
   const prerequisites = new PrerequisiteChecker(context.secrets);
   const proofManager = new ProofManager(context, configManager, installer, prerequisites);
   // Rehydrate any existing proof jobs before the tree view appears.
@@ -55,10 +61,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Start a proof using the function under the current cursor.
         await proofManager.startProofFromEditor(editor);
       } catch (error) {
-        // Surface launch/setup failures immediately to the user.
-        const message = error instanceof Error ? error.message : String(error);
-        void vscode.window.showErrorMessage(message);
+        await showCommandError(error);
       }
+    }),
+    vscode.commands.registerCommand("autoup.manageProviderEnvironmentVariables", async () => {
+      await envManager.manage();
     }),
     vscode.commands.registerCommand("autoup.cancelProof", async (target?: unknown) => {
       if (!target) {
@@ -137,4 +144,21 @@ export function deactivate(): void {
    * - `void`.
    */
   // VS Code disposes registered subscriptions automatically.
+}
+
+async function showCommandError(error: unknown): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!isActionableError(error)) {
+    void vscode.window.showErrorMessage(message);
+    return;
+  }
+
+  const selection = await vscode.window.showErrorMessage(message, ...error.actions);
+  if (selection === OPEN_SETTINGS_ACTION) {
+    await vscode.commands.executeCommand("workbench.action.openSettings", "autoup");
+    return;
+  }
+  if (selection === MANAGE_ENVIRONMENT_ACTION) {
+    await vscode.commands.executeCommand("autoup.manageProviderEnvironmentVariables");
+  }
 }

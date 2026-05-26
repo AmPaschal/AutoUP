@@ -93,6 +93,150 @@ class LiteLLM(LLM):
     def __init__(self, name: str, max_input_tokens: int):
         super().__init__(name, max_input_tokens)
 
+    @staticmethod
+    def _convert_openai_tools_to_litellm_tools(openai_tools: list[dict]) -> list[dict]:
+        converted_tools: list[dict] = []
+        for tool in openai_tools:
+            if not isinstance(tool, dict) or tool.get("type") != "function":
+                raise ValueError(f"Unsupported LiteLLM tool definition: {tool}")
+
+            if "function" in tool:
+                function_payload = tool["function"]
+                if not isinstance(function_payload, dict):
+                    raise ValueError(f"Malformed LiteLLM tool definition: {tool}")
+                normalized_payload = dict(function_payload)
+                if "strict" not in normalized_payload and "strict" in tool:
+                    normalized_payload["strict"] = tool["strict"]
+            else:
+                name = tool.get("name")
+                parameters = tool.get("parameters")
+                if not isinstance(name, str) or not name.strip():
+                    raise ValueError(f"LiteLLM function tools must define a name: {tool}")
+                if not isinstance(parameters, dict):
+                    raise ValueError(f"LiteLLM function tools must define JSON-schema parameters: {tool}")
+                normalized_payload = {
+                    "name": name,
+                    "parameters": parameters,
+                }
+                if "description" in tool:
+                    normalized_payload["description"] = tool["description"]
+                if "strict" in tool:
+                    normalized_payload["strict"] = tool["strict"]
+
+            converted_tools.append({
+                "type": "function",
+                "function": normalized_payload,
+            })
+        return converted_tools
+
+    @staticmethod
+    def _build_json_only_system_prompt(system_messages: str, output_format: Type[BaseModel]) -> str:
+        json_schema = json.dumps(output_format.model_json_schema(), indent=2)
+        return (
+            f"{system_messages}\n\n"
+            "Return only valid JSON matching this schema.\n"
+            "Do not include markdown fences, commentary, or explanatory prose.\n"
+            f"{json_schema}"
+        )
+
+    @staticmethod
+    def _serialize_message(message: Any) -> dict:
+        if hasattr(message, "model_dump"):
+            dumped = message.model_dump(exclude_none=True)
+            if isinstance(dumped, dict):
+                return dumped
+        if isinstance(message, dict):
+            return dict(message)
+        serialized = {
+            "role": getattr(message, "role", "assistant"),
+        }
+        content = getattr(message, "content", None)
+        if content is not None:
+            serialized["content"] = content
+        tool_calls = getattr(message, "tool_calls", None)
+        if tool_calls is not None:
+            serialized["tool_calls"] = tool_calls
+        return serialized
+
+    @staticmethod
+    def _extract_tool_calls(message: Any) -> list[Any]:
+        if isinstance(message, dict):
+            return list(message.get("tool_calls") or [])
+        return list(getattr(message, "tool_calls", None) or [])
+
+    @staticmethod
+    def _extract_message_content(message: Any) -> Optional[str]:
+        if isinstance(message, dict):
+            content = message.get("content")
+        else:
+            content = getattr(message, "content", None)
+
+        if isinstance(content, list):
+            text_chunks = []
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    text_chunks.append(str(item.get("text", "")))
+                elif hasattr(item, "text"):
+                    text_chunks.append(str(item.text))
+            return "".join(text_chunks) if text_chunks else None
+        if content is None:
+            return None
+        return str(content)
+
+    @staticmethod
+    def _extract_tool_call_details(tool_call: Any) -> tuple[str, str, str]:
+        call_id = getattr(tool_call, "id", None)
+        if call_id is None and isinstance(tool_call, dict):
+            call_id = tool_call.get("id")
+
+        function_payload = getattr(tool_call, "function", None)
+        if function_payload is None and isinstance(tool_call, dict):
+            function_payload = tool_call.get("function")
+        if function_payload is None:
+            raise ValueError(f"Malformed LiteLLM tool call payload: {tool_call}")
+
+        if isinstance(function_payload, dict):
+            function_name = function_payload.get("name")
+            function_arguments = function_payload.get("arguments")
+        else:
+            function_name = getattr(function_payload, "name", None)
+            function_arguments = getattr(function_payload, "arguments", None)
+
+        if not isinstance(call_id, str) or not call_id:
+            raise ValueError(f"LiteLLM tool call is missing an id: {tool_call}")
+        if not isinstance(function_name, str) or not function_name:
+            raise ValueError(f"LiteLLM tool call is missing a function name: {tool_call}")
+        if not isinstance(function_arguments, str):
+            raise ValueError(f"LiteLLM tool call is missing JSON arguments: {tool_call}")
+        return call_id, function_name, function_arguments
+
+    @staticmethod
+    def _strip_markdown_code_fences(content: str) -> str:
+        stripped = content.strip()
+        if stripped.startswith("```") and stripped.endswith("```"):
+            stripped = stripped[3:-3].strip()
+            if stripped.startswith("json"):
+                stripped = stripped[4:].strip()
+        return stripped
+
+    @staticmethod
+    def _parse_json_content(content: str, output_format: Type[BaseModel]) -> BaseModel:
+        json_text = LiteLLM._strip_markdown_code_fences(content)
+        parsed = json.loads(json_text)
+        return output_format.model_validate(parsed)
+
+    @staticmethod
+    def _update_litellm_usage(token_usage: dict[str, int], client_response: ModelResponse) -> None:
+        if not client_response.usage:
+            return
+        token_usage["input_tokens"] += client_response.usage.prompt_tokens
+        prompt_details = getattr(client_response.usage, "prompt_tokens_details", None)
+        token_usage["cached_tokens"] += getattr(prompt_details, "cached_tokens", 0) or 0
+        token_usage["output_tokens"] += client_response.usage.completion_tokens
+        completion_details = getattr(client_response.usage, "completion_tokens_details", None)
+        token_usage["reasoning_tokens"] += getattr(completion_details, "reasoning_tokens", 0) or 0
+        token_usage["total_tokens"] += client_response.usage.total_tokens
+
     def chat_llm(
         self,
         system_messages: str,
@@ -122,20 +266,23 @@ class LiteLLM(LLM):
             "reasoning_tokens": 0,
             "total_tokens": 0
         }
+        translated_tools = self._convert_openai_tools_to_litellm_tools(llm_tools) if llm_tools else []
+        lite_system_prompt = self._build_json_only_system_prompt(system_messages, output_format)
 
         while True:
             # Call the model
             try:
+                completion_kwargs: dict[str, Any] = {
+                    "model": self.name,
+                    "messages": [{"role": "system", "content": lite_system_prompt}] + input_list,
+                    "reasoning": "low",
+                    "temperature": 1.0,
+                }
+                if translated_tools:
+                    completion_kwargs["tools"] = translated_tools
+                    completion_kwargs["tool_choice"] = "auto"
                 client_response: ModelResponse = self.with_retry_on_error(
-                    lambda: litellm.completion(
-                        model=self.name,
-                        messages=[{"role": "system", "content": system_messages}] + input_list,
-                        response_format=output_format,
-                        tool_choice="auto",
-                        reasoning="low",
-                        tools=llm_tools,
-                        temperature=1.0,
-                    ),
+                    lambda: litellm.completion(**completion_kwargs),
                     [pydantic_core._pydantic_core.ValidationError]
                 )
             except Exception as e:
@@ -143,37 +290,42 @@ class LiteLLM(LLM):
                 return None, {}
 
             # Update token usage
-            if client_response.usage:
-                token_usage["input_tokens"] += client_response.usage.prompt_tokens
-                token_usage["cached_tokens"] += client_response.usage.prompt_tokens_details.cached_tokens or 0
-                token_usage["output_tokens"] += client_response.usage.completion_tokens
-                token_usage["reasoning_tokens"] += client_response.usage.completion_tokens_details.reasoning_tokens or 0
-                token_usage["total_tokens"] += client_response.usage.total_tokens
+            self._update_litellm_usage(token_usage, client_response)
 
             # Find function calls
-            function_calls = client_response.choices[0].message["tool_calls"] or []
+            assistant_message = client_response.choices[0].message
+            function_calls = self._extract_tool_calls(assistant_message)
         
             if not function_calls:
                 # No function calls left → we’re done
                 break
 
             # Handle each function call and add results back to input_list
+            input_list.append(self._serialize_message(assistant_message))
             for item in function_calls:
-                print("Functions to call: ", item.id)
                 if call_function is None:
                     raise ValueError("call_function must be provided when tools are used.")
-                function_result = call_function(item.function.name, item.function.arguments)
+                try:
+                    tool_call_id, function_name, function_arguments = self._extract_tool_call_details(item)
+                except Exception as e:
+                    logger.error(f"Malformed LiteLLM tool call payload: {e}")
+                    return None, {}
+                function_result = call_function(function_name, function_arguments)
                 function_calls_count += 1
-                input_list.append(client_response.choices[0].message)
                 input_list.append({
                     "role": "tool",
-                    "tool_call_id": item.id,
+                    "tool_call_id": tool_call_id,
                     "content": function_result,
                 })
-                print("Tool call id responded: ", item.id)
-
-        print(client_response.choices[0].message.content)
-        parsed_output =output_format.model_validate(json.loads(client_response.choices[0].message.content))
+        final_content = self._extract_message_content(client_response.choices[0].message)
+        if not final_content:
+            logger.error("LiteLLM returned no final JSON content.")
+            return None, {}
+        try:
+            parsed_output = self._parse_json_content(final_content, output_format)
+        except Exception as e:
+            logger.error(f"LiteLLM returned invalid JSON content: {e}")
+            return None, {}
         parsed_output_dict = parsed_output.model_dump_json(indent=2) if parsed_output else {}
         logger.info(f"LLM Response:\n{parsed_output_dict}")
 

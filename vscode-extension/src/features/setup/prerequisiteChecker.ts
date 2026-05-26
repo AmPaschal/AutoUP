@@ -3,8 +3,15 @@
  * proof is launched.
  */
 import * as vscode from "vscode";
-import type { AutoUpConfig, ExecutionHost, ResolvedPrerequisites, RuntimeInstallation } from "../../core/types";
+import * as path from "path";
+import type { AutoUpConfig, ExecutionHost, ResolvedModelProfile, ResolvedPrerequisites, RuntimeInstallation } from "../../core/types";
+import { ActionableError } from "../../shared/actionableError";
+import { getEnvironmentSecretKey, resolveSelectedModelProfile } from "../../shared/modelProfiles";
 import { runCommand } from "../../shared/processUtils";
+
+const OPEN_SETTINGS_ACTION = "Open Settings";
+const MANAGE_ENVIRONMENT_ACTION = "Manage Provider Environment Variables";
+const RECOVERY_ACTIONS = [OPEN_SETTINGS_ACTION, MANAGE_ENVIRONMENT_ACTION] as const;
 
 /**
  * Checks Python, container-engine, and API-key prerequisites.
@@ -40,12 +47,15 @@ export class PrerequisiteChecker {
 
     // Resolve the container engine next because launch configuration depends on it.
     const containerEngine = await this.resolveContainerEngine(config, executionHost);
-    const apiKey = await this.ensureApiKey();
+    const selectedProfile = this.resolveProfile(config);
+    const validatedEnvVars = await this.resolveEnvironmentVariables(selectedProfile);
+    const resolvedProvider = await this.validateSelectedModel(installation, selectedProfile, validatedEnvVars);
 
     // Return the normalized launch prerequisites used by the proof runner.
     return {
-      apiKey,
-      apiKeyEnvVar: "OPENAI_API_KEY",
+      selectedProfile,
+      resolvedProvider,
+      validatedEnvVars,
       containerEngine,
     };
   }
@@ -105,41 +115,84 @@ export class PrerequisiteChecker {
     throw new Error("Neither Docker nor Apptainer is available on the execution host.");
   }
 
-  private async ensureApiKey(): Promise<string> {
-    /**
-     * Resolve the API key from secrets, environment, or a prompt.
-     *
-     * Inputs:
-     * - None.
-     *
-     * Returns:
-     * - `Promise<string>`: API key used for proof execution.
-     */
-    // Prefer secret storage so the key is not kept in plain workspace settings.
-    const stored = await this.secrets.get("autoup.openaiApiKey");
-    if (stored) {
-      return stored;
+  private resolveProfile(config: AutoUpConfig): ResolvedModelProfile {
+    try {
+      return resolveSelectedModelProfile(config);
+    } catch (error) {
+      throw this.toActionableError(this.getErrorMessage(error));
+    }
+  }
+
+  private async resolveEnvironmentVariables(profile: ResolvedModelProfile): Promise<Record<string, string>> {
+    const values: Record<string, string> = {};
+    const missing: string[] = [];
+    for (const envVar of profile.envVars) {
+      const value = await this.secrets.get(getEnvironmentSecretKey(envVar));
+      if (value === undefined) {
+        missing.push(envVar);
+        continue;
+      }
+      values[envVar] = value;
+    }
+    if (missing.length > 0) {
+      throw this.toActionableError(
+        `AutoUP model profile '${profile.name}' is missing stored environment variables: ${missing.join(", ")}.`,
+      );
+    }
+    return values;
+  }
+
+  private async validateSelectedModel(
+    installation: RuntimeInstallation,
+    profile: ResolvedModelProfile,
+    validatedEnvVars: Record<string, string>,
+  ): Promise<string> {
+    const bridgePath = path.join(installation.backendRoot, "src", "autoup_vscode.py");
+    const validationResult = await runCommand(
+      installation.pythonPath,
+      [
+        bridgePath,
+        "validate-model",
+        "--model",
+        profile.modelName,
+        "--provider",
+        profile.provider,
+      ],
+      {
+        cwd: installation.backendRoot,
+        env: {
+          ...process.env,
+          ...validatedEnvVars,
+        },
+      },
+    );
+
+    let parsedOutput: { ok?: boolean; resolved_provider?: string; error?: string };
+    try {
+      parsedOutput = JSON.parse(validationResult.stdout || "{}");
+    } catch {
+      throw this.toActionableError(
+        `AutoUP could not validate model '${profile.modelName}': invalid validator response.`,
+      );
     }
 
-    // Accept an environment-provided key so remote and CI-like environments can
-    // inject credentials without prompting.
-    const envKey = process.env.OPENAI_API_KEY;
-    if (envKey) {
-      return envKey;
+    if (validationResult.exitCode !== 0 || !parsedOutput.ok || !parsedOutput.resolved_provider) {
+      const details = parsedOutput.error || validationResult.stderr || "unknown model validation error";
+      throw this.toActionableError(
+        `AutoUP could not validate model '${profile.modelName}': ${details}`,
+      );
     }
+    return parsedOutput.resolved_provider;
+  }
 
-    // Prompt only as a last resort when no stored or injected key is available.
-    const entered = await vscode.window.showInputBox({
-      password: true,
-      prompt: "Enter the OpenAI API key to use for AutoUP proof generation",
-      ignoreFocusOut: true,
-    });
-    if (!entered) {
-      throw new Error("An OpenAI API key is required to start AutoUP proofs.");
+  private toActionableError(message: string): ActionableError {
+    return new ActionableError(message, RECOVERY_ACTIONS);
+  }
+
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
     }
-
-    // Persist the entered key so the next launch can reuse it without prompting.
-    await this.secrets.store("autoup.openaiApiKey", entered);
-    return entered;
+    return String(error);
   }
 }

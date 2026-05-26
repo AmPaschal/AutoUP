@@ -13,6 +13,7 @@ VS Code extension can launch. It is responsible for:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import platform
 import re
@@ -21,6 +22,7 @@ import sys
 from types import SimpleNamespace
 
 import run as autoup_run
+from commons.model_validation import resolve_model_provider
 from vscode_bridge.progress import VSCodeJobProgress
 
 
@@ -51,6 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--job-id", required=True)
     start_parser.add_argument("--function-name")
     start_parser.add_argument("--container-engine", default="docker")
+    start_parser.add_argument("--provider")
     start_parser.add_argument("--model", default="gpt-5.3-codex")
     start_parser.add_argument("--scope-bound", type=int, default=1)
     start_parser.add_argument("--scope-time-budget", type=float)
@@ -58,6 +61,10 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--log-file")
     start_parser.add_argument("--metrics-file")
     start_parser.add_argument("--execution-host")
+
+    validate_parser = subparsers.add_parser("validate-model", help="Validate model resolution through LiteLLM")
+    validate_parser.add_argument("--model", required=True)
+    validate_parser.add_argument("--provider")
     return parser
 
 
@@ -155,6 +162,7 @@ def build_run_args(args: argparse.Namespace) -> SimpleNamespace:
         log_file=log_file,
         metrics_file=metrics_file,
         container_engine=args.container_engine,
+        llm_provider=args.provider,
         llm_model=args.model,
         scope_bound=args.scope_bound if args.scope_bound is not None else 1,
         scope_time_budget=args.scope_time_budget,
@@ -235,6 +243,24 @@ def start_job(args: argparse.Namespace) -> int:
     return 1
 
 
+def validate_model(args: argparse.Namespace) -> int:
+    """Validate that LiteLLM can resolve a configured model."""
+    try:
+        resolved_provider = resolve_model_provider(args.model)
+    except Exception as exc:
+        print(json.dumps({
+            "ok": False,
+            "error": str(exc),
+        }))
+        return 1
+
+    print(json.dumps({
+        "ok": True,
+        "resolved_provider": resolved_provider,
+    }))
+    return 0
+
+
 def main() -> int:
     """Parse bridge arguments and dispatch the requested command.
 
@@ -250,6 +276,8 @@ def main() -> int:
     args = build_parser().parse_args()
     if args.command == "start":
         return start_job(args)
+    if args.command == "validate-model":
+        return validate_model(args)
     return 1
 
 

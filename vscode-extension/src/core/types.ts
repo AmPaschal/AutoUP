@@ -82,14 +82,30 @@ export interface RuntimeInstallation {
   pythonPath: string;
 }
 
+export interface ModelProfile {
+  name: string;
+  provider: string;
+  modelName: string;
+  envVars: string[];
+}
+
+export interface ResolvedModelProfile {
+  name: string;
+  provider: string;
+  modelName: string;
+  envVars: string[];
+}
+
 export interface ResolvedPrerequisites {
-  apiKey: string;
-  apiKeyEnvVar: string;
+  selectedProfile: ResolvedModelProfile;
+  resolvedProvider: string;
+  validatedEnvVars: Record<string, string>;
   containerEngine: "docker" | "apptainer";
 }
 
 export interface AutoUpConfig {
-  model: string;
+  modelProfiles: ModelProfile[];
+  selectedModelProfile: string | null;
   containerEngine: "auto" | "docker" | "apptainer";
   scopeBound: number | null;
   scopeTimeBudget: number | null;

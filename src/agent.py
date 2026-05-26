@@ -9,11 +9,10 @@ from typing import Any, Callable, Optional, Type
 import tiktoken
 
 from commons.project_container import ProjectContainer
+from commons.model_validation import resolve_model_provider
 from logger import setup_logger
 from commons.utils import Status
 from commons.models import GPT, LiteLLM
-
-from litellm import get_llm_provider
 
 logger = setup_logger(__name__)
 
@@ -40,12 +39,13 @@ class AIAgent(ABC):
         self.snapshot_dir = os.path.join(self.harness_dir, "snapshots")
 
         try:
-            result = get_llm_provider(args.llm_model)
-            if result[1] == "openai":
-                logger.info(f"Using model '{args.llm_model}' with OpenAI specification")
+            provider = getattr(args, "llm_provider", None) or resolve_model_provider(args.llm_model)
+            args.llm_provider = provider
+            if provider == "openai":
+                logger.info(f"Using model '{args.llm_model}' with OpenAI specification (provider={provider})")
                 self.llm = GPT(name=args.llm_model, max_input_tokens=270000)
             else:
-                logger.info(f"Using model '{args.llm_model}' with Litellm wrapper.")
+                logger.info(f"Using model '{args.llm_model}' with Litellm wrapper (provider={provider}).")
                 self.llm = LiteLLM(name=args.llm_model, max_input_tokens=270000)
         except Exception as e:
             logger.error(f"Error. Model '{args.llm_model}' not supported: {e}")

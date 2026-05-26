@@ -12,6 +12,7 @@ import os
 
 # Utils
 from dotenv import load_dotenv
+from commons.model_validation import resolve_model_provider
 
 # AutoUP
 from coverage_debugger.coverage_debugger import CoverageDebugger
@@ -144,6 +145,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--llm_model",
         default="gpt-5.3-codex",
         help="LLM model to use (default: gpt-5.2)"
+    )
+    parser.add_argument(
+        "--llm_provider",
+        default=None,
+        help="Resolved LLM provider override. When omitted, AutoUP resolves it through LiteLLM.",
     )
     parser.add_argument(
         "--scope_bound",
@@ -347,13 +353,27 @@ def run_with_args(args) -> bool:
     previous_sigterm = signal.getsignal(signal.SIGTERM)
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
+    llm_model = getattr(args, "llm_model", "gpt-5.3-codex")
+    args.llm_model = llm_model
+
+    try:
+        args.llm_provider = resolve_model_provider(llm_model)
+        logger.info(
+            "Resolved LLM provider '%s' for model '%s'.",
+            args.llm_provider,
+            llm_model,
+        )
+    except Exception as e:
+        logger.error(f"Error resolving LLM model '{llm_model}': {e}")
+        progress = getattr(args, "vscode_progress", None)
+        if progress and progress.enabled:
+            progress.job_failed(f"Model validation failed: {e}")
+        signal.signal(signal.SIGINT, previous_sigint)
+        signal.signal(signal.SIGTERM, previous_sigterm)
+        return False
 
     try:
         try:
-            openai_api_key = os.getenv("OPENAI_API_KEY")
-            if openai_api_key is None:
-                raise EnvironmentError("No OpenAI API key found")
-
             if args.container_engine == "apptainer":
                 project_container = ApptainerProjectContainer(
                     apptainer_def_path="container/tools.def",

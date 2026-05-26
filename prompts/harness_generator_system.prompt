@@ -34,6 +34,8 @@ You must follow these steps strictly:
     - Initialize the pointer by allocating memory using the size variable `uint8_t *data = malloc(data_len); struct my_struct *ptr = malloc(ptr_len);` 
 5. Finally, call the function in the harness using the declared and initialized arguments.
 6. Do NOT make any additional constraints in the harness.
+7. Return only the structured response expected by the caller. Do not include markdown fences, commentary, analysis, or prose outside the required response fields.
+8. You should not attempt to directly modify files in the proof directory or source code. Return the requested updates in your response.
 
 Here is an example of a harness file generated for the function signature:
 <example>

@@ -34,16 +34,12 @@ The extension is implemented as a workspace extension. Proof execution happens w
 The extension still needs the same underlying proof-generation dependencies as AutoUP, but it manages the AutoUP Python environment itself.
 
 - Python 3 available on the execution host
-- OpenAI API key
+- Clangd VS Code extension and the associated `clangd` backend
 - Container engine:
   - macOS: Docker only
   - Linux: Docker or Apptainer
 
-The API key is resolved in this order:
-
-1. VS Code `SecretStorage`
-2. `OPENAI_API_KEY` environment variable
-3. interactive prompt on first use
+Provider environment variables are stored in VS Code `SecretStorage` and managed through the `AutoUP: Manage Provider Environment Variables` command.
 
 ## Backend Packaging
 
@@ -60,6 +56,16 @@ Right-click inside a C or C++ function and choose:
 - `AutoUP: Create Unit Proof`
 
 The command is only shown for trusted workspaces and C/C++ files.
+
+### Provider Environment Variables
+
+Use `AutoUP: Manage Provider Environment Variables` from the command palette to:
+
+- add a stored environment variable
+- list all stored environment variables
+- clear a stored environment variable
+
+Stored values are global to the extension and keyed by environment variable name.
 
 ### Sidebar
 
@@ -136,7 +142,8 @@ This means:
 
 The extension contributes these settings:
 
-- `autoup.model`
+- `autoup.modelProfiles`
+- `autoup.selectedModelProfile`
 - `autoup.containerEngine`
 - `autoup.scopeBound`
 - `autoup.scopeTimeBudget`
@@ -145,10 +152,22 @@ The extension contributes these settings:
 
 Defaults:
 
-- `autoup.model = gpt-5.3-codex`
+- `autoup.modelProfiles = []`
+- `autoup.selectedModelProfile = null`
 - `autoup.containerEngine = auto`
 - `autoup.maxConcurrentJobs = 5`
 - `autoup.proofsRoot = cbmc/proofs`
+
+Example profile:
+
+```json
+{
+  "name": "openrouter-r1",
+  "provider": "openrouter",
+  "modelName": "openrouter/deepseek/deepseek-r1",
+  "envVars": ["OPENROUTER_API_KEY", "OPENROUTER_BASE_URL"]
+}
+```
 
 ## Using the Extension
 
@@ -156,11 +175,14 @@ Defaults:
 
 1. Open a C/C++ project in VS Code.
 2. Ensure the workspace is trusted.
-3. Place the cursor inside the function you want to prove.
-4. Right-click and choose `Create Unit Proof`.
-5. Watch the `AutoUP` sidebar for progress and status updates.
-6. Use the sidebar actions to inspect the generated harness, Makefile, log, or source file.
-7. Click a proof job row to open its current log file.
+3. Configure one or more `autoup.modelProfiles`.
+4. Set `autoup.selectedModelProfile` to the profile you want to use.
+5. Run `AutoUP: Manage Provider Environment Variables` and add the environment variables required by that profile.
+6. Place the cursor inside the function you want to prove.
+7. Right-click and choose `Create Unit Proof`.
+8. Watch the `AutoUP` sidebar for progress and status updates.
+9. Use the sidebar actions to inspect the generated harness, Makefile, log, or source file.
+10. Click a proof job row to open its current log file.
 
 ### First Launch Behavior
 
@@ -170,7 +192,10 @@ On first use, the extension:
 - copies bundled AutoUP backend assets into that storage
 - creates a private Python virtual environment
 - installs Python dependencies into that virtual environment
-- validates the container engine and API key
+- validates the container engine
+- validates that the selected profile exists
+- validates that the selected profile's environment variables are stored
+- validates that LiteLLM can resolve the selected profile's `modelName`
 
 ### Remote-SSH Behavior
 

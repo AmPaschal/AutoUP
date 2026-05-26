@@ -2,7 +2,7 @@
   "name": "autoup-vscode",
   "displayName": "AutoUP",
   "description": "Generate AutoUP unit proofs from VS Code.",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "autoup",
   "repository": {
     "type": "git",
@@ -20,6 +20,7 @@
   "main": "./dist/extension.js",
   "activationEvents": [
     "onCommand:autoup.createUnitProof",
+    "onCommand:autoup.manageProviderEnvironmentVariables",
     "onCommand:autoup.refreshProofs",
     "onView:autoup.proofExplorer"
   ],
@@ -89,6 +90,11 @@
         "category": "AutoUP"
       },
       {
+        "command": "autoup.manageProviderEnvironmentVariables",
+        "title": "Manage Provider Environment Variables",
+        "category": "AutoUP"
+      },
+      {
         "command": "autoup.showProofOutput",
         "title": "Show Proof Output",
         "category": "AutoUP"
@@ -142,10 +148,48 @@
     "configuration": {
       "title": "AutoUP",
       "properties": {
-        "autoup.model": {
-          "type": "string",
-          "default": "gpt-5.3-codex",
-          "description": "LLM model identifier passed to AutoUP."
+        "autoup.modelProfiles": {
+          "type": "array",
+          "default": [],
+          "description": "Configured AutoUP model profiles. Each profile defines a provider, model name, and required environment variables.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "provider",
+              "modelName",
+              "envVars"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Unique profile name used by autoup.selectedModelProfile."
+              },
+              "provider": {
+                "type": "string",
+                "description": "Provider label for user reference."
+              },
+              "modelName": {
+                "type": "string",
+                "description": "LiteLLM model identifier passed to AutoUP."
+              },
+              "envVars": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Environment variables that must be present in VS Code SecretStorage before proof launch."
+              }
+            }
+          }
+        },
+        "autoup.selectedModelProfile": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Name of the AutoUP model profile to use for proof generation."
         },
         "autoup.containerEngine": {
           "type": "string",
