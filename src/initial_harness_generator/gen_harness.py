@@ -1,13 +1,20 @@
 
 
 from pathlib import Path
-import json
 import os
 import re
 import uuid
 from agent import AIAgent
 from commons.models import GPT, Generable
 from makefile.output_models import HarnessResponse
+from initial_harness_generator.compile_commands import (
+    extract_compile_command_seed,
+    find_compile_commands_files,
+    find_first_matching_compile_entry,
+    load_compile_entries,
+    macro_names_from_flags,
+    resolve_compile_command_file,
+)
 from logger import setup_logger
 from makefile_generator.makefile_generator import MakefileGenerator
 from scope_reducer.scope_reducer import ScopeReducer
@@ -158,7 +165,34 @@ class InitialHarnessGenerator(AIAgent, Generable):
             logger.info(f'Copied zephyr-stubs.c to {dest_stubs_path}')
 
 
-    def setup_initial_makefile(self, initial_configs):
+    def _find_compile_commands_files(self) -> list[str]:
+        return find_compile_commands_files(self.root_dir, logger)
+
+    def _load_compile_entries(self, path: str) -> list[dict]:
+        return load_compile_entries(path, logger)
+
+    def _resolve_compile_command_file(self, entry: dict) -> str | None:
+        return resolve_compile_command_file(entry)
+
+    def _find_first_matching_compile_entry(self) -> dict | None:
+        return find_first_matching_compile_entry(
+            self.root_dir,
+            self.target_file_path,
+            logger,
+        )
+
+    def _extract_compile_command_seed(self, entry: dict) -> tuple[list[str], list[str]]:
+        return extract_compile_command_seed(entry, self.root_dir)
+
+    def _macro_names_from_flags(self, flags: list[str]) -> set[str]:
+        return macro_names_from_flags(flags)
+
+    def setup_initial_makefile(
+        self,
+        initial_configs,
+        seeded_h_def_flags: list[str] | None = None,
+        seeded_h_inc_flags: list[str] | None = None,
+    ):
 
         harness_relative_root = self.get_backward_path(self.root_dir, self.harness_dir)
 
@@ -168,12 +202,29 @@ class InitialHarnessGenerator(AIAgent, Generable):
         makefile = makefile.replace('{ROOT}', str(harness_relative_root))
         makefile = makefile.replace('{H_ENTRY}', self.target_function)
 
-        if initial_configs:
-            config_string = " ".join(f"-D{cfg}=1" for cfg in initial_configs)
-        else:
-            config_string = ""
+        seeded_h_def_flags = list(seeded_h_def_flags or [])
+        seeded_h_inc_flags = list(seeded_h_inc_flags or [])
+
+        seeded_macro_names = self._macro_names_from_flags(seeded_h_def_flags)
+        heuristic_flags = [
+            f"-D{cfg}=1"
+            for cfg in initial_configs
+            if cfg not in seeded_macro_names
+        ]
+
+        h_def_flags = seeded_h_def_flags + heuristic_flags
+        h_inc_flags = ["-I$(ROOT)", *seeded_h_inc_flags]
+
+        config_string = " ".join(h_def_flags)
+        include_string = " ".join(h_inc_flags)
 
         makefile = makefile.replace('{H_DEF}', config_string)
+        makefile = re.sub(
+            r"^H_INC = .*$",
+            f"H_INC = {include_string}",
+            makefile,
+            flags=re.MULTILINE,
+        )
 
         return makefile
 
@@ -193,7 +244,60 @@ class InitialHarnessGenerator(AIAgent, Generable):
                 config = match.group(1)
                 configs.add(config)
 
-        return list(configs)
+        return sorted(configs)
+
+    def _try_compile_commands_seed(self, initial_configs: list[str]) -> bool:
+        compile_entry = self._find_first_matching_compile_entry()
+        if compile_entry is None:
+            return False
+
+        seeded_h_def_flags, seeded_h_inc_flags = self._extract_compile_command_seed(
+            compile_entry
+        )
+        logger.info(
+            "Seeding initial Makefile from compile_commands.json with %s H_DEF flag token(s) and %s H_INC flag token(s).",
+            len(seeded_h_def_flags),
+            len(seeded_h_inc_flags),
+        )
+
+        seeded_makefile = self.setup_initial_makefile(
+            initial_configs,
+            seeded_h_def_flags=seeded_h_def_flags,
+            seeded_h_inc_flags=seeded_h_inc_flags,
+        )
+        self.update_makefile(seeded_makefile)
+
+        make_results = self.run_make(compile_only=True)
+        seeded_compile_succeeded = (
+            make_results.get("status") == Status.SUCCESS
+            and make_results.get("exit_code", -1) == 0
+        )
+        logger.info(
+            "Seeded compile from compile_commands.json %s.",
+            "succeeded" if seeded_compile_succeeded else "failed",
+        )
+        if not seeded_compile_succeeded:
+            logger.info("Falling back to MakefileGenerator after seeded compile failure.")
+            return False
+
+        validation_target = self.get_validation_target_function()
+        linked_ok = self.validate_linked_target(validation_target)
+        called_ok = self.validate_called_target(validation_target)
+        logger.info(
+            "Seeded compile target validation results: linked=%s called=%s.",
+            linked_ok,
+            called_ok,
+        )
+        if linked_ok and called_ok:
+            logger.info(
+                "Skipping MakefileGenerator because compile_commands.json seeding compiled and validated successfully."
+            )
+            return True
+
+        logger.info(
+            "Falling back to MakefileGenerator after seeded compile target validation failed."
+        )
+        return False
 
     @staticmethod
     def _is_over_time_budget(make_results: dict, time_budget_seconds: float) -> bool:
@@ -552,12 +656,14 @@ class InitialHarnessGenerator(AIAgent, Generable):
         makefile = self.setup_initial_makefile(initial_configs)
         self.update_makefile(makefile)   
 
-        # Now, we try to resolve all the make errors
-        makefile_generator = MakefileGenerator(
-                                args=self.args,
-                                project_container=self.project_container
-                            )
-        status = makefile_generator.generate()
+        status = self._try_compile_commands_seed(initial_configs)
+        if not status:
+            # Now, we try to resolve all the make errors
+            makefile_generator = MakefileGenerator(
+                                    args=self.args,
+                                    project_container=self.project_container
+                                )
+            status = makefile_generator.generate()
         completed_scope_level = 1
         agent_result["compilation_status"] = status
         if status:

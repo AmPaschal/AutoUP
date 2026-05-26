@@ -7,9 +7,7 @@ update and test the Makefile until compilation succeeds.
 """
 
 import json
-import os
 import uuid
-from typing import Optional
 
 from agent import AIAgent
 from commons.models import Generable
@@ -21,13 +19,6 @@ logger = setup_logger(__name__)
 
 
 class MakefileGenerator(AIAgent, Generable):
-    VALIDATION_TARGET_ALIASES = {
-        (
-            "os/net/mac/ble/ble-l2cap.c",
-            "PROCESS_THREAD",
-        ): "process_thread_ble_l2cap_tx_process",
-    }
-
     def __init__(self, args, project_container):
         super().__init__(
             "MakefileGenerator",
@@ -35,15 +26,6 @@ class MakefileGenerator(AIAgent, Generable):
             project_container
         )
         self._max_attempts = 10
-
-    def get_validation_target_function(self) -> str:
-        return self.VALIDATION_TARGET_ALIASES.get(
-            (
-                os.path.relpath(self.target_file_path, self.root_dir),
-                self.target_function,
-            ),
-            self.target_function,
-        )
 
     def prepare_prompt(self):
         """Prepare system and user prompts for the LLM."""

@@ -20,6 +20,12 @@ class AIAgent(ABC):
     """
     Shared features for any OpenAI agent that interacts with a vector store
     """
+    VALIDATION_TARGET_ALIASES = {
+        (
+            "os/net/mac/ble/ble-l2cap.c",
+            "PROCESS_THREAD",
+        ): "process_thread_ble_l2cap_tx_process",
+    }
 
     def __init__(self, agent_name, args, project_container: ProjectContainer):
         self.agent_name = agent_name
@@ -50,6 +56,15 @@ class AIAgent(ABC):
         except Exception as e:
             logger.error(f"Error. Model '{args.llm_model}' not supported: {e}")
             raise e
+
+    def get_validation_target_function(self) -> str:
+        return self.VALIDATION_TARGET_ALIASES.get(
+            (
+                os.path.relpath(self.target_file_path, self.root_dir),
+                self.target_function,
+            ),
+            self.target_function,
+        )
 
     def truncate_result_custom(self, result: dict, cmd: str, max_input_tokens: int, model: str) -> dict:
         """
