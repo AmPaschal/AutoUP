@@ -100,35 +100,40 @@ $(ENTRY)_harness.goto: $(ENTRY)_harness.c $(H_GENERATE_HEADER) generate_headers
 $(ENTRY)0.goto: $(ENTRY)_harness.goto $(OOS_OBJS)
 	$(GOTO_CC) -o build/$@ --function harness build/$(ENTRY)_harness.goto $(addprefix build/gotos/,$(notdir $(OOS_OBJS)))
 
-# Replace function pointers
+# Replace function calls
 $(ENTRY)1.goto: $(ENTRY)0.goto
-	$(GOTO_INSTRUMENT) $(FUNCTION_POINTER_REPL) build/$^ build/$@ \
+	$(GOTO_INSTRUMENT) $(FUNCTION_CALL_REPL) build/$^ build/$@ \
 		> build/reports/$(ENTRY)1.txt 2>&1
 
-# Add CBMC stub library
+# Replace function pointers
 $(ENTRY)2.goto: $(ENTRY)1.goto
-	 $(GOTO_INSTRUMENT) --add-library build/$^ build/$@ \
+	$(GOTO_INSTRUMENT) $(FUNCTION_POINTER_REPL) build/$^ build/$@ \
 		> build/reports/$(ENTRY)2.txt 2>&1
 
-# Drop unused functions
+# Add CBMC stub library
 $(ENTRY)3.goto: $(ENTRY)2.goto
-	$(GOTO_INSTRUMENT) --drop-unused-functions build/$^ build/$@ \
+	 $(GOTO_INSTRUMENT) --add-library build/$^ build/$@ \
 		> build/reports/$(ENTRY)3.txt 2>&1
 
-# Drop unused global inits
+# Drop unused functions
 $(ENTRY)4.goto: $(ENTRY)3.goto
-	$(GOTO_INSTRUMENT) $(INSTFLAGS) --slice-global-inits build/$^ build/$@ \
+	$(GOTO_INSTRUMENT) --drop-unused-functions build/$^ build/$@ \
 		> build/reports/$(ENTRY)4.txt 2>&1
+
+# Drop unused global inits
+$(ENTRY)5.goto: $(ENTRY)4.goto
+	$(GOTO_INSTRUMENT) $(INSTFLAGS) --slice-global-inits build/$^ build/$@ \
+		> build/reports/$(ENTRY)5.txt 2>&1
 # ____________________________________________________________________
 # After running goto-instrument to remove function bodies the unused
 # functions need to be dropped again.
 
-$(ENTRY)5.goto: $(ENTRY)4.goto
+$(ENTRY)6.goto: $(ENTRY)5.goto
 	$(GOTO_INSTRUMENT) --drop-unused-functions build/$^ build/$@ \
-		> build/reports/$(ENTRY)5.txt 2>&1
+		> build/reports/$(ENTRY)6.txt 2>&1
 
 # Copy final cleaned goto to ENTRY.goto
-$(ENTRY).goto: $(ENTRY)5.goto
+$(ENTRY).goto: $(ENTRY)6.goto
 	cp build/$^ build/$@
 
 

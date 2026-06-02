@@ -10,7 +10,10 @@ H_ENTRY = {H_ENTRY}
 # Extra CBMC flags to be passed during CBMC analysis
 H_CBMCFLAGS = --nondet-static --unwind 2 # Rest to be filled in by LLM
 
-# goto-instrument flags to replace function pointers with models
+# goto-instrument flags to replace regular function calls with models
+FUNCTION_CALL_REPL = \
+
+# goto-instrument flags to replace function pointer calls with models
 FUNCTION_POINTER_REPL = \
 
 # Env vars, filled in by LLM

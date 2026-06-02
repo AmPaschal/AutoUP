@@ -1043,7 +1043,7 @@ function createTestConfig(overrides = {}) {
     containerEngine: "auto",
     scopeBound: null,
     scopeTimeBudget: null,
-    makeTimeout: 600,
+    makeTimeout: 900,
     maxConcurrentJobs: 2,
     proofsRoot: "cbmc/proofs",
     ...overrides,

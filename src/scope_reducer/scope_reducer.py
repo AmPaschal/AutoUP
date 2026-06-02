@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
 from logger import setup_logger
-from makefile.output_models import HarnessResponse
+from makefile.output_models import MakefileFields
 from scope_widener.scope_widener import ScopeWidener
 from stub_generator.source_locations import (
     is_builtin_source_location,
@@ -276,10 +276,10 @@ class ScopeReducer:
         self,
         candidate: ScopeReducerCandidate,
     ) -> tuple[str, str]:
-        with open("prompts/gen_stubs_system.prompt", "r", encoding="utf-8") as file_handle:
+        with open("prompts/repl_function_calls_system.prompt", "r", encoding="utf-8") as file_handle:
             system_prompt = file_handle.read()
 
-        with open("prompts/gen_stubs_user.prompt", "r", encoding="utf-8") as file_handle:
+        with open("prompts/repl_function_calls_user.prompt", "r", encoding="utf-8") as file_handle:
             user_prompt = file_handle.read()
 
         signature = (
@@ -311,17 +311,19 @@ class ScopeReducer:
         conversation: list = []
         attempts = 0
 
+        logger.info(f'System Prompt:\n{system_prompt}')
+
         while user_prompt and attempts < MAX_SCOPE_REDUCER_LLM_ATTEMPTS:
             llm_response, llm_data = self.agent.llm.chat_llm(
                 system_prompt,
                 user_prompt,
-                HarnessResponse,
+                MakefileFields,
                 llm_tools=tools,
                 call_function=self.agent.handle_tool_calls,
                 conversation_history=conversation,
             )
 
-            if not llm_response or not isinstance(llm_response, HarnessResponse):
+            if not llm_response or not isinstance(llm_response, MakefileFields) or not llm_response.updated_harness or not llm_response.updated_makefile:
                 self.agent.log_task_attempt(
                     "scope_reducer_stub_generation",
                     attempts + 1,
@@ -341,7 +343,8 @@ class ScopeReducer:
                 llm_data,
                 "",
             )
-            self.agent.update_harness(llm_response.harness_code)
+            self.agent.update_makefile(llm_response.updated_makefile)
+            self.agent.update_harness(llm_response.updated_harness)
             compile_results = self.agent.run_make(compile_only=True)
 
             if compile_results.get("exit_code", -1) == 0:
@@ -355,7 +358,7 @@ class ScopeReducer:
             Stdout: {compile_results.get('stdout', '')}
             Stderr: {compile_results.get('stderr', '')}
 
-            Please analyze the errors and generate an updated harness that addresses these issues.
+            Please analyze the errors and generate an updated harness and Makefile that address these issues.
             """
             attempts += 1
 

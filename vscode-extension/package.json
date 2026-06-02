@@ -2,7 +2,7 @@
   "name": "autoup-vscode",
   "displayName": "AutoUP",
   "description": "Generate AutoUP unit proofs from VS Code.",
-  "version": "0.0.6",
+  "version": "0.0.8",
   "publisher": "autoup",
   "repository": {
     "type": "git",
@@ -219,7 +219,7 @@
         },
         "autoup.makeTimeout": {
           "type": "integer",
-          "default": 600,
+          "default": 900,
           "minimum": 1,
           "description": "Full verification make timeout in seconds passed to AutoUP."
         },

@@ -26,6 +26,14 @@ class FakeLLM:
     def __init__(self, harness_suffixes: list[str] | None = None):
         self.harness_suffixes = list(harness_suffixes or [])
 
+    @staticmethod
+    def _extract_tagged_content(user_prompt: str, tag: str, fallback: str) -> str:
+        start_marker = f"<{tag}>\n"
+        end_marker = f"\n</{tag}>"
+        if start_marker not in user_prompt or end_marker not in user_prompt:
+            return fallback
+        return user_prompt.split(start_marker, 1)[1].split(end_marker, 1)[0]
+
     def chat_llm(
         self,
         system_prompt,
@@ -36,9 +44,20 @@ class FakeLLM:
         conversation_history=None,
     ):
         suffix = self.harness_suffixes.pop(0) if self.harness_suffixes else "/* reducer stub */\n"
+        harness = self._extract_tagged_content(
+            user_prompt,
+            "harness",
+            "void harness(void) {}\n",
+        )
+        makefile = self._extract_tagged_content(
+            user_prompt,
+            "makefile",
+            "LINK = baseline.c\n",
+        )
         return output_format(
             analysis="stubbed function",
-            harness_code=user_prompt.split("<harness>\n", 1)[1].split("\n</harness>", 1)[0] + "\n" + suffix,
+            updated_harness=harness + "\n" + suffix,
+            updated_makefile=makefile + "FUNCTION_CALL_REPL += --replace-calls alpha:alpha_model\n",
         ), {"model_name": "fake"}
 
 
@@ -152,6 +171,9 @@ class FakeReducerAgent:
     def update_harness(self, harness_code: str) -> None:
         Path(self.harness_file_path).write_text(harness_code, encoding="utf-8")
 
+    def update_makefile(self, makefile_content: str) -> None:
+        Path(self.makefile_path).write_text(makefile_content, encoding="utf-8")
+
     def get_harness(self) -> str:
         return Path(self.harness_file_path).read_text(encoding="utf-8")
 
@@ -183,6 +205,11 @@ class FakeReducerAgent:
     def restore_backup(self, tag: str):
         self.update_harness(
             Path(self.harness_dir, f"{self.harness_file_name}.{tag}.backup").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.update_makefile(
+            Path(self.harness_dir, f"Makefile.{tag}.backup").read_text(
                 encoding="utf-8"
             )
         )
@@ -319,9 +346,11 @@ class ScopeReducerTests(unittest.TestCase):
 
         self.assertTrue(reducer.reduce_scope(time_budget_seconds=60.0))
         self.assertEqual(agent.logged_results[-1]["scope_reducer_functions"], ["alpha", "beta"])
+        self.assertIn("FUNCTION_CALL_REPL", agent.get_makefile())
 
     def test_reduce_scope_restores_original_harness_when_candidates_exhausted(self):
         original_harness = "void harness(void) {}\n"
+        original_makefile = "LINK = original.c\n"
         self.create_source("src/alpha.c", "int alpha(void) { return 0; }\n")
         symbol_table = {
             "alpha": self.make_symbol("src/alpha.c"),
@@ -339,10 +368,12 @@ class ScopeReducerTests(unittest.TestCase):
             ],
         )
         agent.update_harness(original_harness)
+        agent.update_makefile(original_makefile)
         reducer = ScopeReducer(agent)
 
         self.assertFalse(reducer.reduce_scope(time_budget_seconds=60.0))
         self.assertEqual(agent.get_harness(), original_harness)
+        self.assertEqual(agent.get_makefile(), original_makefile)
 
     def test_reduce_scope_stops_after_max_iterations(self):
         self.create_source("src/alpha.c", "int alpha(void) { return 0; }\n")
