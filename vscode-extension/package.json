@@ -151,7 +151,7 @@
         "autoup.modelProfiles": {
           "type": "array",
           "default": [],
-          "description": "Configured AutoUP model profiles. Each profile defines a provider, model name, and required environment variables.",
+          "description": "Configured AutoUP model profiles. Each profile should be a JSON object with the following fields: name, provider, modelName, and envVars.",
           "items": {
             "type": "object",
             "required": [

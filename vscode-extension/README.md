@@ -1,51 +1,107 @@
 # AutoUP VS Code Extension
 
-This extension integrates AutoUP into VS Code so a user can start unit-proof generation directly from a C/C++ source file instead of manually invoking `src/run.py`.
+This extension integrates automated unit proof generation for memory-safety verification into VS Code.
+Unit proofs enable users to formally verify memory safety of specific functions and identify any violations that may represent security vulnerabilities. 
+The underlying AutoUP framework is described in [AutoUP_README](https://github.com/uwned/AutoUP/blob/master/README.md).
 
 ## What It Does
 
 - Adds a `Create Unit Proof` editor context-menu action for C/C++ files.
-- Detects the enclosing function at the current cursor position.
-- Starts AutoUP proof generation for that function.
+- When selected, it starts AutoUP proof generation for the function where the cursor is located.
 - Stores generated proofs under:
   `cbmc/proofs/<relative-source-path-without-ext>/<function>/`
 - Supports multiple proof jobs at once with queueing when the concurrency limit is reached.
 - Shows proof jobs in a sidebar with:
   - current status
-  - current stage
   - verification summary
   - quick actions to open the harness, Makefile, source file, log, or proof folder
-- Persists job state in:
-  - `.autoup/job.json`
-  - `.autoup/events.jsonl`
 
-## Supported Execution Modes
+## Supported Environments
 
-The extension is implemented as a workspace extension. Proof execution happens wherever the VS Code workspace extension host is running.
+The extension has been tested on the following environments:
 
-- macOS local workspace: supported
-- Linux local workspace: supported
-- Remote-SSH to Linux: supported
-- Windows local workspace: not supported in v1
-- Browser-only VS Code / Codespaces web: not supported in v1
+- macOS local workspace
+- Linux workspace via Remote-SSH
 
 ## Runtime Requirements
 
-The extension still needs the same underlying proof-generation dependencies as AutoUP, but it manages the AutoUP Python environment itself.
+- Python 3 available on the execution host.
+- Clangd VS Code extension and the associated `clangd` backend. This enables parsing the C code and extracting the function signature and body.
+- Container engine (docker or apptainer): This ensures verification environment is properly setup and LLM-based operations is properly isolated.
 
-- Python 3 available on the execution host
-- Clangd VS Code extension and the associated `clangd` backend
-- Container engine:
-  - macOS: Docker only
-  - Linux: Docker or Apptainer
+
+## Development Setup
+
+After cloning the repository, follow the following steps to compile and package the VS Code extension for installation.
+
+From the `vscode-extension/` directory:
+
+```bash
+npm install
+npm run compile
+npx @vscode/vsce package
+```
+
+If successful, this creates an `autoup-vscode-<VERSION>.vsix` file in the `vscode-extension/` directory, ready for installation in VS Code.
+
+To install the extension (`*.vsix` file) in a VS Code instance:
+
+1. Open the Extensions view in VS Code (`Ctrl+Shift+X`).
+2. Click the `...` button (three dots in the top-right corner of the Extensions view) and select `Install from VSIX`.
+3. Navigate to and select the `autoup-vscode-<VERSION>.vsix` file.
+4. VS Code will install the extension and prompt to reload the window if necessary.
+
+## Using the Extension
+
+### First Launch Setup
+
+On first launch, setup model profiles and API key to enable LLM-based operations.
+
+1. Configure one or more `autoup.modelProfiles` in VS Code Settings. See the `Configuration` section for more details.
+2. Set `autoup.selectedModelProfile` to the profile name you want to use.
+3. Run `AutoUP: Manage Provider Environment Variables` and add the environment variables required by that profile.
+
+### Normal Usage
+
+1. Open a C/C++ project in VS Code.
+2. Place the cursor inside the function you want to verify.
+3. Right-click and choose `Create Unit Proof`.
+4. Watch the `AutoUP` sidebar for progress and status updates.
+5. Use the sidebar actions to inspect the generated harness, Makefile, log, or source file.
+
+
+## Configuration
+
+The extension contributes these settings:
+
+- `autoup.modelProfiles`
+- `autoup.selectedModelProfile`
+- `autoup.containerEngine`
+- `autoup.scopeBound`
+- `autoup.scopeTimeBudget`
+- `autoup.maxConcurrentJobs`
+- `autoup.proofsRoot`
+
+Defaults:
+
+- `autoup.modelProfiles = []`
+- `autoup.selectedModelProfile = null`
+- `autoup.containerEngine = auto`
+- `autoup.maxConcurrentJobs = 5`
+- `autoup.proofsRoot = cbmc/proofs`
+
+Example profile:
+
+```json
+{
+  "name": "openrouter-r1",
+  "provider": "openrouter",
+  "modelName": "openrouter/deepseek/deepseek-r1",
+  "envVars": ["OPENROUTER_API_KEY", "OPENROUTER_BASE_URL"]
+}
+```
 
 Provider environment variables are stored in VS Code `SecretStorage` and managed through the `AutoUP: Manage Provider Environment Variables` command.
-
-## Backend Packaging
-
-The extension bundles the required AutoUP backend assets into the VSIX under `.autoup-bundle/`.
-
-During source development, the build also regenerates that bundled backend directory from the parent AutoUP repository so packaged installs and source runs use the same asset layout.
 
 ## Extension Features
 
@@ -137,89 +193,6 @@ This means:
 - Remote-SSH proofs can continue running on the Linux server even if the Mac client disconnects, sleeps, or closes VS Code, as long as the remote host itself stays up.
 - When VS Code reconnects, the extension rehydrates job state from `.autoup/job.json` and `.autoup/events.jsonl`.
 - Local macOS proofs survive VS Code window reloads or app closure better, but they do not make progress while the Mac itself is asleep.
-
-## Configuration
-
-The extension contributes these settings:
-
-- `autoup.modelProfiles`
-- `autoup.selectedModelProfile`
-- `autoup.containerEngine`
-- `autoup.scopeBound`
-- `autoup.scopeTimeBudget`
-- `autoup.maxConcurrentJobs`
-- `autoup.proofsRoot`
-
-Defaults:
-
-- `autoup.modelProfiles = []`
-- `autoup.selectedModelProfile = null`
-- `autoup.containerEngine = auto`
-- `autoup.maxConcurrentJobs = 5`
-- `autoup.proofsRoot = cbmc/proofs`
-
-Example profile:
-
-```json
-{
-  "name": "openrouter-r1",
-  "provider": "openrouter",
-  "modelName": "openrouter/deepseek/deepseek-r1",
-  "envVars": ["OPENROUTER_API_KEY", "OPENROUTER_BASE_URL"]
-}
-```
-
-## Using the Extension
-
-### Normal Usage
-
-1. Open a C/C++ project in VS Code.
-2. Ensure the workspace is trusted.
-3. Configure one or more `autoup.modelProfiles`.
-4. Set `autoup.selectedModelProfile` to the profile you want to use.
-5. Run `AutoUP: Manage Provider Environment Variables` and add the environment variables required by that profile.
-6. Place the cursor inside the function you want to prove.
-7. Right-click and choose `Create Unit Proof`.
-8. Watch the `AutoUP` sidebar for progress and status updates.
-9. Use the sidebar actions to inspect the generated harness, Makefile, log, or source file.
-10. Click a proof job row to open its current log file.
-
-### First Launch Behavior
-
-On first use, the extension:
-
-- creates extension-managed runtime storage
-- copies bundled AutoUP backend assets into that storage
-- creates a private Python virtual environment
-- installs Python dependencies into that virtual environment
-- validates the container engine
-- validates that the selected profile exists
-- validates that the selected profile's environment variables are stored
-- validates that LiteLLM can resolve the selected profile's `modelName`
-
-### Remote-SSH Behavior
-
-When VS Code is connected to a Linux server through Remote-SSH:
-
-- bootstrap happens on the remote host
-- Docker/Apptainer checks happen on the remote host
-- proof jobs run on the remote host
-- job files and proof artifacts live on the remote workspace filesystem
-
-## Development Setup
-
-From the `vscode-extension/` directory:
-
-```bash
-npm install
-npm run compile
-```
-
-To run the extension in a VS Code extension development host:
-
-1. Open the AutoUP repository in VS Code.
-2. Open the `vscode-extension/` folder or workspace files as needed.
-3. Start an Extension Development Host from VS Code, for example with `F5` from the extension project.
 
 ## Test Coverage
 
