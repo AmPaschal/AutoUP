@@ -17,7 +17,7 @@ from initial_harness_generator.compile_commands import (
 )
 from logger import setup_logger
 from makefile_generator.makefile_generator import MakefileGenerator
-from scope_reducer.scope_reducer import ScopeReducer
+from scope_reducer.scope_reducer import ScopeReducer, verification_exhausted_memory
 from scope_widener.scope_widener import ScopeWidener
 from commons.utils import Status
 from stub_generator.gen_function_stubs import StubGenerator
@@ -300,11 +300,31 @@ class InitialHarnessGenerator(AIAgent, Generable):
         return False
 
     @staticmethod
-    def _is_over_time_budget(make_results: dict, time_budget_seconds: float) -> bool:
+    def _is_timeout(make_results: dict,
+        time_budget_seconds: float | None = None,
+    ) -> bool:
+        status = make_results.get("status")
         return (
-            make_results.get("status") == Status.TIMEOUT
-            or make_results.get("exit_code") == 124
-            or make_results.get("elapsed_seconds", 0.0) > time_budget_seconds
+            status == Status.TIMEOUT
+            or make_results.get("exit_code") == 124 
+            or (time_budget_seconds is not None
+                and make_results.get("elapsed_seconds", 0.0) > time_budget_seconds)
+        )
+
+    def _verification_exhausted_memory(self, make_results: dict) -> bool:
+        return verification_exhausted_memory(
+            self.harness_dir,
+            make_results,
+        )
+
+    def _verification_needs_scope_reduction(
+        self,
+        make_results: dict,
+        time_budget_seconds: float | None = None,
+    ) -> bool:
+        return (
+            self._is_timeout(make_results, time_budget_seconds)
+            or self._verification_exhausted_memory(make_results)
         )
 
     def _run_integrated_model_generation(
@@ -389,7 +409,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
                 return -1
 
             baseline_results = self.run_make(compile_only=False)
-            if self._is_over_time_budget(baseline_results, time_budget_seconds):
+            if self._verification_needs_scope_reduction(baseline_results, time_budget_seconds):
                 logger.info(
                     "Baseline verification at scope level 1 exceeded the "
                     "time budget (%.2fs > %.2fs or timed out). Running the "
@@ -400,15 +420,15 @@ class InitialHarnessGenerator(AIAgent, Generable):
                 if not reducer.reduce_scope(time_budget_seconds=time_budget_seconds):
                     logger.info(
                         "Scope reducer could not bring the level 1 harness within budget. "
-                        "Restoring the pre-reducer baseline state."
+                        "Keeping the final reducer attempt."
                     )
                     return current_level
 
                 baseline_results = self.run_make(compile_only=False)
-                if self._is_over_time_budget(baseline_results, time_budget_seconds):
+                if self._verification_needs_scope_reduction(baseline_results, time_budget_seconds):
                     logger.info(
                         "Scope reducer returned success but verification remains over budget. "
-                        "Restoring the pre-reducer baseline state."
+                        "Keeping the reducer output."
                     )
                     return current_level
 
@@ -483,7 +503,7 @@ class InitialHarnessGenerator(AIAgent, Generable):
                     return current_level
 
                 verification_results = self.run_make(compile_only=False)
-                if self._is_over_time_budget(
+                if self._verification_needs_scope_reduction(
                     verification_results,
                     time_budget_seconds,
                 ):
@@ -572,16 +592,14 @@ class InitialHarnessGenerator(AIAgent, Generable):
                 return -1
 
             verification_results = self.run_make(compile_only=False)
-            if verification_results.get("status") == Status.TIMEOUT or verification_results.get("exit_code") == 124:
+            if self._verification_needs_scope_reduction(verification_results):
                 logger.info(
-                    "Final widened scope timed out. Running scope reducer."
+                    "Final widened scope ended prematurely. Running scope reducer."
                 )
                 if not reducer.reduce_scope(time_budget_seconds=None):
                     logger.warning(
-                        "Scope reducer failed after the final widened scope timed out. "
-                        "Restoring the last widened scope."
+                        "Scope reducer failed after the final widened scope ended prematurely."
                     )
-                    self.restore_backup(model_tag)
                     return current_level
             return current_level
         finally:

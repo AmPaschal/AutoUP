@@ -58,6 +58,8 @@ export function startProofProcess(
     options.prerequisites.selectedProfile.modelName,
     "--make-timeout",
     String(options.config.makeTimeout),
+    "--scope-reducer-attempts",
+    String(options.config.scopeReducerAttempts),
     "--log-file",
     job.logFile,
     "--metrics-file",

@@ -172,7 +172,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--scope_reducer_attempts",
+        type=positive_int,
+        default=10,
+        help="Maximum scope reducer attempts before giving up (default: 10).",
+    )
+    parser.add_argument(
         "--make-timeout",
+        "--make_timeout",
         type=positive_int,
         default=1800,
         help=(

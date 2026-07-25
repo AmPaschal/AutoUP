@@ -143,6 +143,14 @@ class HarnessFlowHarness(InitialHarnessGenerator):
         elif report_dir.exists():
             shutil.rmtree(report_dir.parent.parent)
 
+        if result.get("oom_report", False):
+            reports_dir = build_dir / "reports"
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            reports_dir.joinpath("coverage.xml").write_text(
+                "<message type=\"ERROR\"><text>Out of memory</text></message>\n",
+                encoding="utf-8",
+            )
+
         return {
             "status": result.get("status", Status.SUCCESS),
             "exit_code": result.get("exit_code", 0),
@@ -494,6 +502,30 @@ class InitialHarnessScopeFlowTests(unittest.TestCase):
             self.temp_dir.name,
             full_results=[
                 {"status": Status.TIMEOUT, "exit_code": 124, "elapsed_seconds": 1800.0, "report": False},
+            ],
+        )
+        widener = FakeWidener(
+            harness,
+            step_results=[
+                {"outcome": "complete", "level": 1},
+            ],
+        )
+
+        self.assertEqual(
+            harness._run_bound_only_scope_widening(
+                widener=widener,
+                scope_bound=2,
+            ),
+            1,
+        )
+        self.assertEqual(FakeScopeReducer.calls, [None])
+
+    def test_bound_only_flow_runs_scope_reducer_after_final_oom(self):
+        FakeScopeReducer.results_queue = [True]
+        harness = HarnessFlowHarness(
+            self.temp_dir.name,
+            full_results=[
+                {"status": Status.FAILURE, "exit_code": 2, "elapsed_seconds": 100.0, "report": False, "oom_report": True},
             ],
         )
         widener = FakeWidener(

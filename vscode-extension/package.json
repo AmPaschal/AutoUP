@@ -2,7 +2,7 @@
   "name": "autoup-vscode",
   "displayName": "AutoUP",
   "description": "Generate AutoUP unit proofs from VS Code.",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "publisher": "autoup",
   "repository": {
     "type": "git",
@@ -216,6 +216,12 @@
           ],
           "default": null,
           "description": "Optional scope widening time budget in minutes."
+        },
+        "autoup.scopeReducerAttempts": {
+          "type": "integer",
+          "default": 10,
+          "minimum": 1,
+          "description": "Maximum number of scope reducer attempts before giving up."
         },
         "autoup.makeTimeout": {
           "type": "integer",

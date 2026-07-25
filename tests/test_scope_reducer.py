@@ -17,6 +17,7 @@ sys.modules.setdefault("litellm", litellm_stub)
 from commons.utils import Status
 from scope_reducer.scope_reducer import (
     DEFAULT_EXCLUDED_FUNCTIONS,
+    DEFAULT_SCOPE_REDUCER_ATTEMPTS,
     MAX_SCOPE_REDUCER_ITERATIONS,
     ScopeReducer,
 )
@@ -69,6 +70,7 @@ class FakeReducerAgent:
         symbol_table: dict,
         compile_results: list[dict] | None = None,
         verification_results: list[dict] | None = None,
+        scope_reducer_attempts: int | None = None,
     ):
         self.temp_dir = Path(temp_dir)
         self.root_dir = str(self.temp_dir / "project")
@@ -81,7 +83,10 @@ class FakeReducerAgent:
         self.metrics_file = None
         self.progress = None
         self.project_container = object()
-        self.args = SimpleNamespace(llm_model="gpt-5.3-codex")
+        self.args = SimpleNamespace(
+            llm_model="gpt-5.3-codex",
+            scope_reducer_attempts=scope_reducer_attempts,
+        )
         self._call_graph_output = call_graph_output
         self._symbol_table = symbol_table
         self._compile_results = list(compile_results or [])
@@ -348,7 +353,7 @@ class ScopeReducerTests(unittest.TestCase):
         self.assertEqual(agent.logged_results[-1]["scope_reducer_functions"], ["alpha", "beta"])
         self.assertIn("FUNCTION_CALL_REPL", agent.get_makefile())
 
-    def test_reduce_scope_restores_original_harness_when_candidates_exhausted(self):
+    def test_reduce_scope_keeps_final_attempt_when_candidates_exhausted(self):
         original_harness = "void harness(void) {}\n"
         original_makefile = "LINK = original.c\n"
         self.create_source("src/alpha.c", "int alpha(void) { return 0; }\n")
@@ -372,8 +377,9 @@ class ScopeReducerTests(unittest.TestCase):
         reducer = ScopeReducer(agent)
 
         self.assertFalse(reducer.reduce_scope(time_budget_seconds=60.0))
-        self.assertEqual(agent.get_harness(), original_harness)
-        self.assertEqual(agent.get_makefile(), original_makefile)
+        self.assertNotEqual(agent.get_harness(), original_harness)
+        self.assertNotEqual(agent.get_makefile(), original_makefile)
+        self.assertIn("FUNCTION_CALL_REPL", agent.get_makefile())
 
     def test_reduce_scope_stops_after_max_iterations(self):
         self.create_source("src/alpha.c", "int alpha(void) { return 0; }\n")
@@ -402,14 +408,26 @@ class ScopeReducerTests(unittest.TestCase):
                 {"status": Status.TIMEOUT, "exit_code": 124, "elapsed_seconds": 1800.0, "report": False},
                 {"status": Status.TIMEOUT, "exit_code": 124, "elapsed_seconds": 1800.0, "report": False},
             ],
+            scope_reducer_attempts=3,
         )
         reducer = ScopeReducer(agent)
 
         self.assertFalse(reducer.reduce_scope(time_budget_seconds=60.0))
         self.assertEqual(
             agent.logged_results[-1]["scope_reducer_iterations"],
-            MAX_SCOPE_REDUCER_ITERATIONS,
+            3,
         )
+
+    def test_reduce_scope_defaults_to_ten_attempts(self):
+        agent = FakeReducerAgent(
+            self.temp_dir.name,
+            call_graph_output="",
+            symbol_table={},
+        )
+        reducer = ScopeReducer(agent)
+
+        self.assertEqual(reducer.max_attempts, DEFAULT_SCOPE_REDUCER_ATTEMPTS)
+        self.assertEqual(MAX_SCOPE_REDUCER_ITERATIONS, DEFAULT_SCOPE_REDUCER_ATTEMPTS)
 
 
 if __name__ == "__main__":

@@ -313,7 +313,13 @@ class AIAgent(ABC):
             make_results["elapsed_seconds"],
             timeout_seconds,
         )
-        if self.progress and self.progress.enabled and not compile_only and self.validate_verification_report():
+        if (
+            self.progress 
+            and self.progress.enabled 
+            and not compile_only 
+            and make_results.get("status") == Status.SUCCESS 
+            and self.validate_verification_report()
+        ):
             self.progress.summary_updated(
                 stage=self.agent_name,
                 harness_dir=self.harness_dir,

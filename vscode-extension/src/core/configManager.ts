@@ -29,6 +29,7 @@ export class ConfigManager {
       containerEngine: config.get<"auto" | "docker" | "apptainer">("containerEngine", "auto"),
       scopeBound: config.get<number | null>("scopeBound", 1),
       scopeTimeBudget: config.get<number | null>("scopeTimeBudget", null),
+      scopeReducerAttempts: config.get<number>("scopeReducerAttempts", 10),
       makeTimeout: config.get<number>("makeTimeout", 900),
       maxConcurrentJobs: config.get<number>("maxConcurrentJobs", 5),
       proofsRoot: config.get<string>("proofsRoot", "cbmc/proofs"),

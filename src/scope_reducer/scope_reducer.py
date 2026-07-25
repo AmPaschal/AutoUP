@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
 from logger import setup_logger
+from commons.utils import Status
 from makefile.output_models import MakefileFields
 from scope_widener.scope_widener import ScopeWidener
 from stub_generator.source_locations import (
@@ -15,8 +16,17 @@ from stub_generator.source_locations import (
 
 logger = setup_logger(__name__)
 
-MAX_SCOPE_REDUCER_ITERATIONS = 3
+DEFAULT_SCOPE_REDUCER_ATTEMPTS = 10
+MAX_SCOPE_REDUCER_ITERATIONS = DEFAULT_SCOPE_REDUCER_ATTEMPTS
 MAX_SCOPE_REDUCER_LLM_ATTEMPTS = 5
+MEMORY_EXHAUSTION_EXIT_CODES = {137, -9}
+MEMORY_EXHAUSTION_PATTERNS = (
+    "out of memory",
+    "ran out of memory",
+    "killed",
+    "error 137",
+    "error 6",
+)
 DEFAULT_EXCLUDED_FUNCTIONS = {
     "calloc",
     "free",
@@ -46,6 +56,34 @@ class ScopeReducerCandidate:
     weight: int
 
 
+def _read_tail(path: str, max_bytes: int = 65536) -> str:
+    if not os.path.exists(path):
+        return ""
+    try:
+        with open(path, "rb") as file_handle:
+            file_handle.seek(0, os.SEEK_END)
+            size = file_handle.tell()
+            file_handle.seek(max(0, size - max_bytes), os.SEEK_SET)
+            return file_handle.read().decode("utf-8", errors="ignore")
+    except OSError:
+        return ""
+
+
+def verification_exhausted_memory(harness_dir: str, make_results: dict) -> bool:
+    if make_results.get("exit_code") in MEMORY_EXHAUSTION_EXIT_CODES:
+        return True
+
+    text_parts = [
+        str(make_results.get("stderr", "")),
+    ]
+    reports_dir = os.path.join(harness_dir, "build", "reports")
+    for filename in ("cbmc.xml", "coverage.xml"):
+        text_parts.append(_read_tail(os.path.join(reports_dir, filename)))
+
+    combined = "\n".join(text_parts).lower()
+    return any(pattern in combined for pattern in MEMORY_EXHAUSTION_PATTERNS)
+
+
 class ScopeReducer:
     def __init__(self, agent):
         self.agent = agent
@@ -53,6 +91,25 @@ class ScopeReducer:
         self.root_dir = agent.root_dir
         self.target_function = agent.target_function
         self.scope_widener = ScopeWidener(agent)
+        self.max_attempts = self._resolve_max_attempts()
+
+    def _resolve_max_attempts(self) -> int:
+        configured = getattr(getattr(self.agent, "args", None), "scope_reducer_attempts", None)
+        if configured is None:
+            return DEFAULT_SCOPE_REDUCER_ATTEMPTS
+        try:
+            return max(1, int(configured))
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid scope_reducer_attempts value %r; using default %s.",
+                configured,
+                DEFAULT_SCOPE_REDUCER_ATTEMPTS,
+            )
+            return DEFAULT_SCOPE_REDUCER_ATTEMPTS
+
+    @staticmethod
+    def verification_exhausted_memory(harness_dir: str, make_results: dict) -> bool:
+        return verification_exhausted_memory(harness_dir, make_results)
 
     @staticmethod
     def parse_reachable_call_graph(
@@ -369,15 +426,12 @@ class ScopeReducer:
         make_results: dict,
         time_budget_seconds: float | None,
     ) -> bool:
-        if time_budget_seconds is None:
-            return (
-                make_results.get("status") == "TIMEOUT"
-                or make_results.get("exit_code") == 124
-            )
+
         return (
-            make_results.get("status") == "TIMEOUT"
+            make_results.get("status") == Status.TIMEOUT
             or make_results.get("exit_code") == 124
-            or make_results.get("elapsed_seconds", 0.0) > time_budget_seconds
+            or (time_budget_seconds is not None and make_results.get("elapsed_seconds", 0.0) > time_budget_seconds)
+            or self.verification_exhausted_memory(self.harness_dir, make_results)
         )
 
     def reduce_scope(self, time_budget_seconds: float | None) -> bool:
@@ -388,7 +442,7 @@ class ScopeReducer:
         reduction_succeeded = False
 
         try:
-            for iteration in range(1, MAX_SCOPE_REDUCER_ITERATIONS + 1):
+            for iteration in range(1, self.max_attempts + 1):
                 compile_results = self.agent.run_make(compile_only=True)
                 if compile_results.get("exit_code", -1) != 0:
                     logger.error(
@@ -463,8 +517,6 @@ class ScopeReducer:
                 finally:
                     self.agent.discard_backup(iteration_tag)
         finally:
-            if not reduction_succeeded:
-                self.agent.restore_backup(reducer_tag)
             self.agent.discard_backup(reducer_tag)
             self.agent.log_agent_result(
                 {

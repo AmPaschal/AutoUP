@@ -44,11 +44,13 @@ class ScopeCliTests(unittest.TestCase):
             "--harness_path", "/tmp/proof",
             "--target_file_path", "/tmp/project/demo.c",
             "--scope_time_budget", "2.5",
+            "--scope_reducer_attempts", "8",
             "--make-timeout", "900",
         ])
 
         self.assertEqual(args.scope_bound, 1)
         self.assertEqual(args.scope_time_budget, 2.5)
+        self.assertEqual(args.scope_reducer_attempts, 8)
         self.assertEqual(args.make_timeout, 900)
 
     def test_batch_runner_parser_defaults_scope_controls_to_none(self):
@@ -60,6 +62,7 @@ class ScopeCliTests(unittest.TestCase):
 
         self.assertIsNone(args.scope_bound)
         self.assertIsNone(args.scope_time_budget)
+        self.assertEqual(args.scope_reducer_attempts, 10)
         self.assertEqual(args.make_timeout, 1800)
 
     def test_build_run_command_omits_unset_scope_bound_and_forwards_budget(self):
@@ -69,6 +72,7 @@ class ScopeCliTests(unittest.TestCase):
             container_engine="docker",
             scope_bound=None,
             scope_time_budget=3.0,
+            scope_reducer_attempts=6,
             make_timeout=1200,
         )
         entry = {
@@ -85,6 +89,8 @@ class ScopeCliTests(unittest.TestCase):
         self.assertNotIn("--scope_bound", cmd)
         self.assertIn("--scope_time_budget", cmd)
         self.assertIn("3.0", cmd)
+        self.assertIn("--scope_reducer_attempts", cmd)
+        self.assertIn("6", cmd)
         self.assertIn("--make_timeout", cmd)
         self.assertIn("1200", cmd)
 
@@ -95,6 +101,7 @@ class ScopeCliTests(unittest.TestCase):
             container_engine="docker",
             scope_bound=4,
             scope_time_budget=None,
+            scope_reducer_attempts=10,
             make_timeout=1800,
         )
         entry = {
@@ -111,6 +118,7 @@ class ScopeCliTests(unittest.TestCase):
         self.assertIn("--scope_bound", cmd)
         self.assertIn("4", cmd)
         self.assertNotIn("--scope_time_budget", cmd)
+        self.assertIn("--scope_reducer_attempts", cmd)
         self.assertIn("--make_timeout", cmd)
         self.assertIn("1800", cmd)
 
@@ -128,10 +136,12 @@ class ScopeCliTests(unittest.TestCase):
         ])
 
         self.assertEqual(args.scope_bound, 1)
+        self.assertEqual(args.scope_reducer_attempts, 10)
         self.assertEqual(args.make_timeout, 1800)
 
         run_args = autoup_vscode.build_run_args(args)
         self.assertEqual(run_args.scope_bound, 1)
+        self.assertEqual(run_args.scope_reducer_attempts, 10)
         self.assertEqual(run_args.make_timeout, 1800)
 
     def test_all_mode_skips_standalone_model_generation_agents(self):

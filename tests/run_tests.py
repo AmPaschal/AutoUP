@@ -131,6 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-j", "--jobs", type=int, default=10, help="Number of parallel jobs")
     parser.add_argument("-s", "--scope_bound", type=positive_int, default=None, help="Optional maximum depth of verification scope")
     parser.add_argument("-st", "--scope_time_budget", type=positive_float, default=None, help="Optional full verification wall-clock budget in minutes for scope widening")
+    parser.add_argument("-sr", "--scope_reducer_attempts", type=positive_int, default=10, help="Maximum scope reducer attempts before giving up")
     parser.add_argument(
         "-mt",
         "--make_timeout",
@@ -170,6 +171,11 @@ def build_run_command(entry, args, metrics_file: Path, proof_dir: Path) -> list[
         cmd.extend([
             "--scope_time_budget",
             str(args.scope_time_budget),
+        ])
+    if getattr(args, "scope_reducer_attempts", None) is not None:
+        cmd.extend([
+            "--scope_reducer_attempts",
+            str(args.scope_reducer_attempts),
         ])
     if getattr(args, "make_timeout", None) is not None:
         cmd.extend([

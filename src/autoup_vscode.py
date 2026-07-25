@@ -57,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--model", default="gpt-5.3-codex")
     start_parser.add_argument("--scope-bound", type=int, default=1)
     start_parser.add_argument("--scope-time-budget", type=float)
+    start_parser.add_argument("--scope-reducer-attempts", type=int, default=10)
     start_parser.add_argument("--make-timeout", type=int, default=1800)
     start_parser.add_argument("--log-file")
     start_parser.add_argument("--metrics-file")
@@ -166,6 +167,7 @@ def build_run_args(args: argparse.Namespace) -> SimpleNamespace:
         llm_model=args.model,
         scope_bound=args.scope_bound if args.scope_bound is not None else 1,
         scope_time_budget=args.scope_time_budget,
+        scope_reducer_attempts=args.scope_reducer_attempts,
         make_timeout=args.make_timeout,
         job_id=args.job_id,
         execution_host=execution_host,
