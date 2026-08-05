@@ -17,7 +17,7 @@ Automatic Unit Proof Writer
 ### Setup
 ```bash
 # Clone repository
-git clone https://github.com/username/AutoUP.git
+git clone https://github.com/AmPaschal/AutoUP.git
 cd AutoUP
 
 # Install dependencies
@@ -28,17 +28,18 @@ pip install -r requirements.txt
 
 ## VS Code Extension
 
-AutoUP also includes a VS Code extension under [vscode-extension](</home/pamusuo/research/cbmc-research/AutoUP/vscode-extension>).
+This repository also contains **AutoSOUP**, the VS Code front end for AutoUP,
+under [vscode-extension/](vscode-extension/). It is published on the VS Code
+Marketplace as `ampaschal.autosoup-vscode`.
 
 The extension adds:
 
 - right-click `Create Unit Proof` support for C/C++ functions
-- an AutoUP sidebar for proof status and verification summaries
+- an AutoSOUP sidebar for proof status and verification summaries
 - extension-managed runtime bootstrap for local and Remote-SSH workflows
 
-For extension features, setup, usage, and test instructions, see:
-
-- [vscode-extension/README.md](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/README.md)
+For extension features, setup, usage, and test instructions, see
+[vscode-extension/README.md](vscode-extension/README.md).
 
 ---
 

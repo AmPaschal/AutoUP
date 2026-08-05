@@ -9,7 +9,7 @@ import { ProofManager } from "../../core/proofManager";
 import type { ArtifactPaths, ProofJob, VerificationSummary } from "../../core/types";
 
 /**
- * Tree data provider for the AutoUP proof explorer sidebar.
+ * Tree data provider for the AutoSOUP proof explorer sidebar.
  */
 export class ProofTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<TreeNode | undefined>();
@@ -141,37 +141,37 @@ async function availableArtifactActionNodes(job: ProofJob): Promise<TreeNode[]> 
   }> = [
     {
       label: "Open Harness",
-      command: "autoup.openHarness",
+      command: "autosoup.openHarness",
       contextValue: "proofActionHarness",
       targetPath: summaryPaths?.harness ?? path.join(job.proofDir, `${job.functionName}_harness.c`),
     },
     {
       label: "Open Makefile",
-      command: "autoup.openMakefile",
+      command: "autosoup.openMakefile",
       contextValue: "proofActionMakefile",
       targetPath: summaryPaths?.makefile ?? path.join(job.proofDir, "Makefile"),
     },
     {
       label: "Open Source File",
-      command: "autoup.openSourceFile",
+      command: "autosoup.openSourceFile",
       contextValue: "proofActionSource",
       targetPath: summaryPaths?.source ?? job.filePath,
     },
     {
       label: "Open Log",
-      command: "autoup.openLog",
+      command: "autosoup.openLog",
       contextValue: "proofActionLog",
       targetPath: summaryPaths?.log ?? job.logFile,
     },
     {
       label: "Open Verification Report",
-      command: "autoup.openReport",
+      command: "autosoup.openReport",
       contextValue: "proofActionReport",
       targetPath: getReportPath(job, summaryPaths),
     },
     {
       label: "Open Vulnerability Report",
-      command: "autoup.openVulnerabilityReport",
+      command: "autosoup.openVulnerabilityReport",
       contextValue: "proofActionVulnerabilityReport",
       targetPath: getVulnerabilityReportPath(job, summaryPaths),
     },

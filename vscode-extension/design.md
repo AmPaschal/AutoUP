@@ -1,14 +1,14 @@
-# AutoUP VS Code Extension Design
+# AutoSOUP VS Code Extension Design
 
 ## Purpose
 
-This document captures the implemented design of the AutoUP VS Code extension in `vscode-extension/`.
+This document captures the implemented design of the AutoSOUP VS Code extension in `vscode-extension/`.
 
 The goals of the extension are:
 
-- let a user start AutoUP from a C/C++ editor without manually running `src/run.py`
+- let a user start AutoSOUP from a C/C++ editor without manually running `src/run.py`
 - run on the VS Code workspace host, including Remote-SSH Linux hosts
-- manage the AutoUP Python runtime on behalf of the user
+- manage the AutoSOUP Python runtime on behalf of the user
 - support multiple proof jobs with live progress updates
 - persist enough job state that the sidebar can survive reloads
 - let Remote-SSH proof jobs survive client disconnects by running in detached background processes
@@ -30,7 +30,7 @@ The design described here is the implemented design, not just the original propo
 
 - Windows support
 - browser-only VS Code
-- full replacement of the AutoUP CLI
+- full replacement of the AutoSOUP CLI
 - visual dashboards beyond a Tree View
 - tight coupling to the VS Code Testing API
 
@@ -71,7 +71,7 @@ vscode-extension/
 
 ### Python Backend Bridge
 
-The extension relies on Python bridge/backend code that lives in the main AutoUP repository:
+The extension relies on Python bridge/backend code that lives in the main AutoSOUP repository:
 
 ```text
 src/
@@ -108,7 +108,7 @@ ProofManager.startProofFromEditor()
   ->
 functionDetector.ts resolves target function
   ->
-ConfigManager reads autoup.* settings
+ConfigManager reads autosoup.* settings
   ->
 AutoUpInstaller ensures bundled backend + venv exist
   ->
@@ -116,9 +116,9 @@ PrerequisiteChecker validates Python + container engine + API key
   ->
 proofRunner.ts spawns Python bridge
   ->
-src/autoup_vscode.py starts AutoUP pipeline
+src/autoup_vscode.py starts AutoSOUP pipeline
   ->
-src/run.py and AutoUP agents execute proof generation/refinement
+src/run.py and AutoSOUP agents execute proof generation/refinement
   ->
 src/vscode_bridge/progress.py writes:
      .autoup/job.json
@@ -175,8 +175,8 @@ This makes the proof directory the source of truth for both proof artifacts and 
 
 ### Implementation References
 
-- [package.json](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/package.json:1)
-- [extension.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/extension.ts:1)
+- [package.json](vscode-extension/package.json#L1)
+- [extension.ts](vscode-extension/src/extension.ts#L1)
 
 ### Responsibility
 
@@ -189,9 +189,9 @@ The extension is declared as:
 
 - a workspace extension via `extensionKind: ["workspace"]`
 - lazily activated on:
-  - `autoup.createUnitProof`
-  - `autoup.refreshProofs`
-  - `autoup.proofExplorer`
+  - `autosoup.createUnitProof`
+  - `autosoup.refreshProofs`
+  - `autosoup.proofExplorer`
 
 `src/extension.ts` constructs:
 
@@ -215,7 +215,7 @@ Pros:
 Cons:
 
 - worse startup behavior
-- activates even when the user never intends to use AutoUP
+- activates even when the user never intends to use AutoSOUP
 
 #### Alternative B: Split into separate UI and workspace extensions
 
@@ -231,9 +231,9 @@ Cons:
 
 ### Why the Current Design Was Chosen
 
-The workspace-extension model is the correct default because AutoUP needs filesystem access, Python, Docker/Apptainer, and proof output on the same machine where the workspace lives. That is especially important for Remote-SSH.
+The workspace-extension model is the correct default because AutoSOUP needs filesystem access, Python, Docker/Apptainer, and proof output on the same machine where the workspace lives. That is especially important for Remote-SSH.
 
-Lazy activation keeps the extension lightweight until the user actually invokes AutoUP or opens the AutoUP panel.
+Lazy activation keeps the extension lightweight until the user actually invokes AutoSOUP or opens the AutoSOUP panel.
 
 ## 2. Function Target Resolution
 
@@ -243,7 +243,7 @@ Lazy activation keeps the extension lightweight until the user actually invokes 
 
 ### Implementation References
 
-- [functionDetector.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/features/createProof/functionDetector.ts:1)
+- [functionDetector.ts](vscode-extension/src/features/createProof/functionDetector.ts#L1)
 
 ### Responsibility
 
@@ -306,9 +306,9 @@ It is intentionally conservative. Failing to resolve a function is safer than la
 
 ### Implementation References
 
-- [proofManager.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/core/proofManager.ts:1)
-- [pathUtils.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/shared/pathUtils.ts:1)
-- [platform.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/shared/platform.ts:1)
+- [proofManager.ts](vscode-extension/src/core/proofManager.ts#L1)
+- [pathUtils.ts](vscode-extension/src/shared/pathUtils.ts#L1)
+- [platform.ts](vscode-extension/src/shared/platform.ts#L1)
 
 ### Responsibility
 
@@ -332,7 +332,7 @@ Its major responsibilities are:
 - start a proof from the active editor
 - compute deterministic proof directories
 - prevent duplicate active jobs for the same proof directory
-- queue jobs when `autoup.maxConcurrentJobs` is reached
+- queue jobs when `autosoup.maxConcurrentJobs` is reached
 - rehydrate jobs from `cbmc/proofs/**/.autoup/job.json`
 - remove stale jobs when proof directories disappear
 - resolve command arguments from row clicks, context actions, and rendered tree items
@@ -385,12 +385,12 @@ The key lifecycle choice is that proof termination is explicit through cancel/de
 
 ### Implementation References
 
-- [autoUpInstaller.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/features/setup/autoUpInstaller.ts:1)
-- [sync-backend-assets.js](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/scripts/sync-backend-assets.js:1)
+- [autoUpInstaller.ts](vscode-extension/src/features/setup/autoUpInstaller.ts#L1)
+- [sync-backend-assets.js](vscode-extension/scripts/sync-backend-assets.js#L1)
 
 ### Responsibility
 
-- make sure the installed extension can run AutoUP without a separate manual Python setup
+- make sure the installed extension can run AutoSOUP without a separate manual Python setup
 
 ### Implemented Design
 
@@ -411,7 +411,7 @@ The installer prefers `.autoup-bundle/` and only falls back to the repository la
 
 ### Alternatives Considered
 
-#### Alternative A: Require the user to clone AutoUP and install dependencies manually
+#### Alternative A: Require the user to clone AutoSOUP and install dependencies manually
 
 Pros:
 
@@ -443,7 +443,7 @@ Pros:
 Cons:
 
 - high maintenance burden
-- easy for it to drift from the main AutoUP code
+- easy for it to drift from the main AutoSOUP code
 
 ### Why the Current Design Was Chosen
 
@@ -457,8 +457,8 @@ The generated `.autoup-bundle/` model keeps the installed extension self-contain
 
 ### Implementation References
 
-- [prerequisiteChecker.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/features/setup/prerequisiteChecker.ts:1)
-- [processUtils.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/shared/processUtils.ts:1)
+- [prerequisiteChecker.ts](vscode-extension/src/features/setup/prerequisiteChecker.ts#L1)
+- [processUtils.ts](vscode-extension/src/shared/processUtils.ts#L1)
 
 ### Responsibility
 
@@ -512,7 +512,7 @@ Cons:
 
 ### Why the Current Design Was Chosen
 
-Failing fast is better here because AutoUP jobs are expensive and long-running. Secrets belong in `SecretStorage` or environment variables, not plain workspace settings.
+Failing fast is better here because AutoSOUP jobs are expensive and long-running. Secrets belong in `SecretStorage` or environment variables, not plain workspace settings.
 
 ## 6. Python Bridge Process Launch
 
@@ -523,8 +523,8 @@ Failing fast is better here because AutoUP jobs are expensive and long-running. 
 
 ### Implementation References
 
-- [proofRunner.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/features/createProof/proofRunner.ts:1)
-- [autoup_vscode.py](/home/pamusuo/research/cbmc-research/AutoUP/src/autoup_vscode.py:1)
+- [proofRunner.ts](vscode-extension/src/features/createProof/proofRunner.ts#L1)
+- [autoup_vscode.py](src/autoup_vscode.py#L1)
 
 ### Responsibility
 
@@ -579,7 +579,7 @@ Pros:
 
 Cons:
 
-- large duplication of AutoUP behavior
+- large duplication of AutoSOUP behavior
 - higher regression risk
 
 ### Why the Current Design Was Chosen
@@ -598,9 +598,9 @@ Detached launch is also a strong reason for this seam: the extension can hand of
 
 ### Implementation References
 
-- [progress.py](/home/pamusuo/research/cbmc-research/AutoUP/src/vscode_bridge/progress.py:1)
-- [autoup_vscode.py](/home/pamusuo/research/cbmc-research/AutoUP/src/autoup_vscode.py:165)
-- [statusTracker.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/core/statusTracker.ts:1)
+- [progress.py](src/vscode_bridge/progress.py#L1)
+- [autoup_vscode.py](src/autoup_vscode.py#L165)
+- [statusTracker.ts](vscode-extension/src/core/statusTracker.ts#L1)
 
 ### Responsibility
 
@@ -689,8 +689,8 @@ Structured event files are a better contract than stdout parsing, and polling th
 
 ### Implementation References
 
-- [progress.py](/home/pamusuo/research/cbmc-research/AutoUP/src/vscode_bridge/progress.py:162)
-- [statusTracker.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/core/statusTracker.ts:183)
+- [progress.py](src/vscode_bridge/progress.py#L162)
+- [statusTracker.ts](vscode-extension/src/core/statusTracker.ts#L183)
 
 ### Responsibility
 
@@ -708,7 +708,7 @@ The backend computes summary payloads from generated reports and emits them in `
 - `coveragePercentage`
 - artifact paths
 
-This is intentionally computed in Python, close to the existing AutoUP/CBMC report logic.
+This is intentionally computed in Python, close to the existing AutoSOUP/CBMC report logic.
 
 ### Alternatives Considered
 
@@ -737,13 +737,13 @@ The backend already understands the meaning of the proof reports. Keeping summar
 
 ### Implementation References
 
-- [proofTreeProvider.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/features/proofPanel/proofTreeProvider.ts:1)
-- [proofTreeItem.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/features/proofPanel/proofTreeItem.ts:1)
-- [package.json](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/package.json:1)
+- [proofTreeProvider.ts](vscode-extension/src/features/proofPanel/proofTreeProvider.ts#L1)
+- [proofTreeItem.ts](vscode-extension/src/features/proofPanel/proofTreeItem.ts#L1)
+- [package.json](vscode-extension/package.json#L1)
 
 ### Responsibility
 
-- render proof jobs and artifact actions in the AutoUP panel
+- render proof jobs and artifact actions in the AutoSOUP panel
 
 ### Implemented Design
 
@@ -801,7 +801,7 @@ The Tree View is the best v1 choice. It is native, lightweight, and fits the pro
 
 ### Implementation References
 
-- [statusTracker.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/core/statusTracker.ts:222)
+- [statusTracker.ts](vscode-extension/src/core/statusTracker.ts#L222)
 
 ### Responsibility
 
@@ -855,10 +855,10 @@ The webview-based loader keeps the report inside VS Code and gives the extension
 
 ### Implementation References
 
-- [pathUtils.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/shared/pathUtils.ts:1)
-- [platform.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/shared/platform.ts:1)
-- [processUtils.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/shared/processUtils.ts:1)
-- [configManager.ts](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/src/core/configManager.ts:1)
+- [pathUtils.ts](vscode-extension/src/shared/pathUtils.ts#L1)
+- [platform.ts](vscode-extension/src/shared/platform.ts#L1)
+- [processUtils.ts](vscode-extension/src/shared/processUtils.ts#L1)
+- [configManager.ts](vscode-extension/src/core/configManager.ts#L1)
 
 ### Responsibility
 
@@ -902,9 +902,9 @@ These concerns are small but cross-cutting. Putting them in `shared/` keeps the 
 
 ### Implementation References
 
-- [runTest.js](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/test/runTest.js:1)
-- [index.js](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/test/suite/index.js:1)
-- [smoke.test.js](/home/pamusuo/research/cbmc-research/AutoUP/vscode-extension/test/suite/smoke.test.js:1)
+- [runTest.js](vscode-extension/test/runTest.js#L1)
+- [index.js](vscode-extension/test/suite/index.js#L1)
+- [smoke.test.js](vscode-extension/test/suite/smoke.test.js#L1)
 
 ### Responsibility
 
@@ -936,7 +936,7 @@ Cons:
 
 - misses command wiring and extension runtime bugs
 
-#### Alternative B: Full end-to-end AutoUP proof generation in CI
+#### Alternative B: Full end-to-end AutoSOUP proof generation in CI
 
 Pros:
 
@@ -989,7 +989,7 @@ Why:
 ## Known Tradeoffs and Limitations
 
 - the extension still depends on Python and a supported container engine on the execution host
-- the smoke suite does not prove a full end-to-end AutoUP run against Docker, CBMC, and a live model
+- the smoke suite does not prove a full end-to-end AutoSOUP run against Docker, CBMC, and a live model
 - HTML report rendering inside VS Code is more complex than delegating to an external browser
 - polling is simpler than watchers, but it is not instantaneous
 - the bridge/event contract introduces additional Python surface area that must remain in sync with the extension
@@ -1009,7 +1009,7 @@ Potential follow-up improvements include:
 
 The extension is designed around one core principle:
 
-AutoUP should feel like a native workspace tool in VS Code, while keeping the real proof-generation logic in Python where AutoUP already lives.
+AutoSOUP should feel like a native workspace tool in VS Code, while keeping the real proof-generation logic in Python where AutoSOUP already lives.
 
 That principle drives the major decisions in this design:
 
@@ -1020,4 +1020,4 @@ That principle drives the major decisions in this design:
 - structured event files instead of log parsing
 - Tree View UI instead of a custom webview dashboard
 
-The result is a design that is pragmatic, debuggable, and aligned with how AutoUP already works.
+The result is a design that is pragmatic, debuggable, and aligned with how AutoSOUP already works.

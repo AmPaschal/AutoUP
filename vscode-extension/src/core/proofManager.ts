@@ -135,10 +135,10 @@ export class ProofManager implements vscode.Disposable {
     // Create the proof state directory and initialize the in-memory job record.
     await fs.mkdir(path.join(proofDir, ".autoup"), { recursive: true });
     const jobId = `${path.basename(resolvedFunction.filePath)}-${resolvedFunction.functionName}-${Date.now()}`;
-    const outputChannel = vscode.window.createOutputChannel(`AutoUP: ${resolvedFunction.functionName}`);
+    const outputChannel = vscode.window.createOutputChannel(`AutoSOUP: ${resolvedFunction.functionName}`);
     const executionHost = detectExecutionHost();
     if (executionHost === "unsupported-windows") {
-      throw new Error("AutoUP proof generation is not supported on Windows in this extension.");
+      throw new Error("AutoSOUP proof generation is not supported on Windows in this extension.");
     }
     const job: ProofJob = {
       id: jobId,
@@ -315,7 +315,7 @@ export class ProofManager implements vscode.Disposable {
   }
 
   /**
-   * Open the AutoUP log file for a proof job.
+   * Open the AutoSOUP log file for a proof job.
    *
    * Inputs:
    * - `target`: Job object or job ID.
@@ -412,7 +412,7 @@ export class ProofManager implements vscode.Disposable {
     const action = "Open Proof Explorer";
     const selection = await vscode.window.showInformationMessage(message, action);
     if (selection === action) {
-      await vscode.commands.executeCommand("workbench.view.extension.autoup-panel");
+      await vscode.commands.executeCommand("workbench.view.extension.autosoup-panel");
     }
   }
 
@@ -1015,7 +1015,7 @@ export class ProofManager implements vscode.Disposable {
             verificationSummary: null,
             executionHost: manifest.executionHost,
             lastError: manifest.lastError,
-            outputChannel: vscode.window.createOutputChannel(`AutoUP: ${manifest.functionName}`),
+            outputChannel: vscode.window.createOutputChannel(`AutoSOUP: ${manifest.functionName}`),
             process: null,
             createdAt: manifest.createdAt,
             trackerStarted: false,
@@ -1041,7 +1041,7 @@ export class ProofManager implements vscode.Disposable {
       });
     if (skippedManifests.length > 0) {
       void vscode.window.showWarningMessage(
-        `Skipped ${skippedManifests.length} malformed AutoUP job manifest(s) during reload.`,
+        `Skipped ${skippedManifests.length} malformed AutoSOUP job manifest(s) during reload.`,
       );
     }
     // Immediately poll all rehydrated jobs so the tree reflects their latest state.

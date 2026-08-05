@@ -3,7 +3,7 @@
 /**
  * This file contains a basic extension-host smoke suite. It verifies that the
  * extension activates, registers commands, and that function detection works on
- * a simple C fixture without requiring the full AutoUP backend runtime.
+ * a simple C fixture without requiring the full AutoSOUP backend runtime.
  */
 
 const assert = require("assert");
@@ -14,20 +14,20 @@ const { suite, test } = require("mocha");
 const path = require("path");
 const vscode = require("vscode");
 
-suite("AutoUP Extension Smoke", () => {
+suite("AutoSOUP Extension Smoke", () => {
   test("extension activates and registers commands", async () => {
     // Activate the extension through its declared identifier.
-    const extension = vscode.extensions.getExtension("autoup.autoup-vscode");
-    assert.ok(extension, "Expected AutoUP extension to be present in the test host.");
+    const extension = vscode.extensions.getExtension("ampaschal.autosoup-vscode");
+    assert.ok(extension, "Expected AutoSOUP extension to be present in the test host.");
     await extension.activate();
 
     // Confirm a representative subset of commands is available after activation.
     const commands = await vscode.commands.getCommands(true);
-    assert.ok(commands.includes("autoup.createUnitProof"));
-    assert.ok(commands.includes("autoup.manageProviderEnvironmentVariables"));
-    assert.ok(commands.includes("autoup.refreshProofs"));
-    assert.ok(commands.includes("autoup.showProofOutput"));
-    assert.ok(commands.includes("autoup.openVulnerabilityReport"));
+    assert.ok(commands.includes("autosoup.createUnitProof"));
+    assert.ok(commands.includes("autosoup.manageProviderEnvironmentVariables"));
+    assert.ok(commands.includes("autosoup.refreshProofs"));
+    assert.ok(commands.includes("autosoup.showProofOutput"));
+    assert.ok(commands.includes("autosoup.openVulnerabilityReport"));
   });
 
   test("computeProofDirectory preserves relative source structure", async () => {
@@ -236,8 +236,8 @@ suite("AutoUP Extension Smoke", () => {
   });
 
   test("open harness command accepts a tree-node style argument", async () => {
-    const extension = vscode.extensions.getExtension("autoup.autoup-vscode");
-    assert.ok(extension, "Expected AutoUP extension to be present in the test host.");
+    const extension = vscode.extensions.getExtension("ampaschal.autosoup-vscode");
+    assert.ok(extension, "Expected AutoSOUP extension to be present in the test host.");
     await extension.activate();
 
     const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "autoup-open-"));
@@ -269,7 +269,7 @@ suite("AutoUP Extension Smoke", () => {
       lastEventCount: 0,
     };
 
-    await vscode.commands.executeCommand("autoup.openHarness", { kind: "job", job: fakeJob });
+    await vscode.commands.executeCommand("autosoup.openHarness", { kind: "job", job: fakeJob });
 
     assert.ok(vscode.window.activeTextEditor, "Expected an editor to be opened.");
     assert.strictEqual(vscode.window.activeTextEditor.document.uri.fsPath, harnessFile);
@@ -322,7 +322,7 @@ suite("AutoUP Extension Smoke", () => {
       {
         kind: "action",
         label: "Open Makefile",
-        command: "autoup.openMakefile",
+        command: "autosoup.openMakefile",
         jobId: fakeJob.id,
         contextValue: "proofActionMakefile",
       },
@@ -596,7 +596,7 @@ suite("AutoUP Extension Smoke", () => {
     await waitForWorkspaceFoldersChange(() => {
       vscode.workspace.updateWorkspaceFolders(startingWorkspaceCount, 0, {
         uri: vscode.Uri.file(tempWorkspace),
-        name: "AutoUP Temp Workspace",
+        name: "AutoSOUP Temp Workspace",
       });
     });
     const manifestPattern = new vscode.RelativePattern(
@@ -758,7 +758,7 @@ suite("AutoUP Extension Smoke", () => {
     const executedCommands = [];
     vscode.workspace.getWorkspaceFolder = () => ({
       uri: vscode.Uri.file(tempRoot),
-      name: "AutoUP Temp Workspace",
+      name: "AutoSOUP Temp Workspace",
       index: 0,
     });
     vscode.window.showInformationMessage = async (message, ...actions) => {
@@ -807,7 +807,7 @@ suite("AutoUP Extension Smoke", () => {
 
       assert.strictEqual(notifications[0].message, "A proof job for sample_target is already queued.");
       assert.deepStrictEqual(notifications[0].actions, ["Open Proof Explorer"]);
-      assert.strictEqual(executedCommands[0].command, "workbench.view.extension.autoup-panel");
+      assert.strictEqual(executedCommands[0].command, "workbench.view.extension.autosoup-panel");
 
       manager.jobs.get("job-queued").status = "running";
       await manager.startProof({
@@ -861,7 +861,7 @@ suite("AutoUP Extension Smoke", () => {
     const executedCommands = [];
     vscode.workspace.getWorkspaceFolder = () => ({
       uri: vscode.Uri.file(tempRoot),
-      name: "AutoUP Temp Workspace",
+      name: "AutoSOUP Temp Workspace",
       index: 0,
     });
     vscode.window.showInformationMessage = async (message, ...actions) => {
@@ -884,7 +884,7 @@ suite("AutoUP Extension Smoke", () => {
 
       assert.strictEqual(notifications[0].message, "Queued unit proof for sample_target (position 1).");
       assert.deepStrictEqual(notifications[0].actions, ["Open Proof Explorer"]);
-      assert.strictEqual(executedCommands[0].command, "workbench.view.extension.autoup-panel");
+      assert.strictEqual(executedCommands[0].command, "workbench.view.extension.autosoup-panel");
 
       const queuedJob = manager.getAllJobs()[0];
       assert.strictEqual(queuedJob.status, "queued");
@@ -967,14 +967,14 @@ suite("AutoUP Extension Smoke", () => {
 
     try {
       await manager.addEnvironmentVariable();
-      assert.strictEqual(storedSecrets.get("autoup.env.OPENROUTER_API_KEY"), "secret-token");
+      assert.strictEqual(storedSecrets.get("autosoup.env.OPENROUTER_API_KEY"), "secret-token");
 
       await manager.listEnvironmentVariables();
       assert.strictEqual(quickPickInvocations[0][0].label, "OPENROUTER_API_KEY");
 
       await manager.clearEnvironmentVariable();
-      assert.ok(!storedSecrets.has("autoup.env.OPENROUTER_API_KEY"));
-      assert.ok(infoMessages.some((message) => message.includes("Cleared AutoUP environment variable OPENROUTER_API_KEY.")));
+      assert.ok(!storedSecrets.has("autosoup.env.OPENROUTER_API_KEY"));
+      assert.ok(infoMessages.some((message) => message.includes("Cleared AutoSOUP environment variable OPENROUTER_API_KEY.")));
     } finally {
       vscode.window.showInputBox = originalShowInputBox;
       vscode.window.showQuickPick = originalShowQuickPick;

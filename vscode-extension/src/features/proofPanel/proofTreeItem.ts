@@ -28,7 +28,7 @@ export class ProofTreeItem extends vscode.TreeItem {
       this.contextValue = contextValueForJob(node.job);
       this.iconPath = iconForStatus(node.job.status);
       this.command = {
-        command: "autoup.showProofOutput",
+        command: "autosoup.showProofOutput",
         title: "Show Proof Output",
         arguments: [node.job.id],
       };
@@ -161,42 +161,42 @@ export function summaryMetricNodes(job: ProofJob, summary: VerificationSummary):
     {
       kind: "action",
       label: "Open Harness",
-      command: "autoup.openHarness",
+      command: "autosoup.openHarness",
       jobId: job.id,
       contextValue: "proofActionHarness",
     },
     {
       kind: "action",
       label: "Open Makefile",
-      command: "autoup.openMakefile",
+      command: "autosoup.openMakefile",
       jobId: job.id,
       contextValue: "proofActionMakefile",
     },
     {
       kind: "action",
       label: "Open Source File",
-      command: "autoup.openSourceFile",
+      command: "autosoup.openSourceFile",
       jobId: job.id,
       contextValue: "proofActionSource",
     },
     {
       kind: "action",
       label: "Open Log",
-      command: "autoup.openLog",
+      command: "autosoup.openLog",
       jobId: job.id,
       contextValue: "proofActionLog",
     },
     {
       kind: "action",
       label: "Open Verification Report",
-      command: "autoup.openReport",
+      command: "autosoup.openReport",
       jobId: job.id,
       contextValue: "proofActionReport",
     },
     {
       kind: "action",
       label: "Open Vulnerability Report",
-      command: "autoup.openVulnerabilityReport",
+      command: "autosoup.openVulnerabilityReport",
       jobId: job.id,
       contextValue: "proofActionVulnerabilityReport",
     },

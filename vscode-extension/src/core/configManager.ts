@@ -7,11 +7,11 @@ import type { AutoUpConfig } from "./types";
 import { normalizeModelProfiles } from "../shared/modelProfiles";
 
 /**
- * Provides typed access to AutoUP extension settings.
+ * Provides typed access to AutoSOUP extension settings.
  */
 export class ConfigManager {
   /**
-   * Read and normalize the current AutoUP settings from the workspace.
+   * Read and normalize the current AutoSOUP settings from the workspace.
    *
    * Inputs:
    * - None.
@@ -20,8 +20,8 @@ export class ConfigManager {
    * - `AutoUpConfig`: The current extension configuration with defaults applied.
    */
   getConfig(): AutoUpConfig {
-    // Read the shared `autoup.*` configuration section once for this call.
-    const config = vscode.workspace.getConfiguration("autoup");
+    // Read the shared `autosoup.*` configuration section once for this call.
+    const config = vscode.workspace.getConfiguration("autosoup");
     // Return the exact typed shape used throughout the extension.
     return {
       modelProfiles: normalizeModelProfiles(config.get<unknown>("modelProfiles", [])),

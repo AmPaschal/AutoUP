@@ -1,252 +1,152 @@
-# AutoUP VS Code Extension
+# AutoSOUP for VS Code
 
-This extension integrates automated unit proof generation for memory-safety verification into VS Code.
-Unit proofs enable users to formally verify memory safety of specific functions and identify any violations that may represent security vulnerabilities. 
-The underlying AutoUP framework is described in [AutoUP_README](https://github.com/uwned/AutoUP/blob/master/README.md).
+Generate CBMC unit proofs for C/C++ functions from inside VS Code, and formally
+verify their memory safety.
 
-## What It Does
+Put your cursor in a function, pick **Create Unit Proof**, and AutoSOUP generates
+a proof harness and Makefile, runs CBMC against them, iteratively refines the
+harness, and reports which memory-safety properties were verified — plus any
+violations that may represent security vulnerabilities.
 
-- Adds a `Create Unit Proof` editor context-menu action for C/C++ files.
-- When selected, it starts AutoUP proof generation for the function where the cursor is located.
-- Stores generated proofs under:
-  `cbmc/proofs/<relative-source-path-without-ext>/<function>/`
-- Supports multiple proof jobs at once with queueing when the concurrency limit is reached.
-- Shows proof jobs in a sidebar with:
-  - current status
-  - verification summary
-  - quick actions to open the harness, Makefile, source file, log, or proof folder
+## Requirements
 
-## Supported Environments
+Read this section before installing — AutoSOUP shells out to a container engine
+and a Python backend, so it has real host requirements.
 
-The extension has been tested on the following environments:
+| | Supported |
+|---|---|
+| **Linux** (local or via Remote-SSH) | Yes — Docker or Apptainer |
+| **macOS** (local) | Yes — Docker only |
+| **Windows** | **No.** Proof generation fails with an explicit error. |
 
-- macOS local workspace
-- Linux workspace via Remote-SSH
+You also need:
 
-## Runtime Requirements
+- **Python 3** on the execution host. AutoSOUP creates its own virtual
+  environment and installs its dependencies there on first activation — you do
+  not need to install anything Python-side yourself.
+- **Docker or Apptainer** on the execution host. CBMC and all LLM-driven steps
+  run inside a container.
+- The **[clangd](https://marketplace.visualstudio.com/items?itemName=llvm-vs-code-extensions.vscode-clangd)**
+  extension and a working `clangd`. AutoSOUP uses it to resolve the function
+  under your cursor and extract its signature and body.
+- An **API key for an LLM provider** (any provider LiteLLM supports).
 
-- Python 3 available on the execution host.
-- Clangd VS Code extension and the associated `clangd` backend. This enables parsing the C code and extracting the function signature and body.
-- Container engine (docker or apptainer): This ensures verification environment is properly setup and LLM-based operations is properly isolated.
+Because the backend runs on the machine that hosts the workspace, AutoSOUP is a
+workspace extension: over Remote-SSH it runs on the remote host, not your laptop.
+It only operates in [trusted workspaces](https://code.visualstudio.com/docs/editor/workspace-trust).
 
+## Getting started
 
-## Development Setup
+### 1. Configure a model profile
 
-After cloning the repository, follow the following steps to compile and package the VS Code extension for installation.
-
-From the `vscode-extension/` directory:
-
-```bash
-npm install
-npm run compile
-npx @vscode/vsce package
-```
-
-If successful, this creates an `autoup-vscode-<VERSION>.vsix` file in the `vscode-extension/` directory, ready for installation in VS Code.
-
-To install the extension (`*.vsix` file) in a VS Code instance:
-
-1. Open the Extensions view in VS Code (`Ctrl+Shift+X`).
-2. Click the `...` button (three dots in the top-right corner of the Extensions view) and select `Install from VSIX`.
-3. Navigate to and select the `autoup-vscode-<VERSION>.vsix` file.
-4. VS Code will install the extension and prompt to reload the window if necessary.
-
-## Using the Extension
-
-### First Launch Setup
-
-On first launch, setup model profiles and API key to enable LLM-based operations.
-
-1. Configure one or more `autoup.modelProfiles` in VS Code Settings. See the `Configuration` section for more details.
-2. Set `autoup.selectedModelProfile` to the profile name you want to use.
-3. Run `AutoUP: Manage Provider Environment Variables` and add the environment variables required by that profile.
-
-### Normal Usage
-
-1. Open a C/C++ project in VS Code.
-2. Place the cursor inside the function you want to verify.
-3. Right-click and choose `Create Unit Proof`.
-4. Watch the `AutoUP` sidebar for progress and status updates.
-5. Use the sidebar actions to inspect the generated harness, Makefile, log, or source file.
-
-
-## Configuration
-
-The extension contributes these settings:
-
-- `autoup.modelProfiles`
-- `autoup.selectedModelProfile`
-- `autoup.containerEngine`
-- `autoup.scopeBound`
-- `autoup.scopeTimeBudget`
-- `autoup.maxConcurrentJobs`
-- `autoup.proofsRoot`
-
-Defaults:
-
-- `autoup.modelProfiles = []`
-- `autoup.selectedModelProfile = null`
-- `autoup.containerEngine = auto`
-- `autoup.maxConcurrentJobs = 5`
-- `autoup.proofsRoot = cbmc/proofs`
-
-Example profile:
+A model profile names an LLM and the environment variables needed to reach it.
+Add one or more to your settings:
 
 ```json
-{
-  "name": "openrouter-r1",
-  "provider": "openrouter",
-  "modelName": "openrouter/deepseek/deepseek-r1",
-  "envVars": ["OPENROUTER_API_KEY", "OPENROUTER_BASE_URL"]
-}
+"autosoup.modelProfiles": [
+  {
+    "name": "openrouter-r1",
+    "provider": "openrouter",
+    "modelName": "openrouter/deepseek/deepseek-r1",
+    "envVars": ["OPENROUTER_API_KEY", "OPENROUTER_BASE_URL"]
+  }
+],
+"autosoup.selectedModelProfile": "openrouter-r1"
 ```
 
-Provider environment variables are stored in VS Code `SecretStorage` and managed through the `AutoUP: Manage Provider Environment Variables` command.
+`modelName` is passed straight to LiteLLM, so any LiteLLM-supported identifier
+works.
 
-## Extension Features
+### 2. Store your API key
 
-### Editor Command
+Run **AutoSOUP: Manage Provider Environment Variables** from the command palette
+and add each variable your profile lists. Values are kept in VS Code
+`SecretStorage`, not in `settings.json`, and are keyed by variable name.
 
-Right-click inside a C or C++ function and choose:
+The same command also lists and clears stored variables.
 
-- `AutoUP: Create Unit Proof`
+### 3. Create a proof
 
-The command is only shown for trusted workspaces and C/C++ files.
+1. Open a C or C++ file.
+2. Place the cursor inside the function you want to verify.
+3. Right-click and choose **Create Unit Proof**.
+4. Watch the **AutoSOUP** view in the activity bar for live progress.
 
-### Provider Environment Variables
+Several proofs can run at once; anything past `autosoup.maxConcurrentJobs` is
+queued.
 
-Use `AutoUP: Manage Provider Environment Variables` from the command palette to:
+## The AutoSOUP view
 
-- add a stored environment variable
-- list all stored environment variables
-- clear a stored environment variable
+The **Unit Proofs** tree shows one row per proof job with its status, current
+stage, and — once verification runs — a summary of instrumented properties,
+verified properties, errors grouped by line, and coverage.
 
-Stored values are global to the extension and keyed by environment variable name.
+Each row has actions to open the generated harness, the Makefile, the original
+source file, the AutoSOUP log, the verification report, or the vulnerability
+report; to reveal the proof folder; and to cancel a running proof.
 
-### Sidebar
+Progress updates arrive not just when a stage finishes but after each accepted
+refinement, so long-running jobs stay legible.
 
-The `AutoUP` activity-bar view contains a `Unit Proofs` tree showing one row per proof job.
+### Background jobs
 
-Each job shows:
+Proof jobs run as detached background processes, which means:
 
-- proof status
-- current stage
-- verification summary when available:
-  - instrumented properties
-  - verified properties
-  - grouped errors by line count
-  - verification coverage
+- Over Remote-SSH, proofs keep running on the remote host even if your client
+  disconnects, sleeps, or closes VS Code — as long as the remote host stays up.
+  On reconnect, the extension rehydrates job state from disk.
+- Local proofs survive window reloads and app restarts, but make no progress
+  while the machine is asleep.
 
-Each job also exposes actions to:
+## Proof storage layout
 
-- open the harness file
-- open the Makefile
-- open the source file
-- open the AutoUP log
-- reveal the proof folder
-- open the proof log from the job row
-- cancel the proof
-
-### Proof Storage Layout
-
-Proofs are written under the configured proofs root, which defaults to `cbmc/proofs`.
-
-Example:
-
-```text
-src/net/tcp/gnrc_tcp_eventloop.c
-function: _receive
-```
-
-becomes:
+Proofs are written under `autosoup.proofsRoot` (default `cbmc/proofs`), mirroring
+the source tree. Verifying `_receive` in `src/net/tcp/gnrc_tcp_eventloop.c`
+produces:
 
 ```text
 cbmc/proofs/src/net/tcp/gnrc_tcp_eventloop/_receive/
 ```
 
-### Live Progress Model
+Each proof folder holds the harness, Makefile, `autoup.log`, and an `.autoup/`
+directory with the job manifest and event stream the sidebar reads.
 
-The extension reads progress from backend event files instead of parsing stdout as the source of truth.
+## Settings
 
-Important event types include:
+| Setting | Default | Description |
+|---|---|---|
+| `autosoup.modelProfiles` | `[]` | LLM profiles, each with `name`, `provider`, `modelName`, `envVars`. |
+| `autosoup.selectedModelProfile` | `null` | Name of the profile to use. |
+| `autosoup.containerEngine` | `auto` | `auto`, `docker`, or `apptainer`. `auto` prefers Docker and falls back to Apptainer on Linux. |
+| `autosoup.proofsRoot` | `cbmc/proofs` | Workspace-relative root for generated proofs. |
+| `autosoup.maxConcurrentJobs` | `5` | Proof jobs allowed to run at once. |
+| `autosoup.makeTimeout` | `900` | Full-verification `make` timeout, in seconds. |
+| `autosoup.scopeReducerAttempts` | `10` | Maximum scope-reducer attempts before giving up. |
+| `autosoup.scopeBound` | `1` | Scope-widening depth bound. The default of `1` disables widening while keeping scope-reducer behavior. |
+| `autosoup.scopeTimeBudget` | `null` | Optional scope-widening time budget, in minutes. |
 
-- `job_started`
-- `bootstrap_started`
-- `bootstrap_completed`
-- `stage_started`
-- `stage_progress`
-- `refinement_accepted`
-- `summary_updated`
-- `stage_completed`
-- `job_failed`
-- `job_cancelled`
-- `job_completed`
+## Limitations
 
-The sidebar updates not only when a stage finishes, but also after each accepted refinement.
+- Windows is not supported.
+- The function detector uses clangd document symbols first, with a conservative
+  text-based fallback.
+- Trusted workspaces only.
 
-### Background Job Behavior
+## Development
 
-Proof jobs are launched as detached background processes.
-
-This means:
-
-- Remote-SSH proofs can continue running on the Linux server even if the Mac client disconnects, sleeps, or closes VS Code, as long as the remote host itself stays up.
-- When VS Code reconnects, the extension rehydrates job state from `.autoup/job.json` and `.autoup/events.jsonl`.
-- Local macOS proofs survive VS Code window reloads or app closure better, but they do not make progress while the Mac itself is asleep.
-
-## Test Coverage
-
-The current extension test suite is a smoke suite, not a full end-to-end proof-generation suite.
-
-It currently verifies:
-
-- the extension activates in a real VS Code extension host
-- the main commands are registered
-- proof-path computation preserves relative source structure
-- function detection resolves the enclosing function in a simple C fixture
-
-### Test Files
-
-- [test/runTest.js](https://github.com/AmPaschal/AutoUP/blob/main/vscode-extension/test/runTest.js)
-  Launches the VS Code extension-host tests using `@vscode/test-electron`.
-- [test/suite/index.js](https://github.com/AmPaschal/AutoUP/blob/main/vscode-extension/test/suite/index.js)
-  Mocha entrypoint executed inside the extension host.
-- [test/suite/smoke.test.js](https://github.com/AmPaschal/AutoUP/blob/main/vscode-extension/test/suite/smoke.test.js)
-  Smoke tests for activation, commands, path layout, and function detection.
-- [test/fixture/simple-project/src/sample.c](https://github.com/AmPaschal/AutoUP/blob/main/vscode-extension/test/fixture/simple-project/src/sample.c)
-  Simple C fixture used by the smoke tests.
-
-## Running Tests
-
-### Compile Only
+AutoSOUP's VS Code front end and its Python backend live in the
+[AutoUP repository](https://github.com/AmPaschal/AutoUP). To build the extension
+from source, from `vscode-extension/`:
 
 ```bash
-npm run compile
+npm install
+npm run compile        # also syncs the Python backend into .autoup-bundle/
+npm run package        # produces autosoup-vscode-<VERSION>.vsix
 ```
 
-### Extension Smoke Tests
+Run the smoke suite with `npm test`, or `xvfb-run -a npm test` on headless Linux.
+It launches a real extension host and checks activation, command registration,
+proof-path computation, and function detection; it does not exercise a full
+proof-generation run against CBMC and a live LLM.
 
-On macOS or Linux with a desktop display:
-
-```bash
-npm test
-```
-
-On headless Linux:
-
-```bash
-xvfb-run -a npm test
-```
-
-The smoke test command:
-
-- compiles TypeScript
-- launches a real VS Code/Electron extension host
-- loads the development extension
-- runs the Mocha smoke suite inside that host
-
-## Notes and Limitations
-
-- The current smoke suite does not verify full proof generation against Docker, CBMC, and a live OpenAI-backed AutoUP run.
-- The function detector uses document symbols first and a conservative text fallback second.
-- The extension is designed for trusted workspaces only.
+Issues and contributions: <https://github.com/AmPaschal/AutoUP/issues>

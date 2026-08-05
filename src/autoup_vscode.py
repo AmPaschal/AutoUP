@@ -241,7 +241,7 @@ def start_job(args: argparse.Namespace) -> int:
         progress.job_completed()
         return 0
 
-    progress.job_failed("AutoUP pipeline failed")
+    progress.job_failed("AutoSOUP pipeline failed")
     return 1
 
 

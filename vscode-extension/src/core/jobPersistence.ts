@@ -98,7 +98,7 @@ export function parsePersistedJobManifest(
   const jobId = asNonEmptyString(raw.jobId) ?? (functionName ? `${functionName}-${Date.now()}` : undefined);
 
   if (!proofDir || !functionName || !workspaceRoot || !jobId) {
-    throw new Error("Persisted AutoUP job manifest is missing required identity fields.");
+    throw new Error("Persisted AutoSOUP job manifest is missing required identity fields.");
   }
 
   return {
@@ -317,7 +317,7 @@ async function withManifestLock<T>(
       }
 
       if (Date.now() >= deadline) {
-        throw new Error(`Timed out waiting for AutoUP manifest lock: ${lockPath}`);
+        throw new Error(`Timed out waiting for AutoSOUP manifest lock: ${lockPath}`);
       }
       await sleep(MANIFEST_LOCK_POLL_MS);
     }

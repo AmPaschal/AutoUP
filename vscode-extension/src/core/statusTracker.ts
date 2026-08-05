@@ -86,7 +86,7 @@ export class StatusTracker {
       }
       this.warnedMalformedEventOffsets.add(warning.lineIndex);
       console.warn(
-        `Skipping malformed AutoUP event line ${warning.lineIndex + 1} for ${this.job.eventFile}: ${warning.message}`,
+        `Skipping malformed AutoSOUP event line ${warning.lineIndex + 1} for ${this.job.eventFile}: ${warning.message}`,
       );
     }
     for (const event of parseResult.events) {
@@ -330,8 +330,8 @@ export async function openHtmlReport(pathOrUndefined?: string | null): Promise<v
     const reportPath = path.resolve(pathOrUndefined);
     const reportRoot = path.dirname(reportPath);
     const panel = vscode.window.createWebviewPanel(
-      "autoupReport",
-      `AutoUP Report: ${path.basename(reportPath)}`,
+      "autosoupReport",
+      `AutoSOUP Report: ${path.basename(reportPath)}`,
       vscode.ViewColumn.Active,
       {
         enableScripts: true,
@@ -345,7 +345,7 @@ export async function openHtmlReport(pathOrUndefined?: string | null): Promise<v
         void vscode.window.showWarningMessage("The requested report file is outside the report directory.");
         return;
       }
-      panel.title = `AutoUP Report: ${path.basename(normalizedTarget)}`;
+      panel.title = `AutoSOUP Report: ${path.basename(normalizedTarget)}`;
       panel.webview.html = await buildReportWebviewHtml(
         panel.webview,
         reportRoot,

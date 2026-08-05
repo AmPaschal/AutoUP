@@ -1,129 +1,137 @@
 {
-  "name": "autoup-vscode",
-  "displayName": "AutoUP",
-  "description": "Generate AutoUP unit proofs from VS Code.",
-  "version": "0.0.9",
-  "publisher": "autoup",
+  "name": "autosoup-vscode",
+  "displayName": "AutoSOUP",
+  "description": "Generate AutoSOUP unit proofs from VS Code.",
+  "version": "0.1.0",
+  "publisher": "ampaschal",
+  "icon": "resources/icons/marketplace-icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/AmPaschal/AutoUP.git"
+  },
+  "homepage": "https://github.com/AmPaschal/AutoUP/blob/main/vscode-extension/README.md",
+  "bugs": {
+    "url": "https://github.com/AmPaschal/AutoUP/issues"
   },
   "engines": {
     "vscode": "^1.95.0"
   },
   "categories": [
+    "Testing",
+    "AI",
     "Other"
+  ],
+  "keywords": [
+    "cbmc",
+    "formal-verification",
+    "memory-safety",
+    "unit-proof",
+    "c"
   ],
   "extensionKind": [
     "workspace"
   ],
   "main": "./dist/extension.js",
-  "activationEvents": [
-    "onCommand:autoup.createUnitProof",
-    "onCommand:autoup.manageProviderEnvironmentVariables",
-    "onCommand:autoup.refreshProofs",
-    "onView:autoup.proofExplorer"
-  ],
   "contributes": {
     "commands": [
       {
-        "command": "autoup.createUnitProof",
+        "command": "autosoup.createUnitProof",
         "title": "Create Unit Proof",
-        "category": "AutoUP"
+        "category": "AutoSOUP"
       },
       {
-        "command": "autoup.cancelProof",
+        "command": "autosoup.cancelProof",
         "title": "Cancel Unit Proof",
-        "category": "AutoUP",
+        "category": "AutoSOUP",
         "icon": {
           "light": "resources/icons/cancel.svg",
           "dark": "resources/icons/cancel.svg"
         }
       },
       {
-        "command": "autoup.deleteProof",
+        "command": "autosoup.deleteProof",
         "title": "Delete Unit Proof",
-        "category": "AutoUP",
+        "category": "AutoSOUP",
         "icon": {
           "light": "resources/icons/delete.svg",
           "dark": "resources/icons/delete.svg"
         }
       },
       {
-        "command": "autoup.openHarness",
+        "command": "autosoup.openHarness",
         "title": "Open Harness File",
-        "category": "AutoUP"
+        "category": "AutoSOUP"
       },
       {
-        "command": "autoup.openMakefile",
+        "command": "autosoup.openMakefile",
         "title": "Open Makefile",
-        "category": "AutoUP"
+        "category": "AutoSOUP"
       },
       {
-        "command": "autoup.openSourceFile",
+        "command": "autosoup.openSourceFile",
         "title": "Open Source File",
-        "category": "AutoUP"
+        "category": "AutoSOUP"
       },
       {
-        "command": "autoup.openLog",
-        "title": "Open AutoUP Log",
-        "category": "AutoUP"
+        "command": "autosoup.openLog",
+        "title": "Open AutoSOUP Log",
+        "category": "AutoSOUP"
       },
       {
-        "command": "autoup.openReport",
+        "command": "autosoup.openReport",
         "title": "Open Verification Report",
-        "category": "AutoUP"
+        "category": "AutoSOUP"
       },
       {
-        "command": "autoup.openVulnerabilityReport",
+        "command": "autosoup.openVulnerabilityReport",
         "title": "Open Vulnerability Report",
-        "category": "AutoUP"
+        "category": "AutoSOUP"
       },
       {
-        "command": "autoup.revealProofFolder",
+        "command": "autosoup.revealProofFolder",
         "title": "Reveal Proof Folder",
-        "category": "AutoUP"
+        "category": "AutoSOUP"
       },
       {
-        "command": "autoup.refreshProofs",
+        "command": "autosoup.refreshProofs",
         "title": "Refresh Unit Proofs",
-        "category": "AutoUP"
+        "category": "AutoSOUP"
       },
       {
-        "command": "autoup.manageProviderEnvironmentVariables",
+        "command": "autosoup.manageProviderEnvironmentVariables",
         "title": "Manage Provider Environment Variables",
-        "category": "AutoUP"
+        "category": "AutoSOUP"
       },
       {
-        "command": "autoup.showProofOutput",
+        "command": "autosoup.showProofOutput",
         "title": "Show Proof Output",
-        "category": "AutoUP"
+        "category": "AutoSOUP"
       }
     ],
     "menus": {
       "editor/context": [
         {
-          "command": "autoup.createUnitProof",
+          "command": "autosoup.createUnitProof",
           "when": "isWorkspaceTrusted && (resourceLangId == c || resourceLangId == cpp)",
           "group": "navigation@9"
         }
       ],
       "view/title": [
         {
-          "command": "autoup.refreshProofs",
-          "when": "view == autoup.proofExplorer",
+          "command": "autosoup.refreshProofs",
+          "when": "view == autosoup.proofExplorer",
           "group": "navigation"
         }
       ],
       "view/item/context": [
         {
-          "command": "autoup.cancelProof",
-          "when": "view == autoup.proofExplorer && viewItem == proofJobCancellable",
+          "command": "autosoup.cancelProof",
+          "when": "view == autosoup.proofExplorer && viewItem == proofJobCancellable",
           "group": "inline@1"
         },
         {
-          "command": "autoup.deleteProof",
-          "when": "view == autoup.proofExplorer && viewItem == proofJobDeletable",
+          "command": "autosoup.deleteProof",
+          "when": "view == autosoup.proofExplorer && viewItem == proofJobDeletable",
           "group": "inline@2"
         }
       ]
@@ -131,27 +139,27 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "autoup-panel",
-          "title": "AutoUP",
-          "icon": "resources/icons/autoup.svg"
+          "id": "autosoup-panel",
+          "title": "AutoSOUP",
+          "icon": "resources/icons/autosoup.svg"
         }
       ]
     },
     "views": {
-      "autoup-panel": [
+      "autosoup-panel": [
         {
-          "id": "autoup.proofExplorer",
+          "id": "autosoup.proofExplorer",
           "name": "Unit Proofs"
         }
       ]
     },
     "configuration": {
-      "title": "AutoUP",
+      "title": "AutoSOUP",
       "properties": {
-        "autoup.modelProfiles": {
+        "autosoup.modelProfiles": {
           "type": "array",
           "default": [],
-          "description": "Configured AutoUP model profiles. Each profile should be a JSON object with the following fields: name, provider, modelName, and envVars.",
+          "description": "Configured AutoSOUP model profiles. Each profile should be a JSON object with the following fields: name, provider, modelName, and envVars.",
           "items": {
             "type": "object",
             "required": [
@@ -163,7 +171,7 @@
             "properties": {
               "name": {
                 "type": "string",
-                "description": "Unique profile name used by autoup.selectedModelProfile."
+                "description": "Unique profile name used by autosoup.selectedModelProfile."
               },
               "provider": {
                 "type": "string",
@@ -171,7 +179,7 @@
               },
               "modelName": {
                 "type": "string",
-                "description": "LiteLLM model identifier passed to AutoUP."
+                "description": "LiteLLM model identifier passed to AutoSOUP."
               },
               "envVars": {
                 "type": "array",
@@ -183,15 +191,15 @@
             }
           }
         },
-        "autoup.selectedModelProfile": {
+        "autosoup.selectedModelProfile": {
           "type": [
             "string",
             "null"
           ],
           "default": null,
-          "description": "Name of the AutoUP model profile to use for proof generation."
+          "description": "Name of the AutoSOUP model profile to use for proof generation."
         },
-        "autoup.containerEngine": {
+        "autosoup.containerEngine": {
           "type": "string",
           "enum": [
             "auto",
@@ -201,7 +209,7 @@
           "default": "auto",
           "description": "Container engine to use for proof execution."
         },
-        "autoup.scopeBound": {
+        "autosoup.scopeBound": {
           "type": [
             "integer",
             "null"
@@ -209,7 +217,7 @@
           "default": 1,
           "description": "Scope widening depth bound. The default of 1 disables widening while still enabling scope-reducer behavior."
         },
-        "autoup.scopeTimeBudget": {
+        "autosoup.scopeTimeBudget": {
           "type": [
             "number",
             "null"
@@ -217,25 +225,25 @@
           "default": null,
           "description": "Optional scope widening time budget in minutes."
         },
-        "autoup.scopeReducerAttempts": {
+        "autosoup.scopeReducerAttempts": {
           "type": "integer",
           "default": 10,
           "minimum": 1,
           "description": "Maximum number of scope reducer attempts before giving up."
         },
-        "autoup.makeTimeout": {
+        "autosoup.makeTimeout": {
           "type": "integer",
           "default": 900,
           "minimum": 1,
-          "description": "Full verification make timeout in seconds passed to AutoUP."
+          "description": "Full verification make timeout in seconds passed to AutoSOUP."
         },
-        "autoup.maxConcurrentJobs": {
+        "autosoup.maxConcurrentJobs": {
           "type": "integer",
           "default": 5,
           "minimum": 1,
-          "description": "Maximum number of AutoUP proof jobs that may run at once."
+          "description": "Maximum number of AutoSOUP proof jobs that may run at once."
         },
-        "autoup.proofsRoot": {
+        "autosoup.proofsRoot": {
           "type": "string",
           "default": "cbmc/proofs",
           "description": "Workspace-relative root directory where generated proofs are stored."
@@ -248,10 +256,13 @@
     "vscode:prepublish": "npm run compile",
     "compile": "npm run sync-backend && tsc -p .",
     "watch": "tsc -w -p .",
-    "test": "npm run compile && node ./test/runTest.js"
+    "test": "npm run compile && node ./test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
     "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.2.0",
     "@types/node": "^22.10.1",
     "@types/vscode": "^1.95.0",
     "mocha": "^11.1.0",

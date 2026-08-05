@@ -9,14 +9,14 @@ The implementation has two major parts:
 1. Extension-side profile, secret, and launch changes
 2. Backend-side model validation, routing, and LiteLLM compatibility changes
 
-The key design decision is that model selection is now profile-based instead of a single `autoup.model` string. A profile defines:
+The key design decision is that model selection is now profile-based instead of a single `autosoup.model` string. A profile defines:
 
 - `name`
 - `provider`
 - `modelName`
 - `envVars`
 
-Only one profile is active at a time through `autoup.selectedModelProfile`.
+Only one profile is active at a time through `autosoup.selectedModelProfile`.
 
 ## What Changed
 
@@ -31,9 +31,9 @@ Files:
 
 Changes:
 
-- Removed the extension’s dependence on a single `autoup.model` setting.
-- Added `autoup.modelProfiles` as an array of model profile objects.
-- Added `autoup.selectedModelProfile` as the active profile selector.
+- Removed the extension’s dependence on a single `autosoup.model` setting.
+- Added `autosoup.modelProfiles` as an array of model profile objects.
+- Added `autosoup.selectedModelProfile` as the active profile selector.
 - Added shared TypeScript types for `ModelProfile`, `ResolvedModelProfile`, and the new prerequisite shape.
 - Added normalization and selected-profile resolution helpers.
 
@@ -53,12 +53,12 @@ Files:
 
 Changes:
 
-- Added `AutoUP: Manage Provider Environment Variables`.
+- Added `AutoSOUP: Manage Provider Environment Variables`.
 - Added three actions behind that command:
   - add environment variable
   - list environment variables
   - clear environment variable
-- Stored secrets globally under `autoup.env.<ENV_VAR_NAME>`.
+- Stored secrets globally under `autosoup.env.<ENV_VAR_NAME>`.
 - Used `SecretStorage.keys()` to list all stored env vars without maintaining a separate index.
 
 Reason:

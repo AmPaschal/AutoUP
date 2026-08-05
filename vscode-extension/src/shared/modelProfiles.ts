@@ -1,6 +1,6 @@
 import type { AutoUpConfig, ModelProfile, ResolvedModelProfile } from "../core/types";
 
-export const GLOBAL_ENV_SECRET_PREFIX = "autoup.env.";
+export const GLOBAL_ENV_SECRET_PREFIX = "autosoup.env.";
 
 export function getEnvironmentSecretKey(envVarName: string): string {
   return `${GLOBAL_ENV_SECRET_PREFIX}${envVarName}`;
@@ -52,7 +52,7 @@ export function normalizeModelProfiles(value: unknown): ModelProfile[] {
 export function resolveSelectedModelProfile(config: AutoUpConfig): ResolvedModelProfile {
   const selectedName = config.selectedModelProfile?.trim();
   if (!selectedName) {
-    throw new Error("No AutoUP model profile is selected. Configure autoup.selectedModelProfile in settings.");
+    throw new Error("No AutoSOUP model profile is selected. Configure autosoup.selectedModelProfile in settings.");
   }
 
   const profilesByName = new Map<string, ModelProfile>();
@@ -61,20 +61,20 @@ export function resolveSelectedModelProfile(config: AutoUpConfig): ResolvedModel
       continue;
     }
     if (profilesByName.has(profile.name)) {
-      throw new Error(`Duplicate AutoUP model profile name '${profile.name}' found in settings.`);
+      throw new Error(`Duplicate AutoSOUP model profile name '${profile.name}' found in settings.`);
     }
     profilesByName.set(profile.name, profile);
   }
 
   const selected = profilesByName.get(selectedName);
   if (!selected) {
-    throw new Error(`Selected AutoUP model profile '${selectedName}' was not found in autoup.modelProfiles.`);
+    throw new Error(`Selected AutoSOUP model profile '${selectedName}' was not found in autosoup.modelProfiles.`);
   }
   if (!selected.provider) {
-    throw new Error(`AutoUP model profile '${selected.name}' is missing a provider.`);
+    throw new Error(`AutoSOUP model profile '${selected.name}' is missing a provider.`);
   }
   if (!selected.modelName) {
-    throw new Error(`AutoUP model profile '${selected.name}' is missing a modelName.`);
+    throw new Error(`AutoSOUP model profile '${selected.name}' is missing a modelName.`);
   }
 
   const envVars = normalizeEnvironmentVariableList(selected.envVars);

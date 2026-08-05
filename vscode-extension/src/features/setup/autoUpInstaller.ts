@@ -1,5 +1,5 @@
 /**
- * This file owns runtime bootstrap for the extension-managed AutoUP backend.
+ * This file owns runtime bootstrap for the extension-managed AutoSOUP backend.
  */
 import { createHash } from "crypto";
 import * as fs from "fs/promises";
@@ -27,7 +27,7 @@ export class AutoUpInstaller {
    * Ensure the backend assets and Python runtime exist in extension-managed storage.
    *
    * Inputs:
-   * - `_config`: Current AutoUP configuration. It is unused today but kept so the
+   * - `_config`: Current AutoSOUP configuration. It is unused today but kept so the
    *   installer signature can grow without changing callers.
    *
    * Returns:
@@ -37,7 +37,7 @@ export class AutoUpInstaller {
     return await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: "Preparing AutoUP runtime",
+        title: "Preparing AutoSOUP runtime",
         cancellable: false,
       },
       async (progress) => {
@@ -66,7 +66,7 @@ export class AutoUpInstaller {
           progress.report({ message: "Creating Python virtual environment" });
           const createVenv = await runCommand("python3", ["-m", "venv", venvRoot]);
           if (createVenv.exitCode !== 0) {
-            throw new Error(createVenv.stderr || "Failed to create AutoUP virtual environment.");
+            throw new Error(createVenv.stderr || "Failed to create AutoSOUP virtual environment.");
           }
         }
 
@@ -74,14 +74,14 @@ export class AutoUpInstaller {
         // private interpreter had to be recreated.
         const dependenciesNeedInstall = !pythonExists || installState?.bundleFingerprint !== bundleFingerprint;
         if (dependenciesNeedInstall) {
-          progress.report({ message: "Installing AutoUP Python dependencies" });
+          progress.report({ message: "Installing AutoSOUP Python dependencies" });
           const install = await runCommand(
             pythonPath,
             ["-m", "pip", "install", "-r", path.join(backendRoot, "requirements.txt")],
             { cwd: backendRoot },
           );
           if (install.exitCode !== 0) {
-            throw new Error(install.stderr || "Failed to install AutoUP Python dependencies.");
+            throw new Error(install.stderr || "Failed to install AutoSOUP Python dependencies.");
           }
           await fs.writeFile(
             installStatePath,
@@ -111,7 +111,7 @@ export class AutoUpInstaller {
      */
     await fs.mkdir(destinationRoot, { recursive: true });
     // Copy every required backend asset so the extension can run without a
-    // separate user-managed AutoUP checkout.
+    // separate user-managed AutoSOUP checkout.
     for (const asset of BACKEND_ASSETS) {
       const source = path.join(sourceRoot, asset);
       const destination = path.join(destinationRoot, asset);
@@ -121,7 +121,7 @@ export class AutoUpInstaller {
 
   private async resolveBackendSourceRoot(): Promise<string> {
     /**
-     * Resolve where the AutoUP backend assets should be copied from.
+     * Resolve where the AutoSOUP backend assets should be copied from.
      *
      * Inputs:
      * - None.
@@ -142,7 +142,7 @@ export class AutoUpInstaller {
       return developmentRoot;
     }
 
-    throw new Error("Bundled AutoUP backend assets were not found in the extension package.");
+    throw new Error("Bundled AutoSOUP backend assets were not found in the extension package.");
   }
 
   private async hasBackendAssets(root: string): Promise<boolean> {

@@ -1,8 +1,27 @@
-.vscode-test/**
-test/**
+# Sources and build inputs (dist/ is what ships)
 src/**
 **/*.ts
 tsconfig.json
-package-lock.json
-node_modules/**
+**/*.map
+scripts/**
+
+# Tests
+test/**
+.vscode-test/**
+
+# Repo/editor/internal files
+.gitignore
+.vscode/**
+design.md
 README.md.bak
+*.vsix
+**/.DS_Store
+
+# Python bytecode picked up when the backend bundle is synced.
+# NOTE: .autoup-bundle/ itself MUST ship - the extension copies the backend
+# out of it into globalStorage on first activation.
+**/__pycache__/**
+**/*.pyc
+
+node_modules/**
+package-lock.json

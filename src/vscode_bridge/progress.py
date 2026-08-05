@@ -182,7 +182,7 @@ class VSCodeJobProgress:
             except FileExistsError:
                 self._break_stale_job_lock()
                 if time.monotonic() >= deadline:
-                    raise TimeoutError(f"Timed out waiting for AutoUP manifest lock: {self.lock_path}")
+                    raise TimeoutError(f"Timed out waiting for AutoSOUP manifest lock: {self.lock_path}")
                 time.sleep(MANIFEST_LOCK_POLL_SECONDS)
 
     def _break_stale_job_lock(self) -> None:

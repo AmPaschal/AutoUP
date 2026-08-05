@@ -28,7 +28,7 @@ export class ProviderEnvironmentManager {
 
   async addEnvironmentVariable(): Promise<void> {
     const key = (await vscode.window.showInputBox({
-      prompt: "Enter the environment variable name to store for AutoUP",
+      prompt: "Enter the environment variable name to store for AutoSOUP",
       ignoreFocusOut: true,
     }))?.trim();
     if (!key) {
@@ -43,19 +43,19 @@ export class ProviderEnvironmentManager {
       return;
     }
     await this.secrets.store(getEnvironmentSecretKey(key), value);
-    void vscode.window.showInformationMessage(`Stored AutoUP environment variable ${key}.`);
+    void vscode.window.showInformationMessage(`Stored AutoSOUP environment variable ${key}.`);
   }
 
   async listEnvironmentVariables(): Promise<void> {
     const keys = await this.getStoredEnvironmentVariableNames();
     if (keys.length === 0) {
-      void vscode.window.showInformationMessage("No AutoUP provider environment variables are stored.");
+      void vscode.window.showInformationMessage("No AutoSOUP provider environment variables are stored.");
       return;
     }
     await vscode.window.showQuickPick(
       keys.map((key) => ({ label: key, description: "Stored" })),
       {
-        placeHolder: "Stored AutoUP provider environment variables",
+        placeHolder: "Stored AutoSOUP provider environment variables",
         canPickMany: false,
       },
     );
@@ -64,18 +64,18 @@ export class ProviderEnvironmentManager {
   async clearEnvironmentVariable(): Promise<void> {
     const keys = await this.getStoredEnvironmentVariableNames();
     if (keys.length === 0) {
-      void vscode.window.showInformationMessage("No AutoUP provider environment variables are stored.");
+      void vscode.window.showInformationMessage("No AutoSOUP provider environment variables are stored.");
       return;
     }
     const selection = await vscode.window.showQuickPick(
       keys.map((key) => ({ label: key })),
-      { placeHolder: "Select an AutoUP environment variable to clear" },
+      { placeHolder: "Select an AutoSOUP environment variable to clear" },
     );
     if (!selection) {
       return;
     }
     await this.secrets.delete(getEnvironmentSecretKey(selection.label));
-    void vscode.window.showInformationMessage(`Cleared AutoUP environment variable ${selection.label}.`);
+    void vscode.window.showInformationMessage(`Cleared AutoSOUP environment variable ${selection.label}.`);
   }
 
   async getStoredEnvironmentVariableNames(): Promise<string[]> {

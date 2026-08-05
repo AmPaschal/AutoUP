@@ -15,7 +15,7 @@ const OPEN_SETTINGS_ACTION = "Open Settings";
 const MANAGE_ENVIRONMENT_ACTION = "Manage Provider Environment Variables";
 
 /**
- * Activate the AutoUP extension.
+ * Activate the AutoSOUP extension.
  *
  * Inputs:
  * - `context`: VS Code extension activation context.
@@ -35,15 +35,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await proofManager.initialize();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error("AutoUP proof restore failed during activation:", error);
+    console.error("AutoSOUP proof restore failed during activation:", error);
     void vscode.window.showWarningMessage(
-      `AutoUP could not fully restore prior proof jobs during activation: ${message}`,
+      `AutoSOUP could not fully restore prior proof jobs during activation: ${message}`,
     );
   }
 
   // Create the sidebar tree view that renders all tracked proof jobs.
   const treeProvider = new ProofTreeProvider(proofManager);
-  const treeView = vscode.window.createTreeView("autoup.proofExplorer", {
+  const treeView = vscode.window.createTreeView("autosoup.proofExplorer", {
     treeDataProvider: treeProvider,
     showCollapseAll: false,
   });
@@ -52,7 +52,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     proofManager,
     treeView,
-    vscode.commands.registerCommand("autoup.createUnitProof", async () => {
+    vscode.commands.registerCommand("autosoup.createUnitProof", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
         return;
@@ -64,67 +64,67 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await showCommandError(error);
       }
     }),
-    vscode.commands.registerCommand("autoup.manageProviderEnvironmentVariables", async () => {
+    vscode.commands.registerCommand("autosoup.manageProviderEnvironmentVariables", async () => {
       await envManager.manage();
     }),
-    vscode.commands.registerCommand("autoup.cancelProof", async (target?: unknown) => {
+    vscode.commands.registerCommand("autosoup.cancelProof", async (target?: unknown) => {
       if (!target) {
         return;
       }
       await proofManager.cancelProof(target);
     }),
-    vscode.commands.registerCommand("autoup.deleteProof", async (target?: unknown) => {
+    vscode.commands.registerCommand("autosoup.deleteProof", async (target?: unknown) => {
       if (!target) {
         return;
       }
       await proofManager.deleteProof(target);
     }),
-    vscode.commands.registerCommand("autoup.openHarness", async (target?: unknown) => {
+    vscode.commands.registerCommand("autosoup.openHarness", async (target?: unknown) => {
       if (!target) {
         return;
       }
       await proofManager.openHarness(target);
     }),
-    vscode.commands.registerCommand("autoup.openMakefile", async (target?: unknown) => {
+    vscode.commands.registerCommand("autosoup.openMakefile", async (target?: unknown) => {
       if (!target) {
         return;
       }
       await proofManager.openMakefile(target);
     }),
-    vscode.commands.registerCommand("autoup.openSourceFile", async (target?: unknown) => {
+    vscode.commands.registerCommand("autosoup.openSourceFile", async (target?: unknown) => {
       if (!target) {
         return;
       }
       await proofManager.openSourceFile(target);
     }),
-    vscode.commands.registerCommand("autoup.openLog", async (target?: unknown) => {
+    vscode.commands.registerCommand("autosoup.openLog", async (target?: unknown) => {
       if (!target) {
         return;
       }
       await proofManager.openLog(target);
     }),
-    vscode.commands.registerCommand("autoup.openReport", async (target?: unknown) => {
+    vscode.commands.registerCommand("autosoup.openReport", async (target?: unknown) => {
       if (!target) {
         return;
       }
       await proofManager.openReport(target);
     }),
-    vscode.commands.registerCommand("autoup.openVulnerabilityReport", async (target?: unknown) => {
+    vscode.commands.registerCommand("autosoup.openVulnerabilityReport", async (target?: unknown) => {
       if (!target) {
         return;
       }
       await proofManager.openVulnerabilityReport(target);
     }),
-    vscode.commands.registerCommand("autoup.revealProofFolder", async (target?: unknown) => {
+    vscode.commands.registerCommand("autosoup.revealProofFolder", async (target?: unknown) => {
       if (!target) {
         return;
       }
       await proofManager.revealProofFolder(target);
     }),
-    vscode.commands.registerCommand("autoup.refreshProofs", async () => {
+    vscode.commands.registerCommand("autosoup.refreshProofs", async () => {
       await proofManager.refresh();
     }),
-    vscode.commands.registerCommand("autoup.showProofOutput", (target?: unknown) => {
+    vscode.commands.registerCommand("autosoup.showProofOutput", (target?: unknown) => {
       if (!target) {
         return;
       }
@@ -135,7 +135,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export function deactivate(): void {
   /**
-   * Deactivate the AutoUP extension.
+   * Deactivate the AutoSOUP extension.
    *
    * Inputs:
    * - None.
@@ -155,10 +155,10 @@ async function showCommandError(error: unknown): Promise<void> {
 
   const selection = await vscode.window.showErrorMessage(message, ...error.actions);
   if (selection === OPEN_SETTINGS_ACTION) {
-    await vscode.commands.executeCommand("workbench.action.openSettings", "autoup");
+    await vscode.commands.executeCommand("workbench.action.openSettings", "autosoup");
     return;
   }
   if (selection === MANAGE_ENVIRONMENT_ACTION) {
-    await vscode.commands.executeCommand("autoup.manageProviderEnvironmentVariables");
+    await vscode.commands.executeCommand("autosoup.manageProviderEnvironmentVariables");
   }
 }

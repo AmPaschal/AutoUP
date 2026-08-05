@@ -1,5 +1,5 @@
 /**
- * This file validates that the execution host can actually run AutoUP before a
+ * This file validates that the execution host can actually run AutoSOUP before a
  * proof is launched.
  */
 import * as vscode from "vscode";
@@ -23,7 +23,7 @@ export class PrerequisiteChecker {
    * Validate the runtime and gather all secrets needed to launch a proof.
    *
    * Inputs:
-   * - `config`: Current AutoUP extension settings.
+   * - `config`: Current AutoSOUP extension settings.
    * - `executionHost`: Host label describing where the backend will run.
    * - `installation`: Prepared runtime installation from the installer.
    *
@@ -36,13 +36,13 @@ export class PrerequisiteChecker {
     installation: RuntimeInstallation,
   ): Promise<ResolvedPrerequisites> {
     if (executionHost === "unsupported-windows") {
-      throw new Error("AutoUP proof generation is not supported on Windows in this extension.");
+      throw new Error("AutoSOUP proof generation is not supported on Windows in this extension.");
     }
 
     // Verify the installed runtime is callable before checking higher-level requirements.
     const pythonCheck = await runCommand(installation.pythonPath, ["--version"]);
     if (pythonCheck.exitCode !== 0) {
-      throw new Error("AutoUP Python runtime is unavailable.");
+      throw new Error("AutoSOUP Python runtime is unavailable.");
     }
 
     // Resolve the container engine next because launch configuration depends on it.
@@ -78,7 +78,7 @@ export class PrerequisiteChecker {
     if (executionHost === "local-macos") {
       const docker = await runCommand("docker", ["info"]);
       if (docker.exitCode !== 0) {
-        throw new Error("Docker is required on macOS for AutoUP proof execution.");
+        throw new Error("Docker is required on macOS for AutoSOUP proof execution.");
       }
       return "docker";
     }
@@ -136,7 +136,7 @@ export class PrerequisiteChecker {
     }
     if (missing.length > 0) {
       throw this.toActionableError(
-        `AutoUP model profile '${profile.name}' is missing stored environment variables: ${missing.join(", ")}.`,
+        `AutoSOUP model profile '${profile.name}' is missing stored environment variables: ${missing.join(", ")}.`,
       );
     }
     return values;
@@ -172,14 +172,14 @@ export class PrerequisiteChecker {
       parsedOutput = JSON.parse(validationResult.stdout || "{}");
     } catch {
       throw this.toActionableError(
-        `AutoUP could not validate model '${profile.modelName}': invalid validator response.`,
+        `AutoSOUP could not validate model '${profile.modelName}': invalid validator response.`,
       );
     }
 
     if (validationResult.exitCode !== 0 || !parsedOutput.ok || !parsedOutput.resolved_provider) {
       const details = parsedOutput.error || validationResult.stderr || "unknown model validation error";
       throw this.toActionableError(
-        `AutoUP could not validate model '${profile.modelName}': ${details}`,
+        `AutoSOUP could not validate model '${profile.modelName}': ${details}`,
       );
     }
     return parsedOutput.resolved_provider;
